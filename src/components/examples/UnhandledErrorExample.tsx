@@ -14,15 +14,21 @@ function ErrorForm() {
   const modeField = useField(['mode']);
 
   return (
-    <form onSubmit={(e) => { e.preventDefault(); form.submit(); }}>
+    <form
+      onSubmit={(e) => {
+        e.preventDefault();
+        form.submit();
+      }}
+    >
       <div className="space-y-4">
         <div className="bg-yellow-50 border-l-4 border-yellow-400 p-4 mb-4">
           <div className="flex">
             <AlertTriangle className="h-5 w-5 text-yellow-400" />
             <div className="ml-3">
               <p className="text-sm text-yellow-700">
-                This example demonstrates how unhandled errors are caught by the form library.
-                Select "Trigger Error" to simulate an unhandled error during form submission.
+                This example demonstrates how unhandled errors are caught by the
+                form library. Select "Trigger Error" to simulate an unhandled
+                error during form submission.
               </p>
             </div>
           </div>
@@ -70,7 +76,7 @@ export default function UnhandledErrorExample() {
       schema={errorSchema}
       onSubmit={async (form, values) => {
         // Simulate processing delay
-        await new Promise(resolve => setTimeout(resolve, 500));
+        await new Promise((resolve) => setTimeout(resolve, 500));
 
         // If error mode is selected, throw an unhandled error
         if (values.mode === 'error') {

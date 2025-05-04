@@ -21,6 +21,7 @@ interface FormProviderProps<T> {
 ```
 
 Provides context with:
+
 - Form values and touched state
 - Validation state and errors
 - Server-side error management
@@ -28,16 +29,19 @@ Provides context with:
 - Form operations (submit, reset)
 
 State getters:
+
 - `isSubmitting`: Boolean indicating submission state
 - `isValid`: Boolean indicating if form passes validation
 - `errors`: Current validation/server errors
 
 Form operations:
+
 - `submit()`: Trigger form submission
 - `reset()`: Reset form to initial values
 - `validate()`: Manually trigger form validation
 
 Value operations:
+
 - `getValue(path)`: Get value at specific path
 - `setValue(path, value)`: Set value at specific path
 - `deleteValue(path)`: Remove value at path
@@ -45,27 +49,29 @@ Value operations:
 - `getValuePaths(path?)`: Get all value paths under given path
 
 Error operations:
+
 - `getError(path)`: Get array of errors at specific path level
 - `getErrorPaths(path?)`: Get all error paths under given path
 - `setServerErrors(errors)`: Replace all server errors with new ones
 - `setServerError(path, message)`: Set server error(s) for a specific path
 
 Server Error Handling:
+
 ```typescript
 // Replace all server errors (validation errors are preserved)
 form.setServerErrors([
   { path: ['email'], message: 'Email already taken' },
-  { path: [], message: 'Account creation temporarily disabled' }
+  { path: [], message: 'Account creation temporarily disabled' },
 ]);
 
 // Set single server error (replaces existing server errors at same path)
 form.setServerError(['username'], 'Username already taken');
 
 // Set multiple server errors for same field
-form.setServerError(['password'], [
-  'Password too weak',
-  'Contains forbidden characters'
-]);
+form.setServerError(
+  ['password'],
+  ['Password too weak', 'Contains forbidden characters']
+);
 
 // Clear server errors for a specific field
 form.setServerError(['username'], null);
@@ -75,7 +81,9 @@ form.setServerErrors([]);
 ```
 
 Important Server Error Behaviors:
+
 1. `setServerErrors`:
+
    - Replaces ALL existing server errors
    - Preserves validation errors
    - Ignores errors for non-existent paths
@@ -129,16 +137,19 @@ const {
 ```
 
 Path can be specified using:
+
 - Array notation: `['user', 'details', 'name']`
 - Array with numbers for indices: `['todos', 0, 'text']`
 
 Features:
+
 - Value getting/setting
 - Touch tracking
 - Error management (server errors automatically clear on edit)
 - Type-safe props for input components
 
 Example:
+
 ```tsx
 // Simple field
 const nameField = useField(['name']);
@@ -159,20 +170,17 @@ form.setServerError(['fieldName'], null);
 #### useArrayField
 
 ```tsx
-const {
-  items,
-  add,
-  remove,
-  move,
-} = useArrayField(path);
+const { items, add, remove, move } = useArrayField(path);
 ```
 
 Array operations:
+
 - `add(item)`: Add new item
 - `remove(index)`: Remove item at index
 - `move(from, to)`: Reorder items with proper error handling
 
 Example:
+
 ```tsx
 const todos = useArrayField(['todos']);
 
@@ -191,49 +199,58 @@ todos.move(0, 1);
 ### Form Input Components
 
 1. Create reusable form input components:
+
    - Encapsulate common input patterns
    - Handle accessibility attributes
    - Manage error states consistently
    - Apply consistent styling
 
 2. Email input recommendations:
+
    ```tsx
    <FormInput
-     type="text"           // Use text type for better control
-     inputMode="email"     // Shows email keyboard on mobile
-     autoCapitalize="off"  // Prevents auto-capitalization
-     autoComplete="email"  // Enables browser autofill
+     type="text" // Use text type for better control
+     inputMode="email" // Shows email keyboard on mobile
+     autoCapitalize="off" // Prevents auto-capitalization
+     autoComplete="email" // Enables browser autofill
    />
    ```
+
    Why not `type="email"`?
+
    - Browser validation can be inconsistent
    - Less control over validation timing
    - May interfere with custom validation
    - Mobile keyboards can be less user-friendly
 
 3. Number input considerations:
+
    ```tsx
    <FormInput
      type="text"
-     inputMode="numeric"  // Shows number keyboard on mobile
-     pattern="[0-9]*"    // Allows only numbers
+     inputMode="numeric" // Shows number keyboard on mobile
+     pattern="[0-9]*" // Allows only numbers
    />
    ```
+
    Why not always `type="number"`?
+
    - Prevents unwanted increment/decrement buttons
    - Better control over formatting
    - Avoids browser-specific quirks
 
 4. General input attributes:
+
    ```tsx
    <FormInput
-     aria-required={true}        // Accessibility
-     aria-invalid={!!error}      // Error state for screen readers
+     aria-required={true} // Accessibility
+     aria-invalid={!!error} // Error state for screen readers
      aria-describedby="error-id" // Links to error message
    />
    ```
 
 5. Consider creating specialized components:
+
    ```tsx
    // Instead of raw FormInput
    <FormInput type="text" inputMode="email" ... />
@@ -245,6 +262,7 @@ todos.move(0, 1);
    ```
 
    Benefits:
+
    - Consistent behavior across forms
    - Encapsulated validation logic
    - Proper accessibility defaults
@@ -255,6 +273,7 @@ todos.move(0, 1);
 For operations like username availability checks, careful handling of race conditions and validation timing is crucial:
 
 1. Basic Setup:
+
    ```tsx
    function UsernameAvailability({ username }: { username: string }) {
      const [checking, setChecking] = useState(false);
@@ -266,28 +285,30 @@ For operations like username availability checks, careful handling of race condi
    ```
 
 2. Race Condition Prevention:
+
    - Track current value with a ref
    - Clear pending checks when value changes
    - Verify validity at multiple points
+
    ```tsx
    useEffect(() => {
      currentUsernameRef.current = username;
-     
+
      // Clear previous check
      if (timeoutRef.current) {
        clearTimeout(timeoutRef.current);
      }
-     
+
      // Pre-check validation
      if (!isValid) return;
-     
+
      timeoutRef.current = setTimeout(async () => {
        try {
          // Pre-request validation
          if (!isValid || currentUsernameRef.current !== username) return;
-         
+
          await checkAvailability(username);
-         
+
          // Post-request validation
          if (currentUsernameRef.current === username && isValid) {
            setAvailable(true);
@@ -298,18 +319,20 @@ For operations like username availability checks, careful handling of race condi
          }
        }
      }, 500);
-     
+
      return () => clearTimeout(timeoutRef.current);
    }, [username]);
    ```
 
 3. Validation Timing:
+
    - Check before starting debounce timer
    - Check before making request
    - Check after receiving response
    - Only apply results if value unchanged
 
 4. UX Considerations:
+
    - Show loading state during check
    - Clear results when value changes
    - Only show availability for valid values
@@ -321,6 +344,7 @@ For operations like username availability checks, careful handling of race condi
    - Manage server-side errors appropriately
 
 Example Implementation:
+
 ```tsx
 function UsernameAvailability({ username }: { username: string }) {
   const [checking, setChecking] = useState(false);
@@ -334,7 +358,7 @@ function UsernameAvailability({ username }: { username: string }) {
     currentUsernameRef.current = username;
     setAvailable(null);
     setError(null);
-    
+
     if (timeoutRef.current) {
       clearTimeout(timeoutRef.current);
     }
@@ -354,7 +378,7 @@ function UsernameAvailability({ username }: { username: string }) {
         }
 
         await checkAvailability(username);
-        
+
         // Post-request check
         if (currentUsernameRef.current === username && isValid(username)) {
           setAvailable(true);
@@ -421,12 +445,14 @@ const userSchema = z.object({
   name: z.string().min(2),
   details: z.object({
     age: z.number().min(0),
-    bio: z.string().optional()
+    bio: z.string().optional(),
   }),
-  todos: z.array(z.object({
-    text: z.string(),
-    completed: z.boolean()
-  }))
+  todos: z.array(
+    z.object({
+      text: z.string(),
+      completed: z.boolean(),
+    })
+  ),
 });
 
 type UserForm = z.infer<typeof userSchema>;
@@ -446,7 +472,7 @@ interface ServerError {
 const errors = [
   { path: ['name'], message: 'Name already taken' },
   { path: ['details', 'age'], message: 'Must be over 18' },
-  { path: ['todos', 0, 'text'], message: 'Invalid todo text' }
+  { path: ['todos', 0, 'text'], message: 'Invalid todo text' },
 ];
 
 // Set server errors using the form instance
@@ -477,20 +503,23 @@ form.setServerErrors(errors);
 When using Zod's .strict(), unknown fields trigger root errors:
 
 ```tsx
-const schema = z.object({
-  name: z.string()
-}).strict();
+const schema = z
+  .object({
+    name: z.string(),
+  })
+  .strict();
 
 // If data has unknown field 'age':
 const error = {
   path: [], // Empty path indicates root error
-  message: "Unrecognized key(s) in object: 'age'"
+  message: "Unrecognized key(s) in object: 'age'",
 };
 ```
 
 ## Example Usage
 
 ### Basic Form
+
 ```tsx
 function BasicForm() {
   return (
@@ -498,16 +527,18 @@ function BasicForm() {
       initialValues={{ name: '', email: '' }}
       schema={z.object({
         name: z.string().min(2),
-        email: z.string().email()
+        email: z.string().email(),
       })}
       onSubmit={async (form, values) => {
         await submitToServer(values);
       }}
     >
-      <form onSubmit={(e) => {
-        e.preventDefault();
-        form.submit();
-      }}>
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          form.submit();
+        }}
+      >
         <NameField />
         <EmailField />
         <SubmitButton />
@@ -518,6 +549,7 @@ function BasicForm() {
 ```
 
 ### Nested Objects
+
 ```tsx
 function NestedForm() {
   return (
@@ -526,17 +558,17 @@ function NestedForm() {
         user: {
           profile: {
             name: '',
-            bio: ''
-          }
-        }
+            bio: '',
+          },
+        },
       }}
       schema={z.object({
         user: z.object({
           profile: z.object({
             name: z.string(),
-            bio: z.string()
-          })
-        })
+            bio: z.string(),
+          }),
+        }),
       })}
     >
       <ProfileSection />
@@ -546,10 +578,11 @@ function NestedForm() {
 ```
 
 ### Dynamic Arrays
+
 ```tsx
 function TodoForm() {
   const todos = useArrayField(['todos']);
-  
+
   return (
     <div>
       {todos.items.map((_, index) => (
@@ -561,9 +594,7 @@ function TodoForm() {
           onMoveDown={() => todos.move(index, index + 1)}
         />
       ))}
-      <button
-        onClick={() => todos.add({ text: '', completed: false })}
-      >
+      <button onClick={() => todos.add({ text: '', completed: false })}>
         Add Todo
       </button>
     </div>
@@ -572,6 +603,7 @@ function TodoForm() {
 ```
 
 ### Form with Server Validation
+
 ```tsx
 function UserForm({ onSubmit }) {
   return (
@@ -588,15 +620,17 @@ function UserForm({ onSubmit }) {
           await onSubmit(values);
         } catch (error) {
           form.setServerErrors([
-            { path: [], message: 'An unexpected error occurred' }
+            { path: [], message: 'An unexpected error occurred' },
           ]);
         }
       }}
     >
-      <form onSubmit={(e) => {
-        e.preventDefault();
-        form.submit();
-      }}>
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          form.submit();
+        }}
+      >
         <UsernameField />
         <EmailField />
         <SubmitButton />

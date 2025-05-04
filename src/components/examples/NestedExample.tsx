@@ -20,7 +20,12 @@ function NestedForm() {
   const bioField = useField(['user', 'profile', 'bio']);
 
   return (
-    <form onSubmit={(e) => { e.preventDefault(); form.submit(); }}>
+    <form
+      onSubmit={(e) => {
+        e.preventDefault();
+        form.submit();
+      }}
+    >
       <RootErrors />
       <div className="space-y-4">
         <FormInput
@@ -53,7 +58,10 @@ export default function NestedExample() {
     } catch (error) {
       console.error('Submission failed:', error);
       form.setServerErrors([
-        { path: [], message: 'An unexpected error occurred. Please try again.' }
+        {
+          path: [],
+          message: 'An unexpected error occurred. Please try again.',
+        },
       ]);
     }
   };

@@ -8,10 +8,27 @@ import PrefilledExample from './examples/PrefilledExample';
 import ApiExample from './examples/ApiExample';
 import UnhandledErrorExample from './examples/UnhandledErrorExample';
 
-const tabs = ['Basic', 'Nested', 'Array - Object', 'Array - Single Values', 'Server', 'Prefilled', 'API', 'Unhandled Error'] as const;
-type Tab = typeof tabs[number];
+const tabs = [
+  'Basic',
+  'Nested',
+  'Array - Object',
+  'Array - Single Values',
+  'Server',
+  'Prefilled',
+  'API',
+  'Unhandled Error',
+] as const;
+type Tab = (typeof tabs)[number];
 
-function TabButton({ tab, active, onClick }: { tab: Tab; active: boolean; onClick: () => void }) {
+function TabButton({
+  tab,
+  active,
+  onClick,
+}: {
+  tab: Tab;
+  active: boolean;
+  onClick: () => void;
+}) {
   return (
     <button
       onClick={onClick}
@@ -44,7 +61,7 @@ export default function ExampleTabs() {
         <div className="bg-white rounded-lg shadow-sm border border-gray-200">
           <div className="border-b border-gray-200">
             <div className="flex">
-              {tabs.map(tab => (
+              {tabs.map((tab) => (
                 <TabButton
                   key={tab}
                   tab={tab}
@@ -59,7 +76,9 @@ export default function ExampleTabs() {
             {activeTab === 'Basic' && <BasicExample />}
             {activeTab === 'Nested' && <NestedExample />}
             {activeTab === 'Array - Object' && <ArrayExample />}
-            {activeTab === 'Array - Single Values' && <ArraySingleValuesExample />}
+            {activeTab === 'Array - Single Values' && (
+              <ArraySingleValuesExample />
+            )}
             {activeTab === 'Server' && <ServerExample />}
             {activeTab === 'Prefilled' && <PrefilledExample />}
             {activeTab === 'API' && <ApiExample />}

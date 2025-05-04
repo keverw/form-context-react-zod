@@ -23,11 +23,17 @@ export function RootErrors() {
   );
 }
 
-export function FormNotice({ type, children }: { type: 'info' | 'warning'; children: React.ReactNode }) {
+export function FormNotice({
+  type,
+  children,
+}: {
+  type: 'info' | 'warning';
+  children: React.ReactNode;
+}) {
   const bgColor = type === 'info' ? 'bg-blue-50' : 'bg-yellow-50';
   const borderColor = type === 'info' ? 'border-blue-400' : 'border-yellow-400';
   const textColor = type === 'info' ? 'text-blue-700' : 'text-yellow-700';
-  
+
   return (
     <div className={`${bgColor} border-l-4 ${borderColor} p-4 mb-4`}>
       <div className={`flex items-center ${textColor}`}>
@@ -40,7 +46,7 @@ export function FormNotice({ type, children }: { type: 'info' | 'warning'; child
 
 export function SubmitButton() {
   const form = useFormContext();
-  
+
   return (
     <button
       type="submit"

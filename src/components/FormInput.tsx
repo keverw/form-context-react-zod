@@ -1,6 +1,7 @@
 import React from 'react';
 
-interface FormInputProps extends Omit<React.InputHTMLAttributes<HTMLInputElement>, 'onChange'> {
+interface FormInputProps
+  extends Omit<React.InputHTMLAttributes<HTMLInputElement>, 'onChange'> {
   value: string;
   onChange: (value: string) => void;
   onBlur?: () => void;
@@ -34,14 +35,19 @@ const FormInput: React.FC<FormInputProps> = ({
     onChange(e.target.value);
   };
 
-  const baseClasses = "w-full px-4 py-2 rounded-lg border focus:outline-none focus:ring-2 transition-colors";
+  const baseClasses =
+    'w-full px-4 py-2 rounded-lg border focus:outline-none focus:ring-2 transition-colors';
   const stateClasses = errorText
-    ? "border-red-300 bg-red-50 focus:border-red-500 focus:ring-red-200"
-    : "border-gray-300 focus:border-blue-500 focus:ring-blue-200";
-  
+    ? 'border-red-300 bg-red-50 focus:border-red-500 focus:ring-red-200'
+    : 'border-gray-300 focus:border-blue-500 focus:ring-blue-200';
+
   // Get all errors for this field
-  const allErrors = Array.isArray(errorText) ? errorText : (errorText ? [errorText] : []);
-  
+  const allErrors = Array.isArray(errorText)
+    ? errorText
+    : errorText
+      ? [errorText]
+      : [];
+
   return (
     <div className="space-y-2">
       {label && (
@@ -60,15 +66,15 @@ const FormInput: React.FC<FormInputProps> = ({
           aria-invalid={errorText ? true : undefined}
         />
       ) : (
-      <input
-        {...props}
-        value={inputValue}
-        onChange={handleInput}
-        onBlur={onBlur}
-        className={`${baseClasses} ${stateClasses} ${className}`}
-        aria-required={ariaRequired || required || undefined}
-        aria-invalid={errorText ? true : undefined}
-      />
+        <input
+          {...props}
+          value={inputValue}
+          onChange={handleInput}
+          onBlur={onBlur}
+          className={`${baseClasses} ${stateClasses} ${className}`}
+          aria-required={ariaRequired || required || undefined}
+          aria-invalid={errorText ? true : undefined}
+        />
       )}
       {allErrors.length > 0 && (
         <div className="space-y-1" role="alert">
@@ -83,7 +89,11 @@ const FormInput: React.FC<FormInputProps> = ({
   );
 };
 
-interface FormCheckboxProps extends Omit<React.InputHTMLAttributes<HTMLInputElement>, 'onChange' | 'type'> {
+interface FormCheckboxProps
+  extends Omit<
+    React.InputHTMLAttributes<HTMLInputElement>,
+    'onChange' | 'type'
+  > {
   value: boolean;
   onChange: (value: boolean) => void;
   onBlur?: () => void;
@@ -121,9 +131,7 @@ export const FormCheckbox: React.FC<FormCheckboxProps> = ({
         aria-invalid={errorText ? true : undefined}
       />
       {label && (
-        <label className="text-sm font-medium text-gray-700">
-          {label}
-        </label>
+        <label className="text-sm font-medium text-gray-700">{label}</label>
       )}
       {errorText && (
         <div className="text-sm text-red-600" role="alert">

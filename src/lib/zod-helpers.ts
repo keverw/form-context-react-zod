@@ -12,7 +12,7 @@ export interface ValidationResult<T> {
   errors?: ValidationError[];
 }
 
-export type ValidationSchema<T> = z.ZodType<T, unknown>;
+export type ValidationSchema<T> = z.ZodType<T>;
 
 interface ValidationOptions {
   isServer?: boolean;
@@ -20,23 +20,26 @@ interface ValidationOptions {
 }
 
 function formatZodError(error: ZodError, isServer = false): ValidationError[] {
-  return error.errors.map(err => ({
+  return error.errors.map((err) => ({
     path: err.path,
     message: err.message,
-    source: isServer ? 'server' : 'client'
+    source: isServer ? 'server' : 'client',
   }));
 }
 
-function addRootMessages(errors: ValidationError[], messages?: string | string[]): ValidationError[] {
+function addRootMessages(
+  errors: ValidationError[],
+  messages?: string | string[]
+): ValidationError[] {
   if (!messages) return errors;
-  
+
   const rootMessages = Array.isArray(messages) ? messages : [messages];
-  const rootErrors = rootMessages.map(message => ({
+  const rootErrors = rootMessages.map((message) => ({
     path: [] as (string | number)[],
     message,
-    source: 'server' as const
+    source: 'server' as const,
   }));
-  
+
   return [...errors, ...rootErrors];
 }
 
@@ -52,21 +55,26 @@ export function validate<T>(
     if (options.rootMessages) {
       return {
         valid: false,
-        value: result.data,
-        errors: addRootMessages([], options.rootMessages)
+        value: null, // Set to null to be consistent with other error cases
+        errors: addRootMessages([], options.rootMessages),
       };
     }
     return {
       valid: true,
-      value: result.data
+      value: result.data,
     };
   }
 
-  const errors = formatZodError((result as SafeParseError<unknown>).error, options.isServer);
+  const errors = formatZodError(
+    (result as SafeParseError<unknown>).error,
+    options.isServer
+  );
   return {
     valid: false,
     value: null,
-    errors: options.rootMessages ? addRootMessages(errors, options.rootMessages) : errors
+    errors: options.rootMessages
+      ? addRootMessages(errors, options.rootMessages)
+      : errors,
   };
 }
 
@@ -82,20 +90,25 @@ export async function validateAsync<T>(
     if (options.rootMessages) {
       return {
         valid: false,
-        value: result.data,
-        errors: addRootMessages([], options.rootMessages)
+        value: null, // Set to null to be consistent with other error cases
+        errors: addRootMessages([], options.rootMessages),
       };
     }
     return {
       valid: true,
-      value: result.data
+      value: result.data,
     };
   }
 
-  const errors = formatZodError((result as SafeParseError<unknown>).error, options.isServer);
+  const errors = formatZodError(
+    (result as SafeParseError<unknown>).error,
+    options.isServer
+  );
   return {
     valid: false,
     value: null,
-    errors: options.rootMessages ? addRootMessages(errors, options.rootMessages) : errors
+    errors: options.rootMessages
+      ? addRootMessages(errors, options.rootMessages)
+      : errors,
   };
 }

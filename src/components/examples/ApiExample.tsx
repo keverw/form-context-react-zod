@@ -4,7 +4,18 @@ import { FormProvider, useFormContext, useField } from '../../lib/form-context';
 import FormInput from '../FormInput';
 import { RootErrors, SubmitButton, FormNotice } from './shared';
 import FormState from '../FormState';
-import { Check, X, Trash2, RotateCcw, Pencil, AlertTriangle, AlertCircle, ShieldCheck, XCircle, Eraser } from 'lucide-react';
+import {
+  Check,
+  X,
+  Trash2,
+  RotateCcw,
+  Pencil,
+  AlertTriangle,
+  AlertCircle,
+  ShieldCheck,
+  XCircle,
+  Eraser,
+} from 'lucide-react';
 
 const apiSchema = z.object({
   username: z.string().min(3, 'Username must be at least 3 characters'),
@@ -27,9 +38,9 @@ function ApiForm() {
   };
 
   const setBadValue = () => {
-    form.setValue(['username'], 'x');  // Too short
-    form.setValue(['status'], 'unknown' as any);  // Invalid enum
-    form.setValue(['score'], 150);  // Above max
+    form.setValue(['username'], 'x'); // Too short
+    form.setValue(['status'], 'unknown' as any); // Invalid enum
+    form.setValue(['score'], 150); // Above max
   };
 
   const deleteScore = () => {
@@ -50,11 +61,14 @@ function ApiForm() {
   };
 
   const setMultipleErrors = () => {
-    form.setServerError(['username'], [
-      'Username contains forbidden characters',
-      'Username matches a reserved word',
-      'Username violates naming policy',
-    ]);
+    form.setServerError(
+      ['username'],
+      [
+        'Username contains forbidden characters',
+        'Username matches a reserved word',
+        'Username violates naming policy',
+      ]
+    );
   };
 
   const clearServerError = () => {
@@ -63,7 +77,9 @@ function ApiForm() {
 
   const clearAllServerErrors = () => {
     // Filter out server errors, keep only validation errors
-    const validationErrors = form.errors.filter(error => error.source !== 'server');
+    const validationErrors = form.errors.filter(
+      (error) => error.source !== 'server'
+    );
     form.setServerErrors([]); // This will preserve validation errors
   };
 
@@ -81,12 +97,19 @@ function ApiForm() {
     if (isValid) {
       alert('Form is valid!');
     } else {
-      alert('Form has validation errors. All fields are now marked as touched.');
+      alert(
+        'Form has validation errors. All fields are now marked as touched.'
+      );
     }
   };
 
   return (
-    <form onSubmit={(e) => { e.preventDefault(); form.submit(); }}>
+    <form
+      onSubmit={(e) => {
+        e.preventDefault();
+        form.submit();
+      }}
+    >
       <FormNotice type="info">
         This example demonstrates direct form API operations:
         <ul className="list-disc ml-6 mt-2 space-y-1">

@@ -1,6 +1,11 @@
 import React from 'react';
 import { z } from 'zod';
-import { FormProvider, useFormContext, useArrayField, useField } from '../../lib/form-context';
+import {
+  FormProvider,
+  useFormContext,
+  useArrayField,
+  useField,
+} from '../../lib/form-context';
 import FormInput, { FormCheckbox } from '../FormInput';
 import { RootErrors, SubmitButton, FormNotice } from './shared';
 import FormState from '../FormState';
@@ -17,14 +22,11 @@ interface TodoItemProps {
 function TodoItem({ index, total, onMove, onRemove }: TodoItemProps) {
   const textField = useField(['todos', index, 'text']);
   const completedField = useField(['todos', index, 'completed']);
-  
+
   return (
     <div className="flex items-start space-x-2">
       <div className="flex items-center space-x-2 flex-1 min-w-0">
-        <FormCheckbox
-          {...completedField.props}
-          label=""
-        />
+        <FormCheckbox {...completedField.props} label="" />
         <div className="flex-1 min-w-0">
           <FormInput
             {...textField.props}
@@ -68,17 +70,21 @@ function TodoItem({ index, total, onMove, onRemove }: TodoItemProps) {
 }
 
 const todoSchema = z.object({
-  todos: z.array(z.object({
-    text: z.string().min(1, 'Todo text is required'),
-    completed: z.boolean(),
-  })).min(1, 'At least one todo is required'),
+  todos: z
+    .array(
+      z.object({
+        text: z.string().min(1, 'Todo text is required'),
+        completed: z.boolean(),
+      })
+    )
+    .min(1, 'At least one todo is required'),
 });
 
 function ArrayForm() {
   const form = useFormContext();
   const todos = useArrayField(['todos']);
   const { items, add, remove, move } = todos;
-  
+
   const deleteIndex = (index: number) => {
     form.deleteValue(['todos', index]);
   };
@@ -97,12 +103,19 @@ function ArrayForm() {
     if (isValid) {
       alert('Form is valid!');
     } else {
-      alert('Form has validation errors. All fields are now marked as touched.');
+      alert(
+        'Form has validation errors. All fields are now marked as touched.'
+      );
     }
   };
 
   return (
-    <form onSubmit={(e) => { e.preventDefault(); form.submit(); }}>
+    <form
+      onSubmit={(e) => {
+        e.preventDefault();
+        form.submit();
+      }}
+    >
       <FormNotice type="info">
         Try adding a todo with the word "bad" to see server validation
       </FormNotice>
@@ -170,7 +183,10 @@ export default function ArrayExample() {
       // Handle unexpected errors
       console.error('Submission failed:', error);
       form.setServerErrors([
-        { path: [], message: 'An unexpected error occurred. Please try again.' }
+        {
+          path: [],
+          message: 'An unexpected error occurred. Please try again.',
+        },
       ]);
     }
   };

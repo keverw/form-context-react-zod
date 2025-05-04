@@ -17,14 +17,15 @@ function BasicForm() {
   const emailField = useField(['email']);
 
   return (
-    <form onSubmit={(e) => { e.preventDefault(); form.submit(); }}>
+    <form
+      onSubmit={(e) => {
+        e.preventDefault();
+        form.submit();
+      }}
+    >
       <RootErrors />
       <div className="space-y-4">
-        <FormInput
-          {...nameField.props}
-          label="Name"
-          placeholder="John Doe"
-        />
+        <FormInput {...nameField.props} label="Name" placeholder="John Doe" />
         <FormInput
           {...emailField.props}
           label="Email"
@@ -53,7 +54,10 @@ export default function BasicExample() {
     } catch (error) {
       console.error('Submission failed:', error);
       form.setServerErrors([
-        { path: [], message: 'An unexpected error occurred. Please try again.' }
+        {
+          path: [],
+          message: 'An unexpected error occurred. Please try again.',
+        },
       ]);
     }
   };

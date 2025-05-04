@@ -22,15 +22,30 @@ function PrefilledForm() {
   const websiteField = useField(['website']);
 
   return (
-    <form onSubmit={(e) => { e.preventDefault(); form.submit(); }}>
+    <form
+      onSubmit={(e) => {
+        e.preventDefault();
+        form.submit();
+      }}
+    >
       <FormNotice type="info">
         This form demonstrates validation on mount with prefilled values:
         <ul className="list-disc ml-6 mt-2 space-y-1">
-          <li><code>username</code>: Valid</li>
-          <li><code>email</code>: Invalid format</li>
-          <li><code>age</code>: Below minimum</li>
-          <li><code>bio</code>: Too short</li>
-          <li><code>website</code>: Optional but invalid if provided</li>
+          <li>
+            <code>username</code>: Valid
+          </li>
+          <li>
+            <code>email</code>: Invalid format
+          </li>
+          <li>
+            <code>age</code>: Below minimum
+          </li>
+          <li>
+            <code>bio</code>: Too short
+          </li>
+          <li>
+            <code>website</code>: Optional but invalid if provided
+          </li>
         </ul>
       </FormNotice>
       <RootErrors />
@@ -78,7 +93,10 @@ export default function PrefilledExample() {
     } catch (error) {
       console.error('Submission failed:', error);
       form.setServerErrors([
-        { path: [], message: 'An unexpected error occurred. Please try again.' }
+        {
+          path: [],
+          message: 'An unexpected error occurred. Please try again.',
+        },
       ]);
     }
   };
@@ -86,14 +104,14 @@ export default function PrefilledExample() {
   return (
     <FormProvider
       initialValues={{
-        username: 'johndoe',       // Valid
-        email: 'invalid-email',    // Invalid format
-        age: 16,                   // Below minimum
-        bio: 'Too short',          // Too short
-        website: 'not-a-url',      // Invalid URL
+        username: 'johndoe', // Valid
+        email: 'invalid-email', // Invalid format
+        age: 16, // Below minimum
+        bio: 'Too short', // Too short
+        website: 'not-a-url', // Invalid URL
       }}
       schema={prefilledSchema}
-      validateOnMount={true}       // Enable validation on mount
+      validateOnMount={true} // Enable validation on mount
       onSubmit={onSubmit}
     >
       <PrefilledForm />

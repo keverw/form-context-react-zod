@@ -1,6 +1,11 @@
 import React from 'react';
 import { z } from 'zod';
-import { FormProvider, useFormContext, useArrayField, useField } from '../../lib/form-context';
+import {
+  FormProvider,
+  useFormContext,
+  useArrayField,
+  useField,
+} from '../../lib/form-context';
 import FormInput from '../FormInput';
 import { RootErrors, SubmitButton, FormNotice } from './shared';
 import FormState from '../FormState';
@@ -15,7 +20,7 @@ interface NumberItemProps {
 
 function NumberItem({ index, total, onMove, onRemove }: NumberItemProps) {
   const field = useField<number>(['numbers', index]);
-  
+
   return (
     <div className="flex items-center space-x-2">
       <div className="flex-1">
@@ -62,7 +67,8 @@ function NumberItem({ index, total, onMove, onRemove }: NumberItemProps) {
 
 const calculatorSchema = z.object({
   numbers: z.array(
-    z.string()
+    z
+      .string()
       .regex(/^-?\d*\.?\d*$/, 'Must be a valid number')
       .refine(
         (val) => {
@@ -81,13 +87,19 @@ function ArraySingleValuesForm() {
 
   // Calculate total
   const total = items
-    .map(v => Number(v) || 0)
+    .map((v) => Number(v) || 0)
     .reduce((sum, num) => sum + num, 0);
 
   return (
-    <form onSubmit={(e) => { e.preventDefault(); form.submit(); }}>
+    <form
+      onSubmit={(e) => {
+        e.preventDefault();
+        form.submit();
+      }}
+    >
       <FormNotice type="info">
-        Add numbers to calculate their sum. Each number can be moved up/down or removed.
+        Add numbers to calculate their sum. Each number can be moved up/down or
+        removed.
         <ul className="list-disc ml-6 mt-2 space-y-1">
           <li>Numbers between -1000 and 1000 are allowed</li>
           <li>The total updates automatically</li>
@@ -107,7 +119,7 @@ function ArraySingleValuesForm() {
             />
           </div>
         ))}
-        
+
         <button
           type="button"
           onClick={() => add('')}
@@ -120,9 +132,9 @@ function ArraySingleValuesForm() {
         <div className="flex items-center space-x-3 mt-6">
           <Equal className="w-5 h-5 text-emerald-500 shrink-0" />
           <div className="flex-1 px-4 py-2 bg-emerald-50 text-emerald-700 rounded-lg font-medium text-lg">
-            {total.toLocaleString(undefined, { 
+            {total.toLocaleString(undefined, {
               minimumFractionDigits: 0,
-              maximumFractionDigits: 2
+              maximumFractionDigits: 2,
             })}
           </div>
         </div>
@@ -142,8 +154,12 @@ export default function ArraySingleValuesExample() {
       }}
       schema={calculatorSchema}
       onSubmit={async (form, values) => {
-        alert('Form submitted successfully!\nTotal: ' + 
-          values.numbers.reduce((sum, str) => sum + (Number(str) || 0), 0).toLocaleString());
+        alert(
+          'Form submitted successfully!\nTotal: ' +
+            values.numbers
+              .reduce((sum, str) => sum + (Number(str) || 0), 0)
+              .toLocaleString()
+        );
       }}
     >
       <ArraySingleValuesForm />

@@ -10,29 +10,29 @@ Enhanced ZOD validation helpers that provide a more JSON-friendly error format a
 
 ```typescript
 interface ValidationError {
-  path: (string | number)[];  // Path to the error field
-  message: string;           // Error message
+  path: (string | number)[]; // Path to the error field
+  message: string; // Error message
   source?: 'client' | 'server'; // Error source
 }
 ```
 
 The path array can contain:
+
 - Strings for object properties
 - Numbers for array indices
 
 Example paths:
+
 ```typescript
-['name']                    // Simple field
-['address', 'street']       // Nested object
-['todos', 0, 'text']       // Array item field
+['name'][('address', 'street')][('todos', 0, 'text')]; // Simple field // Nested object // Array item field
 ```
 
 ### ValidationResult
 
 ```typescript
 interface ValidationResult<T> {
-  valid: boolean;           // Whether validation passed
-  value: T | null;         // Parsed value if valid
+  valid: boolean; // Whether validation passed
+  value: T | null; // Parsed value if valid
   errors?: ValidationError[]; // Array of validation errors
 }
 ```
@@ -41,7 +41,7 @@ interface ValidationResult<T> {
 
 ```typescript
 interface ValidationOptions {
-  isServer?: boolean;       // Mark errors as server-sourced
+  isServer?: boolean; // Mark errors as server-sourced
   rootMessages?: string | string[]; // Add root-level error messages
 }
 ```
@@ -65,6 +65,7 @@ async function validateAsync<T>(
 ```
 
 These functions:
+
 - Take a ZOD schema and values
 - Optionally accept validation options
 - Return a ValidationResult
@@ -83,6 +84,7 @@ function setValueAtPath(obj: any, path: (string | number)[], value: any): void;
 ```
 
 Helper functions for:
+
 - Getting values at nested paths
 - Setting values at nested paths
 - Automatically creating intermediate objects/arrays
@@ -206,6 +208,7 @@ The validation helpers are designed to work seamlessly with the form library:
 3. Server error source helps with error handling
 
 Example integration:
+
 ```typescript
 const form = useForm({
   schema: userSchema,
@@ -216,10 +219,10 @@ const form = useForm({
       // Handle API errors
       const result = validate(userSchema, values, {
         isServer: true,
-        rootMessages: error.message
+        rootMessages: error.message,
       });
       form.setErrors(result.errors);
     }
-  }
+  },
 });
 ```

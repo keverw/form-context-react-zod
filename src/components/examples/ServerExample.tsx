@@ -34,7 +34,7 @@ function UsernameAvailability({ username }: UsernameAvailabilityProps) {
       setAvailable(null);
       setError(null);
     }
-    
+
     // Clear previous timeout
     if (timeoutRef.current) {
       clearTimeout(timeoutRef.current);
@@ -58,19 +58,27 @@ function UsernameAvailability({ username }: UsernameAvailabilityProps) {
 
         // Verify username is still valid before checking (pre-request check)
         const preRequestErrors = form.getError(['username']);
-        if (!username || preRequestErrors.length > 0 || currentUsernameRef.current !== username) {
+        if (
+          !username ||
+          preRequestErrors.length > 0 ||
+          currentUsernameRef.current !== username
+        ) {
           return;
         }
 
         // Simulate API call
         const errors = await simulateServer({ username });
-        const usernameErrors = errors.filter(error => 
-          error.path.length === 1 && error.path[0] === 'username'
+        const usernameErrors = errors.filter(
+          (error) => error.path.length === 1 && error.path[0] === 'username'
         );
-        
+
         // Verify username hasn't changed and is still valid (post-request check)
         const postRequestErrors = form.getError(['username']);
-        if (currentUsernameRef.current === username && postRequestErrors.length === 0 && usernameErrors.length === 0) {
+        if (
+          currentUsernameRef.current === username &&
+          postRequestErrors.length === 0 &&
+          usernameErrors.length === 0
+        ) {
           setAvailable(true);
         } else if (usernameErrors.length > 0) {
           setAvailable(false);
@@ -117,11 +125,15 @@ function UsernameAvailability({ username }: UsernameAvailabilityProps) {
                     throw new Error('Network Error');
                   }
                   const errors = await simulateServer({ username });
-                  const usernameErrors = errors.filter(error => 
-                    error.path.length === 1 && error.path[0] === 'username'
+                  const usernameErrors = errors.filter(
+                    (error) =>
+                      error.path.length === 1 && error.path[0] === 'username'
                   );
-                  
-                  if (currentUsernameRef.current === username && usernameErrors.length === 0) {
+
+                  if (
+                    currentUsernameRef.current === username &&
+                    usernameErrors.length === 0
+                  ) {
                     setAvailable(true);
                   } else if (usernameErrors.length > 0) {
                     setAvailable(false);
@@ -155,13 +167,15 @@ function UsernameAvailability({ username }: UsernameAvailabilityProps) {
   );
 }
 
-const serverSchema = z.object({
-  firstName: z.string().min(2, 'First name must be at least 2 characters'),
-  username: z.string().min(3, 'Username must be at least 3 characters'),
-  email: z.string().email('Invalid email address'),
-  password: z.string().min(8, 'Password must be at least 8 characters'),
-  simulateNetworkError: z.boolean().optional(),
-}).strict();
+const serverSchema = z
+  .object({
+    firstName: z.string().min(2, 'First name must be at least 2 characters'),
+    username: z.string().min(3, 'Username must be at least 3 characters'),
+    email: z.string().email('Invalid email address'),
+    password: z.string().min(8, 'Password must be at least 8 characters'),
+    simulateNetworkError: z.boolean().optional(),
+  })
+  .strict();
 
 function ServerForm() {
   const form = useFormContext();
@@ -179,14 +193,27 @@ function ServerForm() {
   const hasExtraField = 'extraField' in form.values;
 
   return (
-    <form onSubmit={(e) => { e.preventDefault(); form.submit(); }}>
+    <form
+      onSubmit={(e) => {
+        e.preventDefault();
+        form.submit();
+      }}
+    >
       <FormNotice type="info">
         Try these examples:
         <ul className="list-disc ml-6 mt-2 space-y-1">
-          <li>Type <code>magic</code> in first name - Shows multiple server errors</li>
-          <li><code>taken@example.com</code> - Shows email taken error</li>
-          <li>Click "Add Invalid Field" below - Shows root-level schema error</li>
-          <li>Type <code>admin@example.com</code> - Shows root-level server error</li>
+          <li>
+            Type <code>magic</code> in first name - Shows multiple server errors
+          </li>
+          <li>
+            <code>taken@example.com</code> - Shows email taken error
+          </li>
+          <li>
+            Click "Add Invalid Field" below - Shows root-level schema error
+          </li>
+          <li>
+            Type <code>admin@example.com</code> - Shows root-level server error
+          </li>
         </ul>
       </FormNotice>
 
@@ -235,11 +262,17 @@ function ServerForm() {
         <div className="flex gap-2">
           <button
             type="button"
-            onClick={() => form.setValue(['simulateNetworkError'], !simulateNetworkError)}
+            onClick={() =>
+              form.setValue(['simulateNetworkError'], !simulateNetworkError)
+            }
             className="flex items-center px-4 py-2 text-gray-700 bg-gray-50 rounded-lg hover:bg-gray-100"
           >
-            <WifiOff className={`w-4 h-4 mr-2 ${simulateNetworkError ? 'text-red-600' : 'text-gray-600'}`} />
-            {simulateNetworkError ? 'Disable Network Error' : 'Enable Network Error'}
+            <WifiOff
+              className={`w-4 h-4 mr-2 ${simulateNetworkError ? 'text-red-600' : 'text-gray-600'}`}
+            />
+            {simulateNetworkError
+              ? 'Disable Network Error'
+              : 'Enable Network Error'}
           </button>
           <button
             type="button"
@@ -270,12 +303,12 @@ function ServerForm() {
 export default function ServerExample() {
   return (
     <FormProvider
-      initialValues={{ 
-        firstName: '', 
-        username: '', 
-        email: '', 
+      initialValues={{
+        firstName: '',
+        username: '',
+        email: '',
         password: '',
-        simulateNetworkError: false 
+        simulateNetworkError: false,
       }}
       schema={serverSchema}
       onSubmit={async (form, values) => {
@@ -289,7 +322,10 @@ export default function ServerExample() {
         } catch (error) {
           console.error('Submission failed:', error);
           form.setServerErrors([
-            { path: [], message: 'An unexpected error occurred. Please try again.' }
+            {
+              path: [],
+              message: 'An unexpected error occurred. Please try again.',
+            },
           ]);
         }
       }}
