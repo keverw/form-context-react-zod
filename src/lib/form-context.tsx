@@ -189,16 +189,176 @@ export function FormProvider<T>({
     [validateOnChange, schema, values, errors]
   );
 
-  const deleteValue = useCallback(
-    (path: (string | number)[]) => {
-      // Remove from touched state
-      const pathKey = path.join('.');
+  // Helper to get all nested paths under a base path
+  const getNestedPaths = useCallback(
+    (basePath: (string | number)[]) => {
+      const paths: (string | number)[][] = [];
+      const traverse = (obj: any, currentPath: (string | number)[]) => {
+        paths.push([...currentPath]);
+        if (obj && typeof obj === 'object') {
+          for (const [key, value] of Object.entries(obj)) {
+            traverse(value, [...currentPath, key]);
+          }
+        }
+      };
+      const value = getValueAtPath(values, basePath);
+      traverse(value, basePath);
+      return paths;
+    },
+    [values]
+  );
+
+  // Helper function to handle array item deletion
+  const deleteArrayItem = useCallback(
+    (arrayPath: (string | number)[], index: number) => {
+      // Get the current array
+      const array = getValueAtPath(values, arrayPath) as any[];
+      if (!array || !Array.isArray(array)) return;
+
+      // Create a new array without the deleted item
+      const newItems = array.filter((_, i) => i !== index);
+      const removedPath = [...arrayPath, index];
+
+      // Get all nested paths for the removed item
+      const pathsToRemove = getNestedPaths(removedPath);
+
+      // Clear touched state for all removed paths
       setTouched((prev) => {
-        const newTouched = { ...prev };
-        delete newTouched[pathKey];
+        const newTouched: Record<string, boolean> = { ...prev };
+
+        // Remove touched states for the deleted item and its children
+        for (const removePath of pathsToRemove) {
+          delete newTouched[removePath.join('.')];
+        }
+
+        // Adjust touched states for remaining items
+        for (const [key, value] of Object.entries(prev)) {
+          const keyPath = key.split('.');
+          if (
+            keyPath.length > arrayPath.length &&
+            arrayPath.every((val, idx) => String(val) === keyPath[idx])
+          ) {
+            const itemIndex = Number(keyPath[arrayPath.length]);
+            if (!isNaN(itemIndex) && itemIndex > index) {
+              // This is a touched state for an item after the deleted one
+              const newKey = [
+                ...keyPath.slice(0, arrayPath.length),
+                String(itemIndex - 1),
+                ...keyPath.slice(arrayPath.length + 1),
+              ].join('.');
+              newTouched[newKey] = value;
+              delete newTouched[key];
+            }
+          }
+        }
+
         return newTouched;
       });
 
+      // Update values using setValue to ensure proper handling
+      setValue(arrayPath, newItems);
+
+      // Handle errors separately for validation and server errors
+      const validationErrors = errors.filter((e) => e.source !== 'server');
+      const serverErrors = errors.filter((e) => e.source === 'server');
+
+      // Process validation errors
+      const newValidationErrors = validationErrors
+        .filter((error) => {
+          // Keep errors not related to this array
+          if (
+            !error.path
+              .slice(0, arrayPath.length)
+              .every((val, idx) => arrayPath[idx] === val)
+          ) {
+            return true;
+          }
+
+          // If this is an error for the array itself, keep it
+          if (error.path.length <= arrayPath.length) {
+            return true;
+          }
+
+          const errorIndex = Number(error.path[arrayPath.length]);
+          // Remove errors for deleted item
+          return isNaN(errorIndex) || errorIndex !== index;
+        })
+        .map((error) => {
+          // If this error is for an item after the deleted one, adjust its index
+          if (
+            error.path.length > arrayPath.length &&
+            error.path
+              .slice(0, arrayPath.length)
+              .every((val, idx) => arrayPath[idx] === val)
+          ) {
+            const errorIndex = Number(error.path[arrayPath.length]);
+            if (!isNaN(errorIndex) && errorIndex > index) {
+              return {
+                ...error,
+                path: [
+                  ...arrayPath,
+                  errorIndex - 1,
+                  ...error.path.slice(arrayPath.length + 1),
+                ],
+              };
+            }
+          }
+          return error;
+        });
+
+      // Process server errors
+      const newServerErrors = serverErrors
+        .filter((error) => {
+          // Keep root errors and errors not related to this array
+          if (
+            error.path.length === 0 ||
+            !error.path
+              .slice(0, arrayPath.length)
+              .every((val, idx) => arrayPath[idx] === val)
+          ) {
+            return true;
+          }
+
+          // If this is an error for the array itself, keep it
+          if (error.path.length <= arrayPath.length) {
+            return true;
+          }
+
+          const errorIndex = Number(error.path[arrayPath.length]);
+          // Remove errors for deleted item
+          return isNaN(errorIndex) || errorIndex !== index;
+        })
+        .map((error) => {
+          // If this error is for an item after the deleted one, adjust its index
+          if (
+            error.path.length > arrayPath.length &&
+            error.path
+              .slice(0, arrayPath.length)
+              .every((val, idx) => arrayPath[idx] === val)
+          ) {
+            const errorIndex = Number(error.path[arrayPath.length]);
+            if (!isNaN(errorIndex) && errorIndex > index) {
+              return {
+                ...error,
+                path: [
+                  ...arrayPath,
+                  errorIndex - 1,
+                  ...error.path.slice(arrayPath.length + 1),
+                ],
+              };
+            }
+          }
+          return error;
+        });
+
+      // Update errors while preserving their sources
+      setErrors([...newValidationErrors, ...newServerErrors]);
+    },
+    [getNestedPaths, setValue, values, errors]
+  );
+
+  const deleteValue = useCallback(
+    (path: (string | number)[]) => {
       // Get parent path and last key
       const lastKey = path[path.length - 1];
       const parentPath = path.slice(0, -1);
@@ -207,90 +367,53 @@ export function FormProvider<T>({
       let isArrayItem = false;
       let arrayIndex = -1;
 
-      setValues((prev) => {
-        const newValues = { ...prev };
-        const parent = parentPath.reduce((acc, key) => acc?.[key], newValues);
+      // First, determine if this is an array item
+      const parent = getValueAtPath(values, parentPath);
 
-        if (parent && typeof parent === 'object') {
-          if (Array.isArray(parent)) {
-            isArrayItem = true;
-            arrayIndex = Number(lastKey);
-            parent.splice(arrayIndex, 1);
-          } else {
-            delete parent[lastKey];
-          }
-        }
-        return newValues;
-      });
+      if (parent && typeof parent === 'object' && Array.isArray(parent)) {
+        isArrayItem = true;
+        arrayIndex = Number(lastKey);
+      }
 
-      // Handle errors - need to adjust indices for array items
-      setErrors((prev) => {
-        if (isArrayItem && arrayIndex >= 0) {
-          // For array items, we need to adjust indices for items after the deleted one
-          return prev
-            .filter((error) => {
-              // Keep errors not related to this path
-              if (
-                !error.path
-                  .slice(0, parentPath.length)
-                  .every((val, idx) => parentPath[idx] === val)
-              ) {
-                return true;
+      // If it's an array item, use the shared deleteArrayItem helper
+      if (isArrayItem && arrayIndex >= 0) {
+        deleteArrayItem(parentPath, arrayIndex);
+      } else {
+        // For non-array items, use the simpler approach
+        const pathKey = path.join('.');
+        setTouched((prev) => {
+          const newTouched: Record<string, boolean> = { ...prev };
+          delete newTouched[pathKey];
+          return newTouched;
+        });
+
+        setValues((prev) => {
+          const newValues = { ...prev };
+          const parent = parentPath.reduce(
+            (acc, key) => {
+              if (acc && typeof acc === 'object') {
+                return acc[key as keyof typeof acc];
               }
-
-              // If this is an error for the array itself or a different index, keep it
-              if (
-                error.path.length <= parentPath.length ||
-                error.path[parentPath.length] !== arrayIndex
-              ) {
-                return true;
-              }
-
-              // Otherwise, this is an error for the deleted item, so remove it
-              return false;
-            })
-            .map((error) => {
-              // If this error is for an item after the deleted one, adjust its index
-              if (
-                error.path.length > parentPath.length &&
-                error.path
-                  .slice(0, parentPath.length)
-                  .every((val, idx) => parentPath[idx] === val)
-              ) {
-                const errorIndex = Number(error.path[parentPath.length]);
-                if (!isNaN(errorIndex) && errorIndex > arrayIndex) {
-                  return {
-                    ...error,
-                    path: [
-                      ...parentPath,
-                      errorIndex - 1,
-                      ...error.path.slice(parentPath.length + 1),
-                    ],
-                  };
-                }
-              }
-              return error;
-            });
-        } else {
-          // For non-array items, just filter out errors for this path
-          return prev.filter(
-            (error) => !error.path.every((val, idx) => path[idx] === val)
+              return undefined;
+            },
+            newValues as Record<string | number, any>
           );
-        }
-      });
 
-      // Validate if needed
-      if (validateOnChange) {
-        const result = validateForm();
-        if (!result.valid && result.errors) {
-          setErrors((prev) => {
-            const serverErrors = prev.filter((e) => e.source === 'server');
-            return [...serverErrors, ...result.errors];
-          });
-        }
+          if (parent && typeof parent === 'object') {
+            delete parent[lastKey as keyof typeof parent];
+          }
+          return newValues;
+        });
+
+        // For non-array items, just filter out errors for this path
+        setErrors((prev) =>
+          prev.filter(
+            (error) => !error.path.every((val, idx) => path[idx] === val)
+          )
+        );
       }
     },
-    [validateOnChange, validateForm]
+    [deleteArrayItem, values]
   );
 
   // Add hasField method to check field existence
@@ -546,26 +669,6 @@ export function useField(path: (string | number)[]) {
 export function useArrayField(path: (string | number)[]) {
   const form = useFormContext();
   const items = form.getValue(path) || [];
-  const { setTouched, validate: validateForm } = form;
-
-  // Helper to get all nested paths under a base path
-  const getNestedPaths = useCallback(
-    (basePath: (string | number)[]) => {
-      const paths: (string | number)[][] = [];
-      const traverse = (obj: any, currentPath: (string | number)[]) => {
-        paths.push(currentPath);
-        if (obj && typeof obj === 'object') {
-          for (const [key, value] of Object.entries(obj)) {
-            traverse(value, [...currentPath, key]);
-          }
-        }
-      };
-      const value = form.getValue(basePath);
-      traverse(value, basePath);
-      return paths;
-    },
-    [form]
-  );
 
   const add = useCallback(
     (item: any) => {
@@ -577,121 +680,10 @@ export function useArrayField(path: (string | number)[]) {
 
   const remove = useCallback(
     (index: number) => {
-      const newItems = items.filter((_: any, i: number) => i !== index);
-      const removedPath = [...path, index];
-
-      // Get all nested paths for the removed item
-      const pathsToRemove = getNestedPaths(removedPath);
-
-      // Clear touched state for all removed paths
-      form.setTouched((prev) => {
-        const newTouched = { ...prev };
-
-        // Remove touched states for the deleted item and its children
-        for (const removePath of pathsToRemove) {
-          delete newTouched[removePath.join('.')];
-        }
-
-        // Adjust touched states for remaining items
-        for (const [key, value] of Object.entries(prev)) {
-          const keyPath = key.split('.');
-          if (
-            !keyPath
-              .slice(0, path.length)
-              .every((val, idx) => path[idx] === val)
-          ) {
-            continue;
-          }
-          const arrayIndex = Number(keyPath[path.length]);
-          if (!isNaN(arrayIndex) && arrayIndex > index) {
-            const newKey = [
-              ...keyPath.slice(0, path.length),
-              String(arrayIndex - 1),
-              ...keyPath.slice(path.length + 1),
-            ].join('.');
-            newTouched[newKey] = value;
-            delete newTouched[key];
-          }
-        }
-        return newTouched;
-      });
-
-      // Update values and trigger validation
-      form.setValue(path, newItems);
-
-      // Handle errors separately for validation and server errors
-      const validationErrors = form.errors.filter((e) => e.source !== 'server');
-      const serverErrors = form.errors.filter((e) => e.source === 'server');
-
-      // Process validation errors
-      const newValidationErrors = validationErrors
-        .filter((error) => {
-          const errorPath = error.path;
-          // Keep errors not related to this array
-          if (
-            !errorPath
-              .slice(0, path.length)
-              .every((val, idx) => path[idx] === val)
-          ) {
-            return true;
-          }
-          const errorIndex = Number(errorPath[path.length]);
-          // Remove errors for deleted item
-          return isNaN(errorIndex) || errorIndex !== index;
-        })
-        .map((error) => {
-          const errorIndex = Number(error.path[path.length]);
-          if (!isNaN(errorIndex) && errorIndex > index) {
-            // Adjust index for remaining items
-            return {
-              ...error,
-              path: [
-                ...path,
-                errorIndex - 1,
-                ...error.path.slice(path.length + 1),
-              ],
-            };
-          }
-          return error;
-        });
-
-      // Process server errors
-      const newServerErrors = serverErrors
-        .filter((error) => {
-          const errorPath = error.path;
-          // Keep root errors and errors not related to this array
-          if (
-            errorPath.length === 0 ||
-            !errorPath
-              .slice(0, path.length)
-              .every((val, idx) => path[idx] === val)
-          ) {
-            return true;
-          }
-          const errorIndex = Number(errorPath[path.length]);
-          // Remove errors for deleted item
-          return isNaN(errorIndex) || errorIndex !== index;
-        })
-        .map((error) => {
-          const errorIndex = Number(error.path[path.length]);
-          if (!isNaN(errorIndex) && errorIndex > index) {
-            // Adjust index for remaining items
-            return {
-              ...error,
-              path: [
-                ...path,
-                errorIndex - 1,
-                ...error.path.slice(path.length + 1),
-              ],
-            };
-          }
-          return error;
-        });
-
-      // Update errors while preserving their sources
-      form.setErrors([...newValidationErrors, ...newServerErrors]);
+      // Use the shared deleteArrayItem helper function
+      form.deleteValue([...path, index]);
     },
-    [form, getNestedPaths, items, path]
+    [form, path]
   );
 
   const move = useCallback(

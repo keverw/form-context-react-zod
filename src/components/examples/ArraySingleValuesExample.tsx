@@ -28,7 +28,7 @@ function NumberItem({ index, total, onMove, onRemove }: NumberItemProps) {
           {...field.props}
           type="number"
           step="any"
-          placeholder="Enter a number"
+          placeholder="Enter a positive number"
         />
       </div>
       <div className="flex items-center space-x-1 shrink-0">
@@ -69,13 +69,13 @@ const calculatorSchema = z.object({
   numbers: z.array(
     z
       .string()
-      .regex(/^-?\d*\.?\d*$/, 'Must be a valid number')
+      .regex(/^\d*\.?\d*$/, 'Must be a valid positive number')
       .refine(
         (val) => {
           const num = Number(val);
-          return !isNaN(num) && num >= -1000 && num <= 1000;
+          return !isNaN(num) && num >= 0 && num <= 1000;
         },
-        { message: 'Must be between -1000 and 1000' }
+        { message: 'Must be between 0 and 1000' }
       )
   ),
 });
@@ -101,7 +101,7 @@ function ArraySingleValuesForm() {
         Add numbers to calculate their sum. Each number can be moved up/down or
         removed.
         <ul className="list-disc ml-6 mt-2 space-y-1">
-          <li>Numbers between -1000 and 1000 are allowed</li>
+          <li>Only positive numbers between 0 and 1000 are allowed</li>
           <li>The total updates automatically</li>
           <li>Try moving numbers around to see how array operations work</li>
         </ul>
