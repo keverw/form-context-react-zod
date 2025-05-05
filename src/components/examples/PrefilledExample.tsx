@@ -7,6 +7,7 @@ import FormState from '../FormState';
 import { useFormContext } from '../../lib/hooks/useFormContext';
 import { useField } from '../../lib/hooks/useField';
 import { useToast } from '../useToast';
+import { simulateServer } from './utils';
 
 const prefilledSchema = z.object({
   username: z.string().min(3, 'Username must be at least 3 characters'),
@@ -90,12 +91,6 @@ function PrefilledForm() {
 
 export default function PrefilledExample() {
   const toast = useToast();
-  const form = useFormContext();
-  const usernameField = useField(['username']);
-  const emailField = useField(['email']);
-  const ageField = useField(['age']);
-  const bioField = useField(['bio']);
-  const websiteField = useField(['website']);
 
   const onSubmit = async (form, values: z.infer<typeof prefilledSchema>) => {
     try {

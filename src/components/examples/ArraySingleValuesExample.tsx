@@ -18,7 +18,7 @@ interface NumberItemProps {
 }
 
 function NumberItem({ index, total, onMove, onRemove }: NumberItemProps) {
-  const field = useField<number>(['numbers', index]);
+  const field = useField(['numbers', index]);
 
   return (
     <div className="flex items-center space-x-2">
@@ -170,7 +170,7 @@ export default function ArraySingleValuesExample() {
   return (
     <FormProvider
       initialValues={{
-        numbers: [10, 20],
+        numbers: ['10', '20'],
       }}
       schema={calculatorSchema}
       onSubmit={async (values) => {

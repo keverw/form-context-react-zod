@@ -16,8 +16,8 @@ const schema = z.object({
 
 function ErrorDemoForm() {
   const form = useFormContext();
-  const nameField = useField<string>(['name']);
-  const crashModeField = useField<'none' | 'throw' | 'reject'>(['crashMode']);
+  const nameField = useField(['name']);
+  const crashModeField = useField(['crashMode']);
 
   console.log('Current crash mode:', crashModeField.value);
 
