@@ -286,7 +286,7 @@ function ServerForm() {
           {hasExtraField && (
             <button
               type="button"
-              onClick={() => form.deleteValue(['extraField'])}
+              onClick={() => form.deleteField(['extraField'])}
               className="flex items-center px-4 py-2 text-red-700 bg-red-50 rounded-lg hover:bg-red-100"
             >
               <Trash2 className="w-4 h-4 mr-2" />

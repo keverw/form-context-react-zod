@@ -1,4 +1,4 @@
-import React from 'react';
+import { useState, useEffect } from 'react';
 import { useFormContext } from '../lib/form-context';
 
 function ValueDisplay({ value }: { value: any }) {
@@ -64,6 +64,38 @@ export default function FormState() {
   const form = useFormContext();
   const validationErrors = form.errors.filter((e) => e.source !== 'server');
   const serverErrors = form.errors.filter((e) => e.source === 'server');
+  const [timeAgo, setTimeAgo] = useState<string>('Never');
+
+  // Update the time ago string every second
+  useEffect(() => {
+    if (!form.lastValidated) {
+      setTimeAgo('Never');
+      return;
+    }
+
+    const updateTimeAgo = () => {
+      const now = Date.now();
+      const diff = now - form.lastValidated;
+      
+      if (diff < 1000) {
+        setTimeAgo('Just now');
+      } else if (diff < 60000) {
+        setTimeAgo(`${Math.floor(diff / 1000)}s ago`);
+      } else if (diff < 3600000) {
+        setTimeAgo(`${Math.floor(diff / 60000)}m ago`);
+      } else {
+        setTimeAgo(`${Math.floor(diff / 3600000)}h ago`);
+      }
+    };
+
+    // Update immediately
+    updateTimeAgo();
+    
+    // Then update every second
+    const interval = setInterval(updateTimeAgo, 1000);
+    
+    return () => clearInterval(interval);
+  }, [form.lastValidated]);
 
   return (
     <div className="mt-8 border-t border-gray-200 pt-6">
@@ -79,6 +111,9 @@ export default function FormState() {
             className={`inline-flex items-center ${form.isSubmitting ? 'text-blue-600' : 'text-gray-600'}`}
           >
             {form.isSubmitting ? '⟳ Submitting' : '• Idle'}
+          </span>
+          <span className="inline-flex items-center text-purple-600">
+            ⏱ Validated: {timeAgo}
           </span>
         </div>
       </div>

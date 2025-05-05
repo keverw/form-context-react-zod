@@ -86,7 +86,7 @@ function ArrayForm() {
   const { items, add, remove, move } = todos;
 
   const deleteIndex = (index: number) => {
-    form.deleteValue(['todos', index]);
+    form.deleteField(['todos', index]);
   };
 
   const validateForm = () => {

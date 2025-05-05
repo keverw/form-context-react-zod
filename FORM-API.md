@@ -44,7 +44,7 @@ Value operations:
 
 - `getValue(path)`: Get value at specific path
 - `setValue(path, value)`: Set value at specific path
-- `deleteValue(path)`: Remove value at path
+- `deleteField(path)`: Remove field at path
 - `hasField(path)`: Check if field exists
 - `getValuePaths(path?)`: Get all value paths under given path
 
@@ -102,7 +102,7 @@ Important Server Error Behaviors:
 // Direct value operations
 const value = form.getValue(['todos', 0, 'text']);
 form.setValue(['todos', 0, 'text'], 'New todo');
-form.deleteValue(['todos', 0]);
+form.deleteField(['todos', 0]);
 
 // Check field existence
 const hasScore = form.hasField(['score']);

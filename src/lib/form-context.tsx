@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useCallback } from 'react';
+import React, { createContext, useContext, useState, useCallback, useReducer } from 'react';
 import { z } from 'zod';
 import { validate, ValidationError } from './zod-helpers';
 
@@ -32,12 +32,13 @@ interface FormContextValue<T> {
   setErrors: (errors: ValidationError[]) => void;
   isSubmitting: boolean;
   isValid: boolean;
+  lastValidated: number | null;
   submit: () => Promise<void>;
   reset: () => void;
   validate: (force?: boolean) => boolean;
   getValue: <V = any>(path: (string | number)[]) => V;
   setValue: <V = any>(path: (string | number)[], value: V) => void;
-  deleteValue: (path: (string | number)[]) => void;
+  deleteField: (path: (string | number)[]) => void;
   getValuePaths: (path?: (string | number)[]) => (string | number)[][];
   getError: (path: (string | number)[]) => ValidationError[];
   getErrorPaths: (path?: (string | number)[]) => (string | number)[][];
@@ -60,6 +61,87 @@ interface FormProviderProps<T> {
   children: React.ReactNode;
 }
 
+// Define the form state interface
+interface FormState<T> {
+  values: T;
+  touched: Record<string, boolean>;
+  errors: ValidationError[];
+  isSubmitting: boolean;
+  lastValidated: number | null;
+}
+
+// Define action types
+type FormAction<T> =
+  | { type: 'SET_VALUE'; path: (string | number)[]; value: any }
+  | { type: 'SET_VALUES'; values: T }
+  | { type: 'SET_TOUCHED'; touched: Record<string, boolean> }
+  | { type: 'SET_ERRORS'; errors: ValidationError[] }
+  | { type: 'SET_SUBMITTING'; isSubmitting: boolean }
+  | { type: 'RESET'; initialValues: T }
+  | { 
+      type: 'BATCH_UPDATE'; 
+      updates: {
+        values?: T;
+        touched?: Record<string, boolean>;
+        errors?: ValidationError[];
+        isSubmitting?: boolean;
+        lastValidated?: number | null;
+      }
+    };
+
+// Implement the reducer function
+function formReducer<T>(state: FormState<T>, action: FormAction<T>): FormState<T> {
+  switch (action.type) {
+    case 'SET_VALUE': {
+      const newValues = { ...state.values };
+      setValueAtPath(newValues, action.path, action.value);
+      return {
+        ...state,
+        values: newValues
+      };
+    }
+    case 'SET_VALUES':
+      return {
+        ...state,
+        values: action.values
+      };
+    case 'SET_TOUCHED':
+      return {
+        ...state,
+        touched: action.touched
+      };
+    case 'SET_ERRORS':
+      return {
+        ...state,
+        errors: action.errors
+      };
+    case 'SET_SUBMITTING':
+      return {
+        ...state,
+        isSubmitting: action.isSubmitting
+      };
+    case 'RESET':
+      return {
+        values: action.initialValues,
+        touched: {},
+        errors: [],
+        isSubmitting: false,
+        lastValidated: null
+      };
+    case 'BATCH_UPDATE':
+      return {
+        ...state,
+        ...(action.updates.values ? { values: action.updates.values as T } : {}),
+        ...(action.updates.touched ? { touched: action.updates.touched } : state.touched),
+        ...(action.updates.errors !== undefined ? { errors: action.updates.errors } : {}),
+        ...(action.updates.isSubmitting !== undefined ? { isSubmitting: action.updates.isSubmitting } : {}),
+        ...(action.updates.lastValidated !== undefined ? { lastValidated: action.updates.lastValidated } : state.lastValidated)
+      };
+    default:
+      return state;
+  }
+}
+
 export function FormProvider<T>({
   initialValues,
   onSubmit,
@@ -68,12 +150,24 @@ export function FormProvider<T>({
   validateOnChange = true,
   children,
 }: FormProviderProps<T>) {
-  const [values, setValues] = useState<T>(initialValues);
-  const [touched, setTouched] = useState<Record<string, boolean>>({});
-  const [errors, setErrors] = useState<ValidationError[]>([]);
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  // Use useReducer instead of multiple useState calls
+  const [state, dispatch] = useReducer(formReducer<T>, {
+    values: initialValues,
+    touched: {},
+    errors: [],
+    isSubmitting: false,
+    lastValidated: null
+  });
+  
+  // Destructure state for easier access
+  const { values, touched, errors, isSubmitting, lastValidated } = state;
+  
   // Using useRef instead of useState to avoid race conditions
   const mountedRef = React.useRef(false);
+  
+  // Keep track of pending setValue operations
+  const pendingSetValueRef = React.useRef<Map<string, any>>(new Map());
+  const setValueTimeoutRef = React.useRef<number | null>(null);
 
   const getValuePaths = useCallback(
     (basePath: (string | number)[] = []) => {
@@ -98,9 +192,26 @@ export function FormProvider<T>({
   );
 
   const validateForm = useCallback(() => {
-    if (!schema) return { valid: true, value: values };
-    return validate(schema, values);
-  }, [schema, values]);
+    if (!schema) {
+      return { valid: true, errors: [] };
+    }
+
+    // Set lastValidated timestamp
+    const now = Date.now();
+    
+    // Validate the entire form
+    const result = validate(schema, values);
+    
+    // Update lastValidated in state
+    dispatch({
+      type: 'BATCH_UPDATE',
+      updates: {
+        lastValidated: now
+      }
+    });
+    
+    return result;
+  }, [schema, values, dispatch]);
 
   const validateAndMarkTouched = useCallback(() => {
     // Mark all fields as touched when validating on mount with prefilled values
@@ -119,6 +230,59 @@ export function FormProvider<T>({
       setErrors(result.errors);
     }
   }, [getValuePaths, validateForm]);
+
+  // Define wrapper functions for dispatch
+  const setTouched = useCallback((touchedOrUpdater: Record<string, boolean> | ((prev: Record<string, boolean>) => Record<string, boolean>)) => {
+    if (typeof touchedOrUpdater === 'function') {
+      const updater = touchedOrUpdater;
+      dispatch({
+        type: 'SET_TOUCHED',
+        touched: updater(touched)
+      });
+    } else {
+      dispatch({
+        type: 'SET_TOUCHED',
+        touched: touchedOrUpdater
+      });
+    }
+  }, [touched, dispatch]);
+
+  const setErrors = useCallback((errorsOrUpdater: ValidationError[] | ((prev: ValidationError[]) => ValidationError[])) => {
+    if (typeof errorsOrUpdater === 'function') {
+      const updater = errorsOrUpdater;
+      dispatch({
+        type: 'SET_ERRORS',
+        errors: updater(errors)
+      });
+    } else {
+      dispatch({
+        type: 'SET_ERRORS',
+        errors: errorsOrUpdater
+      });
+    }
+  }, [errors, dispatch]);
+
+  const setValues = useCallback((valuesOrUpdater: T | ((prev: T) => T)) => {
+    if (typeof valuesOrUpdater === 'function') {
+      const updater = valuesOrUpdater;
+      dispatch({
+        type: 'SET_VALUES',
+        values: updater(values)
+      });
+    } else {
+      dispatch({
+        type: 'SET_VALUES',
+        values: valuesOrUpdater
+      });
+    }
+  }, [values, dispatch]);
+
+  const setIsSubmitting = useCallback((isSubmitting: boolean) => {
+    dispatch({
+      type: 'SET_SUBMITTING',
+      isSubmitting
+    });
+  }, [dispatch]);
 
   // Combined effect for mount tracking and validation
   React.useEffect(() => {
@@ -140,53 +304,115 @@ export function FormProvider<T>({
     [values]
   );
 
-  const setValue = useCallback(
-    (path: (string | number)[], value: any) => {
-      const newValues = { ...values };
-      setValueAtPath(newValues, path, value);
-      setValues(newValues);
+  // Helper function to create a new touched state with a path marked as touched
+  const markPathAsTouched = useCallback((touched: Record<string, boolean>, path: (string | number)[]) => {
+    const newTouched = { ...touched };
+    // Mark the field itself
+    newTouched[path.join('.')] = true;
 
-      // Mark field and all parent paths as touched when set via API
-      setTouched((prev) => {
-        const newTouched = { ...prev };
-        // Mark the field itself
-        newTouched[path.join('.')] = true;
+    // Mark all parent paths
+    for (let i = 1; i <= path.length; i++) {
+      const parentPath = path.slice(0, i);
+      newTouched[parentPath.join('.')] = true;
+    }
+    return newTouched;
+  }, []);
 
-        // Mark all parent paths
-        for (let i = 1; i <= path.length; i++) {
-          const parentPath = path.slice(0, i);
-          newTouched[parentPath.join('.')] = true;
-        }
-        return newTouched;
-      });
+  // Helper function to filter errors for a specific path
+  const filterErrorsForPath = useCallback((errors: ValidationError[], path: (string | number)[]) => {
+    return errors.filter(
+      (error) =>
+        error.path.length !== path.length ||
+        !error.path.every((val, idx) => path[idx] === val)
+    );
+  }, []);
 
-      // Keep all errors except those for this exact path
-      const newErrors = errors.filter(
+  // Helper function to validate a value at a path
+  const validateValueAtPath = useCallback((newValues: T, path: (string | number)[]) => {
+    if (!validateOnChange || !schema) return [];
+    
+    const result = validate(schema, newValues);
+    if (!result.valid && result.errors) {
+      // Only add new validation errors for this exact path
+      return result.errors.filter(
         (error) =>
-          error.path.length !== path.length ||
-          !error.path.every((val, idx) => path[idx] === val)
+          error.path.length === path.length &&
+          error.path.every((val, idx) => path[idx] === val)
       );
+    }
+    return [];
+  }, [validateOnChange, schema]);
 
-      // Run validation if enabled
+  // Queue setValue operations to be processed in a batch
+  const queueSetValue = useCallback((path: (string | number)[], value: any) => {
+    // Store the path as a string key
+    const pathKey = path.join('.');
+    pendingSetValueRef.current.set(pathKey, { path, value });
+    
+    // Clear any existing timeout
+    if (setValueTimeoutRef.current) {
+      clearTimeout(setValueTimeoutRef.current);
+    }
+    
+    // Process all pending setValue operations in the next tick
+    setValueTimeoutRef.current = setTimeout(() => {
+      const pendingOperations = Array.from(pendingSetValueRef.current.values());
+      pendingSetValueRef.current.clear();
+      
+      if (pendingOperations.length === 0) return;
+      
+      // Create a new values object with all updates
+      const newValues = { ...values };
+      let newTouched = { ...touched };
+      let newErrors = [...errors];
+      
+      // Apply all pending setValue operations
+      for (const { path, value } of pendingOperations) {
+        // Update values
+        setValueAtPath(newValues, path, value);
+        
+        // Mark path as touched
+        newTouched = markPathAsTouched(newTouched, path);
+        
+        // Filter out errors for this path
+        newErrors = filterErrorsForPath(newErrors, path);
+      }
+      
+      // Validate the new values
       if (validateOnChange && schema) {
         const result = validate(schema, newValues);
         if (!result.valid && result.errors) {
-          // Only add new validation errors for this exact path
-          const newValidationErrors = result.errors.filter(
-            (error) =>
-              error.path.length === path.length &&
-              error.path.every((val, idx) => path[idx] === val)
-          );
-
-          setErrors([...newErrors, ...newValidationErrors]);
-        } else {
-          setErrors(newErrors);
+          // Add validation errors for all updated paths
+          for (const { path } of pendingOperations) {
+            const pathErrors = result.errors.filter(
+              (error) =>
+                error.path.length === path.length &&
+                error.path.every((val, idx) => path[idx] === val)
+            );
+            newErrors = [...newErrors, ...pathErrors];
+          }
         }
-      } else {
-        setErrors(newErrors);
       }
+      
+      // Dispatch a single update with all changes
+      dispatch({
+        type: 'BATCH_UPDATE',
+        updates: {
+          values: newValues,
+          touched: newTouched,
+          errors: newErrors,
+          lastValidated: Date.now()
+        }
+      });
+    }, 0);
+  }, [values, touched, errors, markPathAsTouched, filterErrorsForPath, validateOnChange, schema]);
+
+  // The setValue function that users will call
+  const setValue = useCallback(
+    (path: (string | number)[], value: any) => {
+      queueSetValue(path, value);
     },
-    [validateOnChange, schema, values, errors]
+    [queueSetValue]
   );
 
   // Helper to get all nested paths under a base path
@@ -209,155 +435,7 @@ export function FormProvider<T>({
   );
 
   // Helper function to handle array item deletion
-  const deleteArrayItem = useCallback(
-    (arrayPath: (string | number)[], index: number) => {
-      // Get the current array
-      const array = getValueAtPath(values, arrayPath) as any[];
-      if (!array || !Array.isArray(array)) return;
-
-      // Create a new array without the deleted item
-      const newItems = array.filter((_, i) => i !== index);
-      const removedPath = [...arrayPath, index];
-
-      // Get all nested paths for the removed item
-      const pathsToRemove = getNestedPaths(removedPath);
-
-      // Clear touched state for all removed paths
-      setTouched((prev) => {
-        const newTouched: Record<string, boolean> = { ...prev };
-
-        // Remove touched states for the deleted item and its children
-        for (const removePath of pathsToRemove) {
-          delete newTouched[removePath.join('.')];
-        }
-
-        // Adjust touched states for remaining items
-        for (const [key, value] of Object.entries(prev)) {
-          const keyPath = key.split('.');
-          if (
-            keyPath.length > arrayPath.length &&
-            arrayPath.every((val, idx) => String(val) === keyPath[idx])
-          ) {
-            const itemIndex = Number(keyPath[arrayPath.length]);
-            if (!isNaN(itemIndex) && itemIndex > index) {
-              // This is a touched state for an item after the deleted one
-              const newKey = [
-                ...keyPath.slice(0, arrayPath.length),
-                String(itemIndex - 1),
-                ...keyPath.slice(arrayPath.length + 1),
-              ].join('.');
-              newTouched[newKey] = value;
-              delete newTouched[key];
-            }
-          }
-        }
-
-        return newTouched;
-      });
-
-      // Update values using setValue to ensure proper handling
-      setValue(arrayPath, newItems);
-
-      // Handle errors separately for validation and server errors
-      const validationErrors = errors.filter((e) => e.source !== 'server');
-      const serverErrors = errors.filter((e) => e.source === 'server');
-
-      // Process validation errors
-      const newValidationErrors = validationErrors
-        .filter((error) => {
-          // Keep errors not related to this array
-          if (
-            !error.path
-              .slice(0, arrayPath.length)
-              .every((val, idx) => arrayPath[idx] === val)
-          ) {
-            return true;
-          }
-
-          // If this is an error for the array itself, keep it
-          if (error.path.length <= arrayPath.length) {
-            return true;
-          }
-
-          const errorIndex = Number(error.path[arrayPath.length]);
-          // Remove errors for deleted item
-          return isNaN(errorIndex) || errorIndex !== index;
-        })
-        .map((error) => {
-          // If this error is for an item after the deleted one, adjust its index
-          if (
-            error.path.length > arrayPath.length &&
-            error.path
-              .slice(0, arrayPath.length)
-              .every((val, idx) => arrayPath[idx] === val)
-          ) {
-            const errorIndex = Number(error.path[arrayPath.length]);
-            if (!isNaN(errorIndex) && errorIndex > index) {
-              return {
-                ...error,
-                path: [
-                  ...arrayPath,
-                  errorIndex - 1,
-                  ...error.path.slice(arrayPath.length + 1),
-                ],
-              };
-            }
-          }
-          return error;
-        });
-
-      // Process server errors
-      const newServerErrors = serverErrors
-        .filter((error) => {
-          // Keep root errors and errors not related to this array
-          if (
-            error.path.length === 0 ||
-            !error.path
-              .slice(0, arrayPath.length)
-              .every((val, idx) => arrayPath[idx] === val)
-          ) {
-            return true;
-          }
-
-          // If this is an error for the array itself, keep it
-          if (error.path.length <= arrayPath.length) {
-            return true;
-          }
-
-          const errorIndex = Number(error.path[arrayPath.length]);
-          // Remove errors for deleted item
-          return isNaN(errorIndex) || errorIndex !== index;
-        })
-        .map((error) => {
-          // If this error is for an item after the deleted one, adjust its index
-          if (
-            error.path.length > arrayPath.length &&
-            error.path
-              .slice(0, arrayPath.length)
-              .every((val, idx) => arrayPath[idx] === val)
-          ) {
-            const errorIndex = Number(error.path[arrayPath.length]);
-            if (!isNaN(errorIndex) && errorIndex > index) {
-              return {
-                ...error,
-                path: [
-                  ...arrayPath,
-                  errorIndex - 1,
-                  ...error.path.slice(arrayPath.length + 1),
-                ],
-              };
-            }
-          }
-          return error;
-        });
-
-      // Update errors while preserving their sources
-      setErrors([...newValidationErrors, ...newServerErrors]);
-    },
-    [getNestedPaths, setValue, values, errors]
-  );
-
-  const deleteValue = useCallback(
+  const deleteField = useCallback(
     (path: (string | number)[]) => {
       // Get parent path and last key
       const lastKey = path[path.length - 1];
@@ -375,57 +453,236 @@ export function FormProvider<T>({
         arrayIndex = Number(lastKey);
       }
 
-      // If it's an array item, use the shared deleteArrayItem helper
+      // If it's an array item, handle it directly here instead of using deleteArrayItem
       if (isArrayItem && arrayIndex >= 0) {
-        deleteArrayItem(parentPath, arrayIndex);
-      } else {
-        // For non-array items, use the simpler approach
-        const pathKey = path.join('.');
-        setTouched((prev) => {
-          const newTouched: Record<string, boolean> = { ...prev };
-          delete newTouched[pathKey];
-          return newTouched;
+        // Get the current array
+        const array = parent as any[];
+        
+        // Create a new array without the deleted item
+        const newItems = array.filter((_, i) => i !== arrayIndex);
+        
+        // Create a new values object with the updated array
+        const newValues = { ...values };
+        setValueAtPath(newValues, parentPath, newItems);
+        
+        // Create a new touched state with the deleted item removed
+        const newTouched = { ...touched };
+        
+        // Remove touched states for the deleted item and its children
+        // and adjust indices for items after the deleted one
+        Object.keys(newTouched).forEach(key => {
+          const keyPath = key.split('.');
+          
+          // Check if this key is related to the array we're modifying
+          if (keyPath.length > parentPath.length && 
+              parentPath.every((val, idx) => String(val) === keyPath[idx])) {
+            
+            const itemIndex = Number(keyPath[parentPath.length]);
+            
+            // If this is for the deleted item or its children, remove it
+            if (!isNaN(itemIndex) && itemIndex === arrayIndex) {
+              delete newTouched[key];
+            } 
+            // If this is for an item after the deleted one, adjust its index
+            else if (!isNaN(itemIndex) && itemIndex > arrayIndex) {
+              const newKey = [
+                ...keyPath.slice(0, parentPath.length),
+                String(itemIndex - 1),
+                ...keyPath.slice(parentPath.length + 1),
+              ].join('.');
+              newTouched[newKey] = newTouched[key];
+              delete newTouched[key];
+            }
+          }
         });
-
-        setValues((prev) => {
-          const newValues = { ...prev };
-          const parent = parentPath.reduce(
+        
+        // Create a new errors array with the deleted item's errors removed
+        const newErrors = errors.filter(error => {
+          // Keep errors not related to this array
+          if (!error.path.slice(0, parentPath.length).every((val, idx) => parentPath[idx] === val)) {
+            return true;
+          }
+          
+          // If this is an error for the array itself, keep it
+          if (error.path.length <= parentPath.length) {
+            return true;
+          }
+          
+          const errorIndex = Number(error.path[parentPath.length]);
+          
+          // Remove errors for the deleted item
+          if (!isNaN(errorIndex) && errorIndex === arrayIndex) {
+            return false;
+          }
+          
+          return true;
+        }).map(error => {
+          // Adjust indices for errors on items after the deleted one
+          if (error.path.length > parentPath.length && 
+              error.path.slice(0, parentPath.length).every((val, idx) => parentPath[idx] === val)) {
+            
+            const errorIndex = Number(error.path[parentPath.length]);
+            
+            if (!isNaN(errorIndex) && errorIndex > arrayIndex) {
+              return {
+                ...error,
+                path: [
+                  ...parentPath,
+                  errorIndex - 1,
+                  ...error.path.slice(parentPath.length + 1),
+                ],
+              };
+            }
+          }
+          
+          return error;
+        });
+        
+        // Validate the new array after deletion
+        let finalErrors = newErrors;
+        if (validateOnChange && schema) {
+          const result = validate(schema, newValues);
+          if (!result.valid && result.errors) {
+            // Only add new validation errors for the array path
+            const arrayErrors = result.errors.filter(
+              error => 
+                error.path.length >= parentPath.length &&
+                error.path.slice(0, parentPath.length).every((val, idx) => parentPath[idx] === val)
+            );
+            
+            // Merge with existing errors, avoiding duplicates
+            const existingPaths = newErrors.map(e => e.path.join('.'));
+            const newArrayErrors = arrayErrors.filter(
+              e => !existingPaths.includes(e.path.join('.'))
+            );
+            
+            finalErrors = [...newErrors, ...newArrayErrors];
+          }
+        }
+        
+        // Dispatch a single update with all changes
+        dispatch({
+          type: 'BATCH_UPDATE',
+          updates: {
+            values: newValues,
+            touched: newTouched,
+            errors: finalErrors,
+            lastValidated: Date.now()
+          }
+        });
+      } else {
+        // For non-array items, implement a comprehensive approach
+        // Create a new values object with the item removed
+        const newValues = { ...values };
+        
+        // Handle the case where we're deleting a top-level field
+        if (parentPath.length === 0) {
+          if (Object.prototype.hasOwnProperty.call(newValues, lastKey)) {
+            delete newValues[lastKey as keyof typeof newValues];
+          }
+        } else {
+          // For nested fields, navigate to the parent object
+          const parentObj = parentPath.reduce<Record<string | number, any>>(
             (acc, key) => {
               if (acc && typeof acc === 'object') {
-                return acc[key as keyof typeof acc];
+                return acc[key] || {};
               }
-              return undefined;
+              return {};
             },
             newValues as Record<string | number, any>
           );
 
-          if (parent && typeof parent === 'object') {
-            delete parent[lastKey as keyof typeof parent];
+          if (parentObj && typeof parentObj === 'object') {
+            delete parentObj[lastKey];
           }
-          return newValues;
+        }
+        
+        // Create a new touched state with all related touched states removed
+        const newTouched = { ...touched };
+        const pathPrefix = path.join('.') + '.';
+        
+        // Remove touched state for the deleted field and all its children
+        Object.keys(newTouched).forEach(key => {
+          // Remove exact match
+          if (key === path.join('.')) {
+            delete newTouched[key];
+          }
+          // Remove all nested fields
+          else if (key.startsWith(pathPrefix)) {
+            delete newTouched[key];
+          }
         });
-
-        // For non-array items, just filter out errors for this path
-        setErrors((prev) =>
-          prev.filter(
-            (error) => !error.path.every((val, idx) => path[idx] === val)
-          )
-        );
+        
+        // Create a new errors array with all related errors removed
+        const newErrors = errors.filter(error => {
+          // Keep errors not related to this path
+          if (error.path.length < path.length) {
+            return true;
+          }
+          
+          // Remove errors for the deleted field and its children
+          return !error.path.slice(0, path.length).every(
+            (val, idx) => path[idx] === val
+          );
+        });
+        
+        // Validate the form after deletion
+        let finalErrors = newErrors;
+        if (validateOnChange && schema) {
+          const result = validate(schema, newValues);
+          if (!result.valid && result.errors) {
+            // Only add new validation errors for the parent path
+            const parentErrors = result.errors.filter(
+              error => 
+                error.path.length >= parentPath.length &&
+                error.path.slice(0, parentPath.length).every((val, idx) => parentPath[idx] === val)
+            );
+            
+            // Merge with existing errors, avoiding duplicates
+            const existingPaths = newErrors.map(e => e.path.join('.'));
+            const newParentErrors = parentErrors.filter(
+              e => !existingPaths.includes(e.path.join('.'))
+            );
+            
+            finalErrors = [...newErrors, ...newParentErrors];
+          }
+        }
+        
+        // Dispatch a single update with all changes
+        dispatch({
+          type: 'BATCH_UPDATE',
+          updates: {
+            values: newValues,
+            touched: newTouched,
+            errors: finalErrors,
+            lastValidated: Date.now()
+          }
+        });
       }
     },
-    [deleteArrayItem, values]
+    [values, touched, errors, dispatch, validateOnChange, schema]
   );
 
-  // Add hasField method to check field existence
   const hasField = useCallback(
     (path: (string | number)[]) => {
-      const value = getValueAtPath(values, path);
-      return value !== undefined;
+      // Use a more robust check to determine if a field exists
+      let current = values;
+      for (let i = 0; i < path.length; i++) {
+        if (current === undefined || current === null) return false;
+        if (typeof current !== 'object') return false;
+        
+        const key = path[i];
+        // Check if the key exists in the object using hasOwnProperty
+        if (!Object.prototype.hasOwnProperty.call(current, key)) {
+          return false;
+        }
+        current = current[key];
+      }
+      return true;
     },
     [values]
   );
 
-  // Helper to check if a path exists in the form values
   const pathExists = useCallback(
     (path: (string | number)[]) => {
       let current = values;
@@ -517,6 +774,7 @@ export function FormProvider<T>({
     errors,
     isSubmitting,
     isValid: mountedRef.current && errors.length === 0,
+    lastValidated,
     submit,
     reset,
     validate: (force?: boolean) => {
@@ -535,14 +793,14 @@ export function FormProvider<T>({
       if (!result.valid && result.errors) {
         setErrors((prev) => {
           const serverErrors = prev.filter((e) => e.source === 'server');
-          return [...serverErrors, ...result.errors];
+          return [...serverErrors, ...(result.errors || [])];
         });
       }
       return result.valid;
     },
     getValue,
     setValue,
-    deleteValue,
+    deleteField,
     getValuePaths,
     getError,
     getErrorPaths,
@@ -681,7 +939,7 @@ export function useArrayField(path: (string | number)[]) {
   const remove = useCallback(
     (index: number) => {
       // Use the shared deleteArrayItem helper function
-      form.deleteValue([...path, index]);
+      form.deleteField([...path, index]);
     },
     [form, path]
   );

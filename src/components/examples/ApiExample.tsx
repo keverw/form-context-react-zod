@@ -35,6 +35,9 @@ function ApiForm() {
     form.setValue(['username'], 'gooduser');
     form.setValue(['status'], 'active');
     form.setValue(['score'], 85);
+    
+    // Log the form values after setting them
+    console.log('Form values after setting:', form.values);
   };
 
   const setBadValue = () => {
@@ -44,7 +47,12 @@ function ApiForm() {
   };
 
   const deleteScore = () => {
-    form.deleteValue(['score']);
+    form.deleteField(['score']);
+    console.log('After deleteField:', 
+      'values:', form.values, 
+      'hasScore:', form.hasField(['score']),
+      'touched:', form.touched
+    );
   };
 
   const resetForm = () => {
@@ -76,11 +84,8 @@ function ApiForm() {
   };
 
   const clearAllServerErrors = () => {
-    // Filter out server errors, keep only validation errors
-    const validationErrors = form.errors.filter(
-      (error) => error.source !== 'server'
-    );
-    form.setServerErrors([]); // This will preserve validation errors
+    // Clear all server errors
+    form.setServerErrors([]);
   };
 
   const validateForm = () => {
