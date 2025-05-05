@@ -1,4 +1,3 @@
-import React from 'react';
 import { z } from 'zod';
 import { FormProvider } from '../../lib/form-context';
 import FormInput from '../FormInput';
@@ -9,27 +8,29 @@ import { simulateServer } from './utils';
 import { useFormContext } from '../../lib/hooks/useFormContext';
 import { useField } from '../../lib/hooks/useField';
 import { useToast } from '../useToast';
+import { useEffect, useRef, useState } from 'react';
 
 interface UsernameAvailabilityProps {
   username: string;
 }
 
 function UsernameAvailability({ username }: UsernameAvailabilityProps) {
-  const [checking, setChecking] = React.useState(false);
-  const [available, setAvailable] = React.useState<boolean | null>(null);
-  const [error, setError] = React.useState<string | null>(null);
+  const [checking, setChecking] = useState(false);
+  const [available, setAvailable] = useState<boolean | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const form = useFormContext();
-  const timeoutRef = React.useRef<number>();
-  const currentUsernameRef = React.useRef(username);
-  const networkErrorEnabled = form.getValue(['simulateNetworkError']);
-  const networkErrorRef = React.useRef(networkErrorEnabled);
+  const timeoutRef = useRef<number | null>(null);
+  const currentUsernameRef = useRef(username);
+  const networkErrorEnabled =
+    form.getValue<boolean>(['simulateNetworkError']) ?? false;
+  const networkErrorRef = useRef(networkErrorEnabled);
 
   // Update network error ref without triggering availability check
-  React.useEffect(() => {
+  useEffect(() => {
     networkErrorRef.current = networkErrorEnabled;
   }, [networkErrorEnabled]);
 
-  React.useEffect(() => {
+  useEffect(() => {
     currentUsernameRef.current = username;
 
     // Only reset states if username actually changed
@@ -86,7 +87,8 @@ function UsernameAvailability({ username }: UsernameAvailabilityProps) {
         } else if (usernameErrors.length > 0) {
           setAvailable(false);
         }
-      } catch (error: any) {
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      } catch (error: unknown) {
         if (currentUsernameRef.current === username) {
           setError('Unable to check availability. Please try again.');
         }
@@ -100,7 +102,7 @@ function UsernameAvailability({ username }: UsernameAvailabilityProps) {
         clearTimeout(timeoutRef.current);
       }
     };
-  }, [username]); // Remove networkErrorEnabled from dependencies
+  }, [username, form]); // Add form to dependencies
 
   // Don't show anything if the field is empty or invalid
   const usernameErrors = form.getError(['username']);
@@ -141,7 +143,8 @@ function UsernameAvailability({ username }: UsernameAvailabilityProps) {
                   } else if (usernameErrors.length > 0) {
                     setAvailable(false);
                   }
-                } catch (error: any) {
+                  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+                } catch (error: unknown) {
                   if (currentUsernameRef.current === username) {
                     setError('Unable to check availability. Please try again.');
                   }
@@ -186,14 +189,14 @@ function ServerForm() {
   const usernameField = useField(['username']);
   const emailField = useField(['email']);
   const passwordField = useField(['password']);
-  const simulateNetworkError = form.getValue(['simulateNetworkError']);
+  const simulateNetworkError =
+    form.getValue<boolean>(['simulateNetworkError']) ?? false;
+  const hasExtraField = form.hasField(['extraField']);
   const rootErrors = form.getError([]);
 
   const addExtraField = () => {
     form.setValue(['extraField'], 'This will trigger a schema error');
   };
-
-  const hasExtraField = 'extraField' in form.values;
 
   return (
     <form
@@ -243,7 +246,7 @@ function ServerForm() {
             autoCapitalize="off"
             placeholder="johndoe"
           />
-          <UsernameAvailability username={usernameField.value} />
+          <UsernameAvailability username={String(usernameField.value || '')} />
         </div>
         <FormInput
           {...emailField.props}
@@ -324,7 +327,7 @@ export default function ServerExample() {
             return;
           }
           toast.success('Form submitted successfully!');
-        } catch (error) {
+        } catch (error: unknown) {
           console.error('Submission failed:', error);
           helpers.setServerErrors([
             {

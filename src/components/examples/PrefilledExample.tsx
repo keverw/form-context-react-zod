@@ -1,6 +1,5 @@
-import React from 'react';
 import { z } from 'zod';
-import { FormProvider } from '../../lib/form-context';
+import { FormProvider, FormHelpers } from '../../lib/form-context';
 import FormInput from '../FormInput';
 import { RootErrors, SubmitButton, FormNotice } from './shared';
 import FormState from '../FormState';
@@ -92,13 +91,16 @@ function PrefilledForm() {
 export default function PrefilledExample() {
   const toast = useToast();
 
-  const onSubmit = async (form, values: z.infer<typeof prefilledSchema>) => {
+  const onSubmit = async (
+    values: z.infer<typeof prefilledSchema>,
+    helpers: FormHelpers
+  ) => {
     try {
       await simulateServer(values);
       toast.success('Form submitted successfully!');
     } catch (error) {
       console.error('Submission failed:', error);
-      form.setServerErrors([
+      helpers.setServerErrors([
         {
           path: [],
           message: 'An unexpected error occurred. Please try again.',

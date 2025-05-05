@@ -3,6 +3,23 @@ import { z } from 'zod';
 import { validate, ValidationError } from './zod-helpers';
 import { getValueAtPath, setValueAtPath } from './utils';
 
+export interface FormHelpers {
+  setErrors: (errors: ValidationError[]) => void;
+  setServerErrors: (errors: ValidationError[]) => void;
+  setServerError: (
+    path: (string | number)[],
+    message: string | string[] | null
+  ) => void;
+  setValue: <V = unknown>(path: (string | number)[], value: V) => void;
+  clearValue: (path: (string | number)[]) => void;
+  deleteField: (path: (string | number)[]) => void;
+  validate: (force?: boolean) => boolean;
+  hasField: (path: (string | number)[]) => boolean;
+  touched: Record<string, boolean>;
+  setTouched: React.Dispatch<React.SetStateAction<Record<string, boolean>>>;
+  reset: () => void;
+}
+
 export interface FormContextValue<T> {
   values: T;
   touched: Record<string, boolean>;
@@ -22,12 +39,12 @@ export interface FormContextValue<T> {
   getValuePaths: (path?: (string | number)[]) => (string | number)[][];
   getError: (path: (string | number)[]) => ValidationError[];
   getErrorPaths: (path?: (string | number)[]) => (string | number)[][];
+  hasField: (path: (string | number)[]) => boolean;
   setServerErrors: (errors: ValidationError[]) => void;
   setServerError: (
     path: (string | number)[],
     message: string | string[] | null
   ) => void;
-  hasField: (path: (string | number)[]) => boolean;
 }
 
 export const FormContext = createContext<FormContextValue<unknown> | null>(
@@ -36,25 +53,7 @@ export const FormContext = createContext<FormContextValue<unknown> | null>(
 
 interface FormProviderProps<T> {
   initialValues: T;
-  onSubmit?: (
-    values: T,
-    helpers: {
-      setErrors: (errors: ValidationError[]) => void;
-      setServerErrors: (errors: ValidationError[]) => void;
-      setServerError: (
-        path: (string | number)[],
-        message: string | string[] | null
-      ) => void;
-      setValue: <V = unknown>(path: (string | number)[], value: V) => void;
-      clearValue: (path: (string | number)[]) => void;
-      deleteField: (path: (string | number)[]) => void;
-      validate: (force?: boolean) => boolean;
-      hasField: (path: (string | number)[]) => boolean;
-      touched: Record<string, boolean>;
-      setTouched: React.Dispatch<React.SetStateAction<Record<string, boolean>>>;
-      reset: () => void;
-    }
-  ) => Promise<void> | void;
+  onSubmit?: (values: T, helpers: FormHelpers) => Promise<void> | void;
   schema?: z.ZodType<T>;
   validateOnMount?: boolean;
   validateOnChange?: boolean;
@@ -915,7 +914,7 @@ export function FormProvider<T extends Record<string | number, unknown>>({
       if (!schema || result.valid) {
         // Pass only the values and a subset of helper functions
         // This avoids the circular dependency and ref usage
-        const helpers = {
+        const helpers: FormHelpers = {
           setErrors,
           setServerErrors: (newErrors: ValidationError[]) => {
             // Filter out validation errors and invalid paths

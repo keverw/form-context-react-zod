@@ -1,6 +1,5 @@
-import React from 'react';
 import { z } from 'zod';
-import { FormProvider } from '../../lib/form-context';
+import { FormProvider, FormHelpers } from '../../lib/form-context';
 import FormInput, { FormCheckbox } from '../FormInput';
 import { RootErrors, SubmitButton, FormNotice } from './shared';
 import FormState from '../FormState';
@@ -33,7 +32,13 @@ function TodoItem({ index, total, onMove, onRemove }: TodoItemProps) {
   return (
     <div className="flex items-start space-x-2">
       <div className="flex items-center space-x-2 flex-1 min-w-0">
-        <FormCheckbox {...completedField.props} label="" />
+        <FormCheckbox
+          label=""
+          value={!!completedField.value}
+          onChange={completedField.props.onChange}
+          errorText={completedField.props.errorText as string | null}
+          onBlur={completedField.props.onBlur}
+        />
         <div className="flex-1 min-w-0">
           <FormInput
             {...textField.props}
@@ -192,18 +197,21 @@ function ArrayForm() {
 export default function ArrayExample() {
   const toast = useToast();
 
-  const onSubmit = async (form, values: z.infer<typeof todoSchema>) => {
+  const onSubmit = async (
+    values: z.infer<typeof todoSchema>,
+    helpers: FormHelpers
+  ) => {
     try {
       const errors = await simulateServer(values);
       if (errors.length > 0) {
-        form.setServerErrors(errors);
+        helpers.setServerErrors(errors);
         return;
       }
       toast.success('Form submitted successfully!');
     } catch (error) {
       // Handle unexpected errors
       console.error('Submission failed:', error);
-      form.setServerErrors([
+      helpers.setServerErrors([
         {
           path: [],
           message: 'An unexpected error occurred. Please try again.',

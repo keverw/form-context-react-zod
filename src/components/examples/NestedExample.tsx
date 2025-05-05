@@ -1,6 +1,5 @@
-import React from 'react';
 import { z } from 'zod';
-import { FormProvider } from '../../lib/form-context';
+import { FormProvider, FormHelpers } from '../../lib/form-context';
 import FormInput from '../FormInput';
 import { RootErrors, SubmitButton } from './shared';
 import FormState from '../FormState';
@@ -53,11 +52,14 @@ function NestedForm() {
 export default function NestedExample() {
   const toast = useToast();
 
-  const onSubmit = async (form, values: z.infer<typeof nestedSchema>) => {
+  const onSubmit = async (
+    values: z.infer<typeof nestedSchema>,
+    helpers: FormHelpers
+  ) => {
     try {
       const errors = await simulateServer(values);
       if (errors.length > 0) {
-        form.setServerErrors(errors);
+        helpers.setServerErrors(errors);
         return;
       }
       await new Promise((resolve) => setTimeout(resolve, 1000));
@@ -65,7 +67,7 @@ export default function NestedExample() {
       toast.success('Form submitted successfully!');
     } catch (error) {
       console.error('Submission failed:', error);
-      form.setServerErrors([
+      helpers.setServerErrors([
         {
           path: [],
           message: 'An unexpected error occurred. Please try again.',

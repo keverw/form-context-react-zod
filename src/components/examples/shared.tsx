@@ -1,5 +1,5 @@
 import React from 'react';
-import { Loader2, AlertTriangle, type LucideIcon } from 'lucide-react';
+import { Loader2, AlertTriangle } from 'lucide-react';
 import { useFormContext } from '../../lib/hooks/useFormContext';
 
 export const LoadingSpinner = ({ className = '' }: { className?: string }) => (

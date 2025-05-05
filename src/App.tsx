@@ -1,4 +1,3 @@
-import React from 'react';
 import ExampleTabs from './components/ExampleTabs';
 import { ToastProvider } from './components/Toast';
 

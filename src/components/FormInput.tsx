@@ -1,9 +1,12 @@
 import React from 'react';
 
-interface FormInputProps
-  extends Omit<React.InputHTMLAttributes<HTMLInputElement>, 'onChange'> {
-  value: string;
-  onChange: (value: string) => void;
+interface FormInputProps<T = string>
+  extends Omit<
+    React.InputHTMLAttributes<HTMLInputElement>,
+    'onChange' | 'value'
+  > {
+  value: T;
+  onChange: (value: T) => void;
   onBlur?: () => void;
   errorText?: string | string[] | null;
   touched?: boolean;
@@ -11,28 +14,28 @@ interface FormInputProps
   multiline?: boolean;
 }
 
-const FormInput: React.FC<FormInputProps> = ({
+const FormInput = <T extends string | number | unknown>({
   value,
   onChange,
   onBlur,
   errorText,
-  touched = false,
+  touched, // eslint-disable-line @typescript-eslint/no-unused-vars
   required,
   'aria-required': ariaRequired,
   className = '',
   label,
   multiline,
   ...props
-}) => {
+}: FormInputProps<T>) => {
   const handleInput = (e: React.ChangeEvent<HTMLInputElement>) => {
-    onChange(e.target.value);
+    onChange(e.target.value as unknown as T);
   };
 
   // If value is undefined, use empty string to maintain controlled input state
-  const inputValue = value === undefined ? '' : value;
+  const inputValue = value === undefined ? '' : String(value);
 
   const handleTextArea = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    onChange(e.target.value);
+    onChange(e.target.value as unknown as T);
   };
 
   const baseClasses =
@@ -64,7 +67,7 @@ const FormInput: React.FC<FormInputProps> = ({
       )}
       {multiline ? (
         <textarea
-          {...(props as any)}
+          {...(props as React.TextareaHTMLAttributes<HTMLTextAreaElement>)}
           value={inputValue}
           onChange={handleTextArea}
           onBlur={onBlur}
@@ -91,12 +94,12 @@ const FormInput: React.FC<FormInputProps> = ({
 interface FormCheckboxProps
   extends Omit<
     React.InputHTMLAttributes<HTMLInputElement>,
-    'onChange' | 'type'
+    'onChange' | 'type' | 'value' | 'checked'
   > {
   value: boolean;
   onChange: (value: boolean) => void;
   onBlur?: () => void;
-  errorText?: string | null;
+  errorText?: string | string[] | null;
   touched?: boolean;
   label?: string;
 }
@@ -106,7 +109,7 @@ export const FormCheckbox: React.FC<FormCheckboxProps> = ({
   onChange,
   onBlur,
   errorText,
-  touched = false,
+  touched, // eslint-disable-line @typescript-eslint/no-unused-vars
   required,
   'aria-required': ariaRequired,
   className = '',
@@ -117,26 +120,42 @@ export const FormCheckbox: React.FC<FormCheckboxProps> = ({
     onChange(e.target.checked);
   };
 
+  const renderError = () => {
+    if (!errorText) return null;
+    if (Array.isArray(errorText)) {
+      return (
+        <ul className="text-sm text-red-600 mt-1 space-y-1" role="alert">
+          {errorText.map((err, i) => (
+            <li key={i}>{err}</li>
+          ))}
+        </ul>
+      );
+    }
+    return (
+      <div className="text-sm text-red-600 mt-1" role="alert">
+        {errorText}
+      </div>
+    );
+  };
+
   return (
-    <div className="flex items-center space-x-2">
-      <input
-        {...props}
-        type="checkbox"
-        checked={value}
-        onChange={handleChange}
-        onBlur={onBlur}
-        className={`w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500 ${className}`}
-        aria-required={ariaRequired || required || undefined}
-        aria-invalid={errorText ? true : undefined}
-      />
-      {label && (
-        <label className="text-sm font-medium text-gray-700">{label}</label>
-      )}
-      {errorText && (
-        <div className="text-sm text-red-600" role="alert">
-          {errorText}
-        </div>
-      )}
+    <div className="flex flex-col">
+      <div className="flex items-center space-x-2">
+        <input
+          {...props}
+          type="checkbox"
+          checked={value}
+          onChange={handleChange}
+          onBlur={onBlur}
+          className={`w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500 ${className}`}
+          aria-required={ariaRequired || required || undefined}
+          aria-invalid={errorText ? true : undefined}
+        />
+        {label && (
+          <label className="text-sm font-medium text-gray-700">{label}</label>
+        )}
+      </div>
+      {renderError()}
     </div>
   );
 };
