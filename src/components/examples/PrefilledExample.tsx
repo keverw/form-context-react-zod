@@ -1,9 +1,11 @@
 import React from 'react';
 import { z } from 'zod';
-import { FormProvider, useFormContext, useField } from '../../lib/form-context';
+import { FormProvider } from '../../lib/form-context';
 import FormInput from '../FormInput';
 import { RootErrors, SubmitButton, FormNotice } from './shared';
 import FormState from '../FormState';
+import { useFormContext } from '../../lib/hooks/useFormContext';
+import { useField } from '../../lib/hooks/useField';
 
 const prefilledSchema = z.object({
   username: z.string().min(3, 'Username must be at least 3 characters'),

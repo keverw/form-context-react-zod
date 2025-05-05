@@ -1,16 +1,22 @@
 import React from 'react';
 import { z } from 'zod';
-import {
-  FormProvider,
-  useFormContext,
-  useArrayField,
-  useField,
-} from '../../lib/form-context';
+import { FormProvider } from '../../lib/form-context';
 import FormInput, { FormCheckbox } from '../FormInput';
 import { RootErrors, SubmitButton, FormNotice } from './shared';
 import FormState from '../FormState';
-import { X, ArrowUp, ArrowDown, Plus, Trash2, ShieldCheck } from 'lucide-react';
+import {
+  X,
+  ArrowUp,
+  ArrowDown,
+  Plus,
+  Trash2,
+  ShieldCheck,
+  FileX,
+} from 'lucide-react';
 import { simulateServer } from './utils';
+import { useFormContext } from '../../lib/hooks/useFormContext';
+import { useField } from '../../lib/hooks/useField';
+import { useArrayField } from '../../lib/hooks/useArrayField';
 
 interface TodoItemProps {
   index: number;
@@ -89,6 +95,10 @@ function ArrayForm() {
     form.deleteField(['todos', index]);
   };
 
+  const clearTodoItem = (index: number) => {
+    form.clearValue(['todos', index]);
+  };
+
   const validateForm = () => {
     const isValid = form.validate();
     if (isValid) {
@@ -153,6 +163,13 @@ function ArrayForm() {
             className="flex items-center px-4 py-2 text-red-700 bg-red-50 rounded-lg hover:bg-red-100"
           >
             <Trash2 className="w-4 h-4 mr-2" /> Delete Index 1
+          </button>
+          <button
+            type="button"
+            onClick={() => clearTodoItem(0)}
+            className="flex items-center px-4 py-2 text-amber-700 bg-amber-50 rounded-lg hover:bg-amber-100"
+          >
+            <FileX className="w-4 h-4 mr-2" /> Clear Index 0
           </button>
           <button
             type="button"

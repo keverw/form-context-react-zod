@@ -1,15 +1,13 @@
 import React from 'react';
 import { z } from 'zod';
-import {
-  FormProvider,
-  useFormContext,
-  useArrayField,
-  useField,
-} from '../../lib/form-context';
+import { FormProvider } from '../../lib/form-context';
 import FormInput from '../FormInput';
 import { RootErrors, SubmitButton, FormNotice } from './shared';
 import FormState from '../FormState';
-import { Plus, Equal, X, ArrowUp, ArrowDown } from 'lucide-react';
+import { Plus, Equal, X, ArrowUp, ArrowDown, FileX } from 'lucide-react';
+import { useFormContext } from '../../lib/hooks/useFormContext';
+import { useField } from '../../lib/hooks/useField';
+import { useArrayField } from '../../lib/hooks/useArrayField';
 
 interface NumberItemProps {
   index: number;
@@ -90,6 +88,10 @@ function ArraySingleValuesForm() {
     .map((v) => Number(v) || 0)
     .reduce((sum, num) => sum + num, 0);
 
+  const clearNumberItem = (index: number) => {
+    form.clearValue(['numbers', index]);
+  };
+
   return (
     <form
       onSubmit={(e) => {
@@ -129,6 +131,17 @@ function ArraySingleValuesForm() {
           Add Number
         </button>
 
+        <div className="grid grid-cols-2 gap-3 mt-4">
+          <button
+            type="button"
+            onClick={() => clearNumberItem(0)}
+            className="flex items-center justify-center px-4 py-2 text-amber-700 bg-amber-50 rounded-lg hover:bg-amber-100"
+          >
+            <FileX className="w-4 h-4 mr-2" />
+            Clear First Number
+          </button>
+        </div>
+
         <div className="flex items-center space-x-3 mt-6">
           <Equal className="w-5 h-5 text-emerald-500 shrink-0" />
           <div className="flex-1 px-4 py-2 bg-emerald-50 text-emerald-700 rounded-lg font-medium text-lg">
@@ -146,20 +159,26 @@ function ArraySingleValuesForm() {
   );
 }
 
+const calculateSum = (numbers: string[]) => {
+  return numbers.reduce((sum, str) => sum + (Number(str) || 0), 0);
+};
+
 export default function ArraySingleValuesExample() {
   return (
     <FormProvider
       initialValues={{
-        numbers: [''],
+        numbers: [10, 20],
       }}
       schema={calculatorSchema}
-      onSubmit={async (form, values) => {
-        alert(
-          'Form submitted successfully!\nTotal: ' +
-            values.numbers
-              .reduce((sum, str) => sum + (Number(str) || 0), 0)
-              .toLocaleString()
-        );
+      onSubmit={async (values, helpers) => {
+        try {
+          console.log('Sum:', calculateSum(values.numbers));
+          await new Promise((resolve) => setTimeout(resolve, 500));
+          alert(`Submitted with sum: ${calculateSum(values.numbers)}`);
+        } catch (error) {
+          console.error('Submission error:', error);
+          helpers.setServerError([], 'An unexpected error occurred');
+        }
       }}
     >
       <ArraySingleValuesForm />

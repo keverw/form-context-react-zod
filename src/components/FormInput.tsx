@@ -5,7 +5,7 @@ interface FormInputProps
   value: string;
   onChange: (value: string) => void;
   onBlur?: () => void;
-  errorText?: string | null;
+  errorText?: string | string[] | null;
   touched?: boolean;
   label?: string;
   multiline?: boolean;
@@ -41,12 +41,19 @@ const FormInput: React.FC<FormInputProps> = ({
     ? 'border-red-300 bg-red-50 focus:border-red-500 focus:ring-red-200'
     : 'border-gray-300 focus:border-blue-500 focus:ring-blue-200';
 
-  // Get all errors for this field
-  const allErrors = Array.isArray(errorText)
-    ? errorText
-    : errorText
-      ? [errorText]
-      : [];
+  const renderError = () => {
+    if (!errorText) return null;
+    if (Array.isArray(errorText)) {
+      return (
+        <ul className="form-input__error-list">
+          {errorText.map((err, i) => (
+            <li key={i}>{err}</li>
+          ))}
+        </ul>
+      );
+    }
+    return <span className="form-input__error-text">{errorText}</span>;
+  };
 
   return (
     <div className="space-y-2">
@@ -76,15 +83,7 @@ const FormInput: React.FC<FormInputProps> = ({
           aria-invalid={errorText ? true : undefined}
         />
       )}
-      {allErrors.length > 0 && (
-        <div className="space-y-1" role="alert">
-          {allErrors.map((error, index) => (
-            <p key={index} className="text-sm text-red-600">
-              {error}
-            </p>
-          ))}
-        </div>
-      )}
+      {renderError()}
     </div>
   );
 };

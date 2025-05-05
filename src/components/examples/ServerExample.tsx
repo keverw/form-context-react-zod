@@ -1,11 +1,13 @@
 import React from 'react';
 import { z } from 'zod';
-import { FormProvider, useFormContext, useField } from '../../lib/form-context';
+import { FormProvider } from '../../lib/form-context';
 import FormInput from '../FormInput';
 import { FormNotice, SubmitButton, LoadingSpinner } from './shared';
 import FormState from '../FormState';
 import { Bug, Trash2, Check, X, WifiOff, AlertTriangle } from 'lucide-react';
 import { simulateServer } from './utils';
+import { useFormContext } from '../../lib/hooks/useFormContext';
+import { useField } from '../../lib/hooks/useField';
 
 interface UsernameAvailabilityProps {
   username: string;
@@ -311,17 +313,17 @@ export default function ServerExample() {
         simulateNetworkError: false,
       }}
       schema={serverSchema}
-      onSubmit={async (form, values) => {
+      onSubmit={async (values, helpers) => {
         try {
           const errors = await simulateServer(values);
           if (errors.length > 0) {
-            form.setServerErrors(errors);
+            helpers.setServerErrors(errors);
             return;
           }
           alert('Form submitted successfully!');
         } catch (error) {
           console.error('Submission failed:', error);
-          form.setServerErrors([
+          helpers.setServerErrors([
             {
               path: [],
               message: 'An unexpected error occurred. Please try again.',

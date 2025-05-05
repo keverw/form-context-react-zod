@@ -1,9 +1,11 @@
 import React from 'react';
 import { z } from 'zod';
-import { FormProvider, useFormContext, useField } from '../../lib/form-context';
+import { FormProvider } from '../../lib/form-context';
 import { RootErrors, SubmitButton } from './shared';
 import FormState from '../FormState';
 import { AlertTriangle } from 'lucide-react';
+import { useFormContext } from '../../lib/hooks/useFormContext';
+import { useField } from '../../lib/hooks/useField';
 
 const errorSchema = z.object({
   mode: z.enum(['normal', 'error']),
@@ -74,7 +76,7 @@ export default function UnhandledErrorExample() {
     <FormProvider
       initialValues={{ mode: 'normal' as const }}
       schema={errorSchema}
-      onSubmit={async (form, values) => {
+      onSubmit={async (values, helpers) => {
         // Simulate processing delay
         await new Promise((resolve) => setTimeout(resolve, 500));
 

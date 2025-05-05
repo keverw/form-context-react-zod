@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
-import { useFormContext } from '../lib/form-context';
+import { useFormContext } from '../lib/hooks/useFormContext';
 
-function ValueDisplay({ value }: { value: any }) {
+function ValueDisplay({ value }: { value: unknown }) {
   if (value === undefined)
     return <span className="text-gray-400">undefined</span>;
   if (value === null) return <span className="text-gray-400">null</span>;
@@ -75,8 +75,10 @@ export default function FormState() {
 
     const updateTimeAgo = () => {
       const now = Date.now();
-      const diff = now - form.lastValidated;
-      
+      // Add null check to handle the case when lastValidated is null
+      const lastValidatedTime = form.lastValidated || 0;
+      const diff = now - lastValidatedTime;
+
       if (diff < 1000) {
         setTimeAgo('Just now');
       } else if (diff < 60000) {
@@ -90,10 +92,10 @@ export default function FormState() {
 
     // Update immediately
     updateTimeAgo();
-    
+
     // Then update every second
     const interval = setInterval(updateTimeAgo, 1000);
-    
+
     return () => clearInterval(interval);
   }, [form.lastValidated]);
 

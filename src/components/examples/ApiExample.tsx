@@ -1,6 +1,6 @@
 import React from 'react';
 import { z } from 'zod';
-import { FormProvider, useFormContext, useField } from '../../lib/form-context';
+import { FormProvider } from '../../lib/form-context';
 import FormInput from '../FormInput';
 import { RootErrors, SubmitButton, FormNotice } from './shared';
 import FormState from '../FormState';
@@ -15,7 +15,10 @@ import {
   ShieldCheck,
   XCircle,
   Eraser,
+  Delete,
 } from 'lucide-react';
+import { useFormContext } from '../../lib/hooks/useFormContext';
+import { useField } from '../../lib/hooks/useField';
 
 const apiSchema = z.object({
   username: z.string().min(3, 'Username must be at least 3 characters'),
@@ -35,24 +38,20 @@ function ApiForm() {
     form.setValue(['username'], 'gooduser');
     form.setValue(['status'], 'active');
     form.setValue(['score'], 85);
-    
-    // Log the form values after setting them
-    console.log('Form values after setting:', form.values);
   };
 
   const setBadValue = () => {
     form.setValue(['username'], 'x'); // Too short
-    form.setValue(['status'], 'unknown' as any); // Invalid enum
+    form.setValue(['status'], 'unknown' as unknown as string); // Invalid enum
     form.setValue(['score'], 150); // Above max
   };
 
   const deleteScore = () => {
     form.deleteField(['score']);
-    console.log('After deleteField:', 
-      'values:', form.values, 
-      'hasScore:', form.hasField(['score']),
-      'touched:', form.touched
-    );
+  };
+
+  const clearScore = () => {
+    form.clearValue(['score']);
   };
 
   const resetForm = () => {
@@ -175,6 +174,15 @@ function ApiForm() {
           </button>
           <button
             type="button"
+            onClick={clearScore}
+            disabled={!hasScore}
+            className="flex items-center justify-center px-4 py-2 text-amber-700 bg-amber-50 rounded-lg hover:bg-amber-100"
+          >
+            <Delete className="w-4 h-4 mr-2" />
+            Clear Score
+          </button>
+          <button
+            type="button"
             onClick={resetForm}
             className="flex items-center justify-center px-4 py-2 text-blue-700 bg-blue-50 rounded-lg hover:bg-blue-100"
           >
@@ -211,7 +219,7 @@ function ApiForm() {
             className="flex items-center justify-center px-4 py-2 text-gray-700 bg-gray-50 rounded-lg hover:bg-gray-100"
           >
             <XCircle className="w-4 h-4 mr-2" />
-            Clear Server Error
+            Clear Server Error - Username
           </button>
           <button
             type="button"
@@ -255,8 +263,30 @@ export default function ApiExample() {
         score: 50,
       }}
       schema={apiSchema}
-      onSubmit={async (form, values) => {
-        alert('Form submitted successfully!');
+      onSubmit={async (values, helpers) => {
+        try {
+          const json = JSON.stringify(values, null, 2);
+          console.log('Submitting:', json);
+
+          // Simulate API call
+          await new Promise((resolve) => setTimeout(resolve, 1000));
+
+          if (values.username.toLowerCase() === 'error') {
+            // Simulate validation error from API
+            helpers.setServerError(['username'], 'Username already exists');
+            return;
+          }
+
+          // Simulate success
+          console.log('Submitted successfully!');
+          alert(`Form submitted successfully!\n\n${json}`);
+        } catch (error) {
+          console.error('Submission error:', error);
+          helpers.setServerError(
+            [],
+            'An unexpected error occurred. Please try again.'
+          );
+        }
       }}
     >
       <ApiForm />
