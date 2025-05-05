@@ -182,13 +182,17 @@ export function FormProvider<T extends Record<string | number, unknown>>({
   const pendingSetValueRef = React.useRef<
     Map<string, { path: (string | number)[]; value: unknown }>
   >(new Map());
-  const setValueTimeoutRef = React.useRef<number | null>(null);
+  const setValueTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(
+    null
+  );
 
   // Keep track of pending setServerError operations
   const pendingServerErrorsRef = React.useRef<
     Map<string, { path: (string | number)[]; messages: string[] | null }>
   >(new Map());
-  const setServerErrorTimeoutRef = React.useRef<number | null>(null);
+  const setServerErrorTimeoutRef = React.useRef<ReturnType<
+    typeof setTimeout
+  > | null>(null);
 
   const getValuePaths = useCallback(
     (basePath: (string | number)[] = []) => {

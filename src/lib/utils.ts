@@ -43,7 +43,6 @@ export function setValueAtPath<T extends Record<string | number, unknown>>(
 
   // If path is empty, cannot set value
   if (lastKey === undefined) {
-    console.error('setValueAtPath called with empty path');
     return;
   }
 
@@ -80,7 +79,7 @@ export function setValueAtPath<T extends Record<string | number, unknown>>(
       obj
     ); // Start reduction with the original object
   } catch (error) {
-    console.error('Failed to traverse path for setValueAtPath:', error);
+    // Failed to traverse path for setValueAtPath
     return; // Stop execution if path traversal fails
   }
 
@@ -88,8 +87,7 @@ export function setValueAtPath<T extends Record<string | number, unknown>>(
   if (typeof parent === 'object' && parent !== null) {
     parent[lastKey] = value;
   } else {
-    console.error(
-      `Cannot set value at path '${path.join('.')}': parent element is not an object or array.`
-    );
+    // Cannot set value at path as parent element is not an object or array.
+    return;
   }
 }
