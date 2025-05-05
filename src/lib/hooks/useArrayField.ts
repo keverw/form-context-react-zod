@@ -1,10 +1,13 @@
-import { useCallback } from 'react';
+import { useCallback, useMemo } from 'react';
 import { useFormContext } from './useFormContext';
 import { ValidationError } from '../zod-helpers';
 
 export function useArrayField(path: (string | number)[]) {
   const form = useFormContext();
-  const items = form.getValue(path) || [];
+  const items = useMemo(() => {
+    const value = form.getValue(path);
+    return Array.isArray(value) ? value : [];
+  }, [form, path]);
 
   const add = useCallback(
     (item: unknown) => {

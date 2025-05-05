@@ -7,6 +7,7 @@ import FormState from '../FormState';
 import { simulateServer } from './utils';
 import { useFormContext } from '../../lib/hooks/useFormContext';
 import { useField } from '../../lib/hooks/useField';
+import { useToast } from '../useToast';
 
 const basicSchema = z.object({
   name: z.string().min(2, 'Name must be at least 2 characters'),
@@ -45,6 +46,7 @@ function BasicForm() {
 }
 
 export default function BasicExample() {
+  const toast = useToast();
   const onSubmit = async (form, values: z.infer<typeof basicSchema>) => {
     try {
       const errors = await simulateServer(values);
@@ -52,7 +54,7 @@ export default function BasicExample() {
         form.setServerErrors(errors);
         return;
       }
-      alert('Form submitted successfully!');
+      toast.success('Form submitted successfully!');
     } catch (error) {
       console.error('Submission failed:', error);
       form.setServerErrors([

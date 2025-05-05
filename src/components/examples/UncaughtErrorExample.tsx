@@ -7,6 +7,7 @@ import FormState from '../FormState';
 import { AlertTriangle } from 'lucide-react';
 import { useFormContext } from '../../lib/hooks/useFormContext';
 import { useField } from '../../lib/hooks/useField';
+import { showToast } from '../Toast';
 
 const schema = z.object({
   name: z.string().min(1, 'Name is required'),
@@ -142,8 +143,9 @@ export default function UncaughtErrorExample() {
         crashMode: 'none' as const,
       }}
       schema={schema}
-      onSubmit={(values, helpers) => {
-        // No try/catch here to demonstrate how uncaught errors are handled
+      onSubmit={async (values) => {
+        // DO NOT add try/catch here
+        // This  to demonstrate how uncaught errors are handled by the underlying form context
 
         if (values.crashMode === 'throw') {
           // Synchronous error
@@ -161,7 +163,10 @@ export default function UncaughtErrorExample() {
           // Normal flow
           return new Promise((resolve) => {
             setTimeout(() => {
-              alert(`Form submitted successfully for ${values.name}`);
+              showToast.success(
+                `Form submitted successfully for ${values.name}`
+              );
+
               resolve();
             }, 500);
           });

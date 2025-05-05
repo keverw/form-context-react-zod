@@ -6,6 +6,7 @@ import FormState from '../FormState';
 import { AlertTriangle } from 'lucide-react';
 import { useFormContext } from '../../lib/hooks/useFormContext';
 import { useField } from '../../lib/hooks/useField';
+import { useToast } from '../useToast';
 
 const errorSchema = z.object({
   mode: z.enum(['normal', 'error']),
@@ -72,11 +73,13 @@ function ErrorForm() {
 }
 
 export default function UnhandledErrorExample() {
+  const toast = useToast();
+
   return (
     <FormProvider
       initialValues={{ mode: 'normal' as const }}
       schema={errorSchema}
-      onSubmit={async (values, helpers) => {
+      onSubmit={async (values) => {
         // Simulate processing delay
         await new Promise((resolve) => setTimeout(resolve, 500));
 
@@ -86,7 +89,7 @@ export default function UnhandledErrorExample() {
         }
 
         // Otherwise show success
-        alert('Form submitted successfully!');
+        toast.success('Form submitted successfully!');
       }}
     >
       <ErrorForm />

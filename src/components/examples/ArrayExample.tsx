@@ -17,6 +17,7 @@ import { simulateServer } from './utils';
 import { useFormContext } from '../../lib/hooks/useFormContext';
 import { useField } from '../../lib/hooks/useField';
 import { useArrayField } from '../../lib/hooks/useArrayField';
+import { useToast } from '../useToast';
 
 interface TodoItemProps {
   index: number;
@@ -88,6 +89,7 @@ const todoSchema = z.object({
 
 function ArrayForm() {
   const form = useFormContext();
+  const toast = useToast();
   const todos = useArrayField(['todos']);
   const { items, add, remove, move } = todos;
 
@@ -102,18 +104,18 @@ function ArrayForm() {
   const validateForm = () => {
     const isValid = form.validate();
     if (isValid) {
-      alert('Form is valid! (Only showing errors for touched fields)');
+      toast.success('Form is valid! (Only showing errors for touched fields)');
     } else {
-      alert('Form has validation errors. Check touched fields above.');
+      toast.error('Form has validation errors. Check touched fields above.');
     }
   };
 
   const validateFormForced = () => {
     const isValid = form.validate(true);
     if (isValid) {
-      alert('Form is valid!');
+      toast.success('Form is valid!');
     } else {
-      alert(
+      toast.error(
         'Form has validation errors. All fields are now marked as touched.'
       );
     }
@@ -188,6 +190,8 @@ function ArrayForm() {
 }
 
 export default function ArrayExample() {
+  const toast = useToast();
+
   const onSubmit = async (form, values: z.infer<typeof todoSchema>) => {
     try {
       const errors = await simulateServer(values);
@@ -195,7 +199,7 @@ export default function ArrayExample() {
         form.setServerErrors(errors);
         return;
       }
-      alert('Form submitted successfully!');
+      toast.success('Form submitted successfully!');
     } catch (error) {
       // Handle unexpected errors
       console.error('Submission failed:', error);

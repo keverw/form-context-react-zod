@@ -6,6 +6,8 @@ import { RootErrors, SubmitButton } from './shared';
 import FormState from '../FormState';
 import { useFormContext } from '../../lib/hooks/useFormContext';
 import { useField } from '../../lib/hooks/useField';
+import { useToast } from '../useToast';
+import { simulateServer } from './utils';
 
 const nestedSchema = z.object({
   user: z.object({
@@ -49,6 +51,8 @@ function NestedForm() {
 }
 
 export default function NestedExample() {
+  const toast = useToast();
+
   const onSubmit = async (form, values: z.infer<typeof nestedSchema>) => {
     try {
       const errors = await simulateServer(values);
@@ -56,7 +60,9 @@ export default function NestedExample() {
         form.setServerErrors(errors);
         return;
       }
-      alert('Form submitted successfully!');
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      console.log('Submitted values:', values);
+      toast.success('Form submitted successfully!');
     } catch (error) {
       console.error('Submission failed:', error);
       form.setServerErrors([

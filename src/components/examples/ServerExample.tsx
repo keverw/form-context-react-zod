@@ -8,6 +8,7 @@ import { Bug, Trash2, Check, X, WifiOff, AlertTriangle } from 'lucide-react';
 import { simulateServer } from './utils';
 import { useFormContext } from '../../lib/hooks/useFormContext';
 import { useField } from '../../lib/hooks/useField';
+import { useToast } from '../useToast';
 
 interface UsernameAvailabilityProps {
   username: string;
@@ -303,6 +304,8 @@ function ServerForm() {
 }
 
 export default function ServerExample() {
+  const toast = useToast();
+
   return (
     <FormProvider
       initialValues={{
@@ -320,7 +323,7 @@ export default function ServerExample() {
             helpers.setServerErrors(errors);
             return;
           }
-          alert('Form submitted successfully!');
+          toast.success('Form submitted successfully!');
         } catch (error) {
           console.error('Submission failed:', error);
           helpers.setServerErrors([

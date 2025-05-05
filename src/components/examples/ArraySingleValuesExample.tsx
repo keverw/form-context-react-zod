@@ -8,6 +8,7 @@ import { Plus, Equal, X, ArrowUp, ArrowDown, FileX } from 'lucide-react';
 import { useFormContext } from '../../lib/hooks/useFormContext';
 import { useField } from '../../lib/hooks/useField';
 import { useArrayField } from '../../lib/hooks/useArrayField';
+import { useToast } from '../useToast';
 
 interface NumberItemProps {
   index: number;
@@ -164,21 +165,19 @@ const calculateSum = (numbers: string[]) => {
 };
 
 export default function ArraySingleValuesExample() {
+  const toast = useToast();
+
   return (
     <FormProvider
       initialValues={{
         numbers: [10, 20],
       }}
       schema={calculatorSchema}
-      onSubmit={async (values, helpers) => {
-        try {
-          console.log('Sum:', calculateSum(values.numbers));
-          await new Promise((resolve) => setTimeout(resolve, 500));
-          alert(`Submitted with sum: ${calculateSum(values.numbers)}`);
-        } catch (error) {
-          console.error('Submission error:', error);
-          helpers.setServerError([], 'An unexpected error occurred');
-        }
+      onSubmit={async (values) => {
+        // Simulate server delay
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+        console.log('Submitted values:', values);
+        toast.success(`Submitted with sum: ${calculateSum(values.numbers)}`);
       }}
     >
       <ArraySingleValuesForm />

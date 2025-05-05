@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { useFormContext } from '../../lib/hooks/useFormContext';
 import { useField } from '../../lib/hooks/useField';
+import { useToast } from '../useToast';
 
 const apiSchema = z.object({
   username: z.string().min(3, 'Username must be at least 3 characters'),
@@ -28,6 +29,7 @@ const apiSchema = z.object({
 
 function ApiForm() {
   const form = useFormContext();
+  const toast = useToast();
   const usernameField = useField(['username']);
   const statusField = useField(['status']);
   const scoreField = useField(['score']);
@@ -90,18 +92,18 @@ function ApiForm() {
   const validateForm = () => {
     const isValid = form.validate();
     if (isValid) {
-      alert('Form is valid! (Only showing errors for touched fields)');
+      toast.success('Form is valid! (Only showing errors for touched fields)');
     } else {
-      alert('Form has validation errors. Check touched fields above.');
+      toast.error('Form has validation errors. Check touched fields above.');
     }
   };
 
   const validateFormForced = () => {
     const isValid = form.validate(true);
     if (isValid) {
-      alert('Form is valid!');
+      toast.success('Form is valid!');
     } else {
-      alert(
+      toast.error(
         'Form has validation errors. All fields are now marked as touched.'
       );
     }
@@ -255,6 +257,8 @@ function ApiForm() {
 }
 
 export default function ApiExample() {
+  const toast = useToast();
+
   return (
     <FormProvider
       initialValues={{
@@ -279,7 +283,7 @@ export default function ApiExample() {
 
           // Simulate success
           console.log('Submitted successfully!');
-          alert(`Form submitted successfully!\n\n${json}`);
+          toast.success(`Form submitted successfully!\n\n${json}`);
         } catch (error) {
           console.error('Submission error:', error);
           helpers.setServerError(
