@@ -13,10 +13,11 @@ The FormProvider manages the form state and provides context for all form hooks.
 ```tsx
 interface FormProviderProps<T> {
   initialValues: T;
-  onSubmit?: (form: FormContextValue<T>, values: T) => Promise<void> | void;
+  onSubmit?: (values: T, helpers: FormHelpers) => Promise<void> | void;
   schema?: z.ZodType<T>;
   validateOnMount?: boolean; // Whether to run validation immediately
   validateOnChange?: boolean; // Whether to run validation on every change
+  children: React.ReactNode;
 }
 ```
 
@@ -33,18 +34,20 @@ State getters:
 - `isSubmitting`: Boolean indicating submission state
 - `isValid`: Boolean indicating if form passes validation
 - `errors`: Current validation/server errors
+- `lastValidated`: Timestamp of the last validation
 
 Form operations:
 
 - `submit()`: Trigger form submission
 - `reset()`: Reset form to initial values
-- `validate()`: Manually trigger form validation
+- `validate(force?: boolean)`: Manually trigger form validation
 
 Value operations:
 
 - `getValue(path)`: Get value at specific path
-- `setValue(path, value)`: Set value at specific path
-- `deleteField(path)`: Remove field at path
+- `setValue(path, value)`: Set value at specific path (batched for performance)
+- `clearValue(path)`: Reset field to empty value based on its type
+- `deleteField(path)`: Remove field at path (handles arrays properly)
 - `hasField(path)`: Check if field exists
 - `getValuePaths(path?)`: Get all value paths under given path
 
@@ -52,8 +55,34 @@ Error operations:
 
 - `getError(path)`: Get array of errors at specific path level
 - `getErrorPaths(path?)`: Get all error paths under given path
+- `setErrors(errors)`: Set all errors (replaces existing errors)
 - `setServerErrors(errors)`: Replace all server errors with new ones
 - `setServerError(path, message)`: Set server error(s) for a specific path
+
+Touch state operations:
+
+- `setFieldTouched(path, value?)`: Mark field as touched/untouched (batched for performance)
+
+### FormHelpers Interface
+
+```tsx
+export interface FormHelpers {
+  setErrors: (errors: ValidationError[]) => void;
+  setServerErrors: (errors: ValidationError[]) => void;
+  setServerError: (
+    path: (string | number)[],
+    message: string | string[] | null
+  ) => void;
+  setValue: <V = unknown>(path: (string | number)[], value: V) => void;
+  clearValue: (path: (string | number)[]) => void;
+  deleteField: (path: (string | number)[]) => void;
+  validate: (force?: boolean) => boolean;
+  hasField: (path: (string | number)[]) => boolean;
+  touched: Record<string, boolean>;
+  setFieldTouched: (path: (string | number)[], value?: boolean) => void;
+  reset: () => void;
+}
+```
 
 Server Error Handling:
 
@@ -97,6 +126,7 @@ Important Server Error Behaviors:
    - Preserves all validation errors
    - Pass `null` to clear all server errors at the specified path
    - Use `setServerErrors([])` to clear all server errors while preserving validation errors
+   - Operations are batched for performance
 
 ```tsx
 // Direct value operations
@@ -109,6 +139,8 @@ const hasScore = form.hasField(['score']);
 
 // Manual validation
 const isValid = form.validate();
+// Force validation and mark all fields as touched
+const isValidForced = form.validate(true);
 
 // Get all value paths under todos
 const todoPaths = form.getValuePaths(['todos']);
@@ -122,6 +154,26 @@ const errors = form.getError(['todos', 0]);
 const errorPaths = form.getErrorPaths(['todos']);
 // Returns: [['todos', 0, 'text'], ['todos', 1, 'completed'], ...]
 ```
+
+### Performance Optimizations
+
+The form library includes several performance optimizations:
+
+1. Batched updates:
+
+   - Multiple `setValue` calls are batched and processed together
+   - Multiple `setFieldTouched` calls are batched
+   - Multiple `setServerError` calls are batched
+
+2. Optimized validation:
+
+   - Validation only runs when needed
+   - Cache timestamps of last validation
+   - Only validate changed fields when possible
+
+3. Efficient state management:
+   - Uses React's useReducer for state management
+   - Only rerenders when relevant state changes
 
 ### Hooks
 
@@ -193,6 +245,41 @@ todos.remove(0);
 // Move todo (handles error repositioning)
 todos.move(0, 1);
 ```
+
+## Form Submission
+
+When using the `onSubmit` prop, it receives the form values and a set of helper functions:
+
+```tsx
+<FormProvider
+  initialValues={{ name: '', email: '' }}
+  onSubmit={async (values, helpers) => {
+    try {
+      // Attempt to submit the form
+      await submitToServer(values);
+    } catch (error) {
+      // Set a server error
+      helpers.setServerError([], 'Failed to submit form');
+    }
+  }}
+>
+  {/* Form components */}
+</FormProvider>
+```
+
+The `helpers` object provides access to:
+
+- `setErrors`: Set all errors
+- `setServerErrors`: Replace all server errors
+- `setServerError`: Set server error for specific path
+- `setValue`: Update field value
+- `clearValue`: Reset field to empty value
+- `deleteField`: Remove field
+- `validate`: Manually trigger validation
+- `hasField`: Check if field exists
+- `touched`: Current touched state
+- `setFieldTouched`: Mark field as touched
+- `reset`: Reset form to initial values
 
 ## Best Practices
 
@@ -463,16 +550,21 @@ type UserForm = z.infer<typeof userSchema>;
 Server errors should be structured to match form fields and can be set using the form instance:
 
 ```typescript
-interface ServerError {
+interface ValidationError {
   path: (string | number)[];
   message: string;
+  source?: 'client' | 'server';
 }
 
 // Example server errors
 const errors = [
-  { path: ['name'], message: 'Name already taken' },
-  { path: ['details', 'age'], message: 'Must be over 18' },
-  { path: ['todos', 0, 'text'], message: 'Invalid todo text' },
+  { path: ['name'], message: 'Name already taken', source: 'server' },
+  { path: ['details', 'age'], message: 'Must be over 18', source: 'server' },
+  {
+    path: ['todos', 0, 'text'],
+    message: 'Invalid todo text',
+    source: 'server',
+  },
 ];
 
 // Set server errors using the form instance
@@ -522,6 +614,8 @@ const error = {
 
 ```tsx
 function BasicForm() {
+  const form = useFormContext();
+
   return (
     <FormProvider
       initialValues={{ name: '', email: '' }}
@@ -529,7 +623,7 @@ function BasicForm() {
         name: z.string().min(2),
         email: z.string().email(),
       })}
-      onSubmit={async (form, values) => {
+      onSubmit={async (values, helpers) => {
         await submitToServer(values);
       }}
     >
@@ -610,31 +704,26 @@ function UserForm({ onSubmit }) {
     <FormProvider
       initialValues={{ username: '', email: '' }}
       schema={userSchema}
-      onSubmit={async (form, values) => {
+      onSubmit={async (values, helpers) => {
         try {
           const errors = await checkServerValidation(values);
           if (errors.length > 0) {
-            form.setServerErrors(errors);
+            helpers.setServerErrors(errors);
             return;
           }
           await onSubmit(values);
         } catch (error) {
-          form.setServerErrors([
-            { path: [], message: 'An unexpected error occurred' },
+          helpers.setServerErrors([
+            {
+              path: [],
+              message: 'An unexpected error occurred',
+              source: 'server',
+            },
           ]);
         }
       }}
     >
-      <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          form.submit();
-        }}
-      >
-        <UsernameField />
-        <EmailField />
-        <SubmitButton />
-      </form>
+      <UserFormFields />
     </FormProvider>
   );
 }

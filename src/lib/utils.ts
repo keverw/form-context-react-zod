@@ -78,7 +78,7 @@ export function setValueAtPath<T extends Record<string | number, unknown>>(
       },
       obj
     ); // Start reduction with the original object
-  } catch (error) {
+  } catch {
     // Failed to traverse path for setValueAtPath
     return; // Stop execution if path traversal fails
   }
@@ -89,5 +89,36 @@ export function setValueAtPath<T extends Record<string | number, unknown>>(
   } else {
     // Cannot set value at path as parent element is not an object or array.
     return;
+  }
+}
+
+/**
+ * Returns an appropriate empty value based on the type of the provided value
+ * @param value The value to get an empty version of
+ * @returns An empty version of the value with the same structure
+ */
+export function getEmptyValue(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    // For arrays, simply return an empty array
+    return [];
+  } else if (typeof value === 'object' && value !== null) {
+    // For objects, preserve the structure but set each property to its empty value
+    const emptyObj: Record<string | number, unknown> = {};
+
+    for (const key in value) {
+      if (Object.prototype.hasOwnProperty.call(value, key)) {
+        const propValue = value[key as keyof typeof value];
+        emptyObj[key] = getEmptyValue(propValue);
+      }
+    }
+
+    return emptyObj;
+  } else if (typeof value === 'number') {
+    return 0;
+  } else if (typeof value === 'boolean') {
+    return false;
+  } else {
+    // For strings and any other types, return empty string
+    return '';
   }
 }

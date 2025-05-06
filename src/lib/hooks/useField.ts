@@ -21,20 +21,10 @@ export function useField(path: (string | number)[]) {
 
   const setTouched = useCallback(() => {
     if (!isTouched) {
-      form.setTouched((prev) => {
-        const newTouched = { ...prev };
-        // Mark the field itself
-        newTouched[pathKey] = true;
-
-        // Mark all parent paths
-        for (let i = 1; i <= path.length; i++) {
-          const parentPath = path.slice(0, i);
-          newTouched[parentPath.join('.')] = true;
-        }
-        return newTouched;
-      });
+      // Use the new setFieldTouched method directly
+      form.setFieldTouched(path, true);
     }
-  }, [form, isTouched, path, pathKey]);
+  }, [form, isTouched, path]);
 
   return {
     value,

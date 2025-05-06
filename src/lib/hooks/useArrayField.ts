@@ -43,59 +43,66 @@ export function useArrayField(path: (string | number)[]) {
       const [item] = newItems.splice(from, 1);
       newItems.splice(to, 0, item);
 
-      // Update touched states
-      form.setTouched((prev) => {
-        const newTouched = { ...prev };
+      // First update values
+      form.setValue(path, newItems);
 
-        // Get all touched paths under both indices
-        const fromPaths = Object.keys(prev).filter((key) => {
-          const keyPath = key.split('.');
-          return keyPath.slice(0, path.length + 1).every((val, idx) => {
-            if (idx === path.length) return val === String(from);
-            return path[idx] === val;
-          });
-        });
+      // Get all touched paths under both indices to determine what needs to be updated
+      const currentTouched = form.touched;
 
-        const toPaths = Object.keys(prev).filter((key) => {
-          const keyPath = key.split('.');
-          return keyPath.slice(0, path.length + 1).every((val, idx) => {
-            if (idx === path.length) return val === String(to);
-            return path[idx] === val;
-          });
-        });
+      // Find all touched paths for the 'from' index
+      const fromTouchedPaths: Array<{
+        originalPath: (string | number)[];
+        relativePath: (string | number)[];
+      }> = [];
 
-        // Store the touched states we want to swap
-        const fromTouched: Record<string, boolean> = {};
-        const toTouched: Record<string, boolean> = {};
+      // Find all touched paths for the 'to' index
+      const toTouchedPaths: Array<{
+        originalPath: (string | number)[];
+        relativePath: (string | number)[];
+      }> = [];
 
-        // Save from paths
-        for (const key of fromPaths) {
-          const keyPath = key.split('.');
+      // Collect all paths we need to process
+      Object.keys(currentTouched).forEach((touchedKey) => {
+        const keyPath = touchedKey
+          .split('.')
+          .map((part) => (!isNaN(Number(part)) ? Number(part) : part));
+
+        if (
+          keyPath.length > path.length &&
+          keyPath
+            .slice(0, path.length)
+            .every((val, idx) => String(val) === String(path[idx]))
+        ) {
+          // This is a touched path under our array
+          const itemIndex = keyPath[path.length];
           const relativePath = keyPath.slice(path.length + 1);
-          const newKey = [...path, to, ...relativePath].join('.');
-          fromTouched[newKey] = prev[key];
-          delete newTouched[key];
-        }
 
-        // Save to paths
-        for (const key of toPaths) {
-          const keyPath = key.split('.');
-          const relativePath = keyPath.slice(path.length + 1);
-          const newKey = [...path, from, ...relativePath].join('.');
-          toTouched[newKey] = prev[key];
-          delete newTouched[key];
+          if (itemIndex === from) {
+            fromTouchedPaths.push({
+              originalPath: keyPath,
+              relativePath,
+            });
+          } else if (itemIndex === to) {
+            toTouchedPaths.push({
+              originalPath: keyPath,
+              relativePath,
+            });
+          }
         }
-
-        // Add back the swapped touched states
-        return {
-          ...newTouched,
-          ...fromTouched,
-          ...toTouched,
-        };
       });
 
-      // Update values
-      form.setValue(path, newItems);
+      // Now mark paths as touched using the new API
+      // From paths should be marked at the 'to' position
+      fromTouchedPaths.forEach(({ relativePath }) => {
+        const newPath = [...path, to, ...relativePath];
+        form.setFieldTouched(newPath, true);
+      });
+
+      // To paths should be marked at the 'from' position
+      toTouchedPaths.forEach(({ relativePath }) => {
+        const newPath = [...path, from, ...relativePath];
+        form.setFieldTouched(newPath, true);
+      });
 
       // Handle validation and server errors separately
       const validationErrors = form.errors.filter((e) => e.source !== 'server');
