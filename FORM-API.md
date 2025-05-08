@@ -17,7 +17,7 @@ interface FormProviderProps<T> {
   schema?: z.ZodType<T>;
   validateOnMount?: boolean; // Whether to run validation immediately
   validateOnChange?: boolean; // Whether to run validation on every change
-  children: React.ReactNode;
+  children: React.ReactNode | React.ReactNode[]; // Accepts a single child or multiple children
 }
 ```
 
@@ -728,3 +728,88 @@ function UserForm({ onSubmit }) {
   );
 }
 ```
+
+### Multiple Children in FormProvider
+
+The FormProvider can accept multiple children, allowing you to split your form into separate components while sharing the same form context:
+
+```tsx
+function MultiSectionForm() {
+  return (
+    <FormProvider
+      initialValues={{
+        firstName: '',
+        lastName: '',
+        email: '',
+        age: 0,
+      }}
+      schema={userSchema}
+      onSubmit={handleSubmit}
+    >
+      {/* Each component can access the same form context */}
+      <PersonalInfoSection />
+      <ContactInfoSection />
+      <FormDebugger />
+      <SubmitButton />
+    </FormProvider>
+  );
+}
+
+// Example of a component that accesses the form context
+function PersonalInfoSection() {
+  const form = useContext(FormContext);
+
+  if (!form) {
+    throw new Error('PersonalInfoSection must be used within a FormProvider');
+  }
+
+  return (
+    <div className="section">
+      <h3>Personal Information</h3>
+      <FormInput
+        label="First Name"
+        value={form.getValue(['firstName'])}
+        onChange={(value) => form.setValue(['firstName'], value)}
+        onBlur={() => form.setFieldTouched(['firstName'], true)}
+        errorText={form.getError(['firstName'])[0]?.message}
+        touched={!!form.touched['firstName']}
+      />
+
+      <FormInput
+        label="Last Name"
+        value={form.getValue(['lastName'])}
+        onChange={(value) => form.setValue(['lastName'], value)}
+        onBlur={() => form.setFieldTouched(['lastName'], true)}
+        errorText={form.getError(['lastName'])[0]?.message}
+        touched={!!form.touched['lastName']}
+      />
+    </div>
+  );
+}
+
+// Submit button component
+function SubmitButton() {
+  const form = useContext(FormContext);
+
+  if (!form) {
+    throw new Error('SubmitButton must be used within a FormProvider');
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={() => form.submit()}
+      disabled={form.isSubmitting}
+    >
+      {form.isSubmitting ? 'Submitting...' : 'Submit Form'}
+    </button>
+  );
+}
+```
+
+This pattern is useful for:
+
+- Breaking large forms into logical sections
+- Creating reusable form components
+- Separating form UI from form logic
+- Building wizard-like interfaces where different sections share state

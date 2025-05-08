@@ -57,7 +57,7 @@ interface FormProviderProps<T> {
   schema?: z.ZodType<T>;
   validateOnMount?: boolean;
   validateOnChange?: boolean;
-  children: React.ReactNode;
+  children: React.ReactNode | React.ReactNode[];
 }
 
 // Define the form state interface
