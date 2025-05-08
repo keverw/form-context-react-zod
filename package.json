@@ -14,6 +14,7 @@
     "test": "vitest run --bail=1 --coverage",
     "test:watch": "vitest watch"
   },
+  "license": "MIT",
   "dependencies": {
     "lucide-react": "^0.344.0",
     "react": "^18.3.1",

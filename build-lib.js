@@ -7,11 +7,11 @@ import * as esbuild from 'esbuild';
 // Package configuration
 const PACKAGE_CONFIG = {
   name: 'form-context-react-zod',
-  version: '1.0.0',
+  version: '1.0.1',
   description: 'React form context with Zod validation helpers',
   author: '',
   license: 'MIT',
-  repository: '',
+  repository: 'https://github.com/keverw/form-context-react-zod',
 };
 
 // Clean dist_module directory
@@ -124,7 +124,7 @@ async function build() {
         zod: '^3.0.0',
       },
       dependencies: {},
-      repository: packageJson.repository || '',
+      repository: PACKAGE_CONFIG.repository,
     };
 
     fs.writeFileSync(
@@ -197,8 +197,8 @@ import { FormState } from '${PACKAGE_CONFIG.name}';
 
 For detailed documentation, see:
 
-- [Form API Documentation](./FORM-API.md)
-- [Zod Helpers Documentation](./ZOD-HELPERS.md)
+- [Form API Documentation](https://github.com/keverw/form-context-react-zod/blob/master/FORM-API.md)
+- [Zod Helpers Documentation](https://github.com/keverw/form-context-react-zod/blob/master/ZOD-HELPERS.md)
 
 ## License
 
