@@ -38,7 +38,7 @@ function BasicForm() {
           autoComplete="email"
         />
         <SubmitButton />
-        <FormState />
+        <FormState showToggle />
       </div>
     </form>
   );

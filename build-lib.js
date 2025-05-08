@@ -176,6 +176,23 @@ const MyForm = () => {
 };
 \`\`\`
 
+## Debugging
+
+### FormState
+
+The \`FormState\` component is a developer tool for inspecting the current form state, errors, and touched fields.
+
+**Usage:**
+
+\`\`\`tsx
+import { FormState } from '${PACKAGE_CONFIG.name}';
+
+<FormState showToggle />
+\`\`\`
+
+- Use the \`showToggle\` prop to allow switching between light and dark mode.
+- This component is intended for development and debugging purposes.
+
 ## Documentation
 
 For detailed documentation, see:

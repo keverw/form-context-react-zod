@@ -42,7 +42,7 @@ const FormInput = <T extends string | number | unknown>({
     'w-full px-4 py-2 rounded-lg border focus:outline-none focus:ring-2 transition-colors';
   const stateClasses = errorText
     ? 'border-red-300 bg-red-50 focus:border-red-500 focus:ring-red-200'
-    : 'border-gray-300 focus:border-blue-500 focus:ring-blue-200';
+    : 'border-gray-300 bg-gray-100 focus:border-blue-500 focus:ring-blue-200';
 
   const renderError = () => {
     if (!errorText) return null;
