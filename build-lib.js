@@ -7,7 +7,7 @@ import * as esbuild from 'esbuild';
 // Package configuration
 const PACKAGE_CONFIG = {
   name: 'form-context-react-zod',
-  version: '1.0.1',
+  version: '1.0.2',
   description: 'React form context with Zod validation helpers',
   author: '',
   license: 'MIT',
@@ -114,7 +114,14 @@ async function build() {
       module: 'index.js',
       types: 'index.d.ts',
       type: 'module',
-      files: ['.'],
+      files: [
+        'index.js',
+        'index.cjs',
+        'index.d.ts',
+        'README.md',
+        'FORM-API.md',
+        'ZOD-HELPERS.md',
+      ],
       keywords: ['react', 'form', 'zod', 'validation', 'context'],
       author: packageJson.author || '',
       license: PACKAGE_CONFIG.license,
@@ -125,6 +132,13 @@ async function build() {
       },
       dependencies: {},
       repository: PACKAGE_CONFIG.repository,
+      exports: {
+        '.': {
+          import: './index.js',
+          require: './index.cjs',
+          types: './index.d.ts',
+        },
+      },
     };
 
     fs.writeFileSync(
