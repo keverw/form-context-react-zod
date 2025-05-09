@@ -9,6 +9,7 @@ import ApiExample from './examples/ApiExample';
 import UnhandledErrorExample from './examples/UnhandledErrorExample';
 import UncaughtErrorExample from './examples/UncaughtErrorExample';
 import MultipleChildrenExample from './examples/MultipleChildrenExample';
+import FormTagExample from './examples/FormTagExample';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 
 const tabs = [
@@ -20,6 +21,7 @@ const tabs = [
   'Prefilled',
   'API',
   'Multiple Children',
+  'Form Tag',
   'Unhandled Error',
   'Uncaught Error',
 ] as const;
@@ -160,6 +162,7 @@ export default function ExampleTabs() {
             {activeTab === 'Prefilled' && <PrefilledExample />}
             {activeTab === 'API' && <ApiExample />}
             {activeTab === 'Multiple Children' && <MultipleChildrenExample />}
+            {activeTab === 'Form Tag' && <FormTagExample />}
             {activeTab === 'Unhandled Error' && <UnhandledErrorExample />}
             {activeTab === 'Uncaught Error' && <UncaughtErrorExample />}
           </div>

@@ -64,6 +64,14 @@ interface FormProviderProps<T> {
   schema?: z.ZodType<T>;
   validateOnMount?: boolean;
   validateOnChange?: boolean;
+  /**
+   * Whether to wrap the form in a <form> HTML tag
+   */
+  useFormTag?: boolean;
+  /**
+   * HTML form attributes to pass to the form element when useFormTag is true
+   */
+  formProps?: React.FormHTMLAttributes<HTMLFormElement>;
   children: React.ReactNode | React.ReactNode[];
 }
 
@@ -175,6 +183,8 @@ export function FormProvider<T extends Record<string | number, unknown>>({
   schema,
   validateOnMount = false,
   validateOnChange = true,
+  useFormTag = false,
+  formProps = {},
   children,
 }: FormProviderProps<T>) {
   // Use useReducer instead of multiple useState calls
@@ -1160,7 +1170,25 @@ export function FormProvider<T extends Record<string | number, unknown>>({
     ]
   );
 
+  // Handle form submission with preventDefault
+  const handleSubmit = useCallback(
+    (e: React.FormEvent<HTMLFormElement>) => {
+      e.preventDefault();
+      submit();
+    },
+    [submit]
+  );
+
+  // Conditionally wrap in form tag based on useFormTag prop
   return (
-    <FormContext.Provider value={contextValue}>{children}</FormContext.Provider>
+    <FormContext.Provider value={contextValue}>
+      {useFormTag ? (
+        <form onSubmit={handleSubmit} noValidate {...formProps}>
+          {children}
+        </form>
+      ) : (
+        children
+      )}
+    </FormContext.Provider>
   );
 }

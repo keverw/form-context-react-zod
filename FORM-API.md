@@ -17,6 +17,8 @@ interface FormProviderProps<T> {
   schema?: z.ZodType<T>;
   validateOnMount?: boolean; // Whether to run validation immediately
   validateOnChange?: boolean; // Whether to run validation on every change
+  useFormTag?: boolean; // Whether to wrap children in a <form> HTML tag
+  formProps?: React.FormHTMLAttributes<HTMLFormElement>; // HTML attributes for the form element
   children: React.ReactNode | React.ReactNode[]; // Accepts a single child or multiple children
 }
 ```
@@ -37,11 +39,13 @@ State getters:
 - `errors`: Current validation/server errors
 - `lastValidated`: Timestamp of the last validation
 
-Form operations:
+- Form operations:
 
-- `submit()`: Trigger form submission
-- `reset()`: Reset form to initial values
-- `validate(force?: boolean)`: Manually trigger form validation
+  - `submit()`: Trigger form submission
+  - `reset()`: Reset form to initial values
+  - `validate(force?: boolean)`: Manually trigger form validation
+
+The `useFormTag` prop allows wrapping the form content in a native HTML `<form>` tag with automatic `preventDefault` handling on submit events. When enabled, you can use standard HTML submit buttons instead of manually calling `form.submit()`.
 
 Value operations:
 
@@ -761,6 +765,41 @@ function UserForm({ onSubmit }) {
   );
 }
 ```
+
+### Using the Native HTML Form Tag
+
+The FormProvider can now automatically wrap your form in a native HTML `<form>` tag, handling the `preventDefault` behavior for you:
+
+```tsx
+function ContactForm() {
+  return (
+    <FormProvider
+      initialValues={{ name: '', email: '' }}
+      schema={contactSchema}
+      onSubmit={handleSubmit}
+      useFormTag={true} // Enable the form tag wrapper
+      formProps={{
+        className: 'my-form-styles',
+        id: 'contact-form',
+        'aria-label': 'Contact form',
+      }}
+    >
+      <NameField />
+      <EmailField />
+
+      {/* Use a regular HTML submit button */}
+      <button type="submit">Submit Form</button>
+    </FormProvider>
+  );
+}
+```
+
+Benefits of using the native form tag:
+
+- Works with browser's built-in form submission (Enter key submits the form)
+- Allows using standard HTML form attributes
+- Supports native HTML form validation alongside Zod validation
+- Improves accessibility with proper form semantics
 
 ### Multiple Children in FormProvider
 
