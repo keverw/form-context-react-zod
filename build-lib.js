@@ -7,7 +7,7 @@ import * as esbuild from 'esbuild';
 // Package configuration
 const PACKAGE_CONFIG = {
   name: 'form-context-react-zod',
-  version: '1.0.6',
+  version: '1.0.7',
   description: 'React form context with Zod validation helpers',
   author: '',
   license: 'MIT',
