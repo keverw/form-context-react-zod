@@ -1,7 +1,13 @@
 import React, { createContext, useCallback, useReducer } from 'react';
 import { z } from 'zod';
 import { validate, ValidationError } from './zod-helpers';
-import { getValueAtPath, setValueAtPath, getEmptyValue } from './utils';
+import {
+  getValueAtPath,
+  setValueAtPath,
+  getEmptyValue,
+  serializePath,
+  cloneAlongPath,
+} from './utils';
 
 export interface FormHelpers {
   setErrors: (errors: ValidationError[]) => void;
@@ -97,7 +103,9 @@ function formReducer<T extends Record<string | number, unknown>>(
 ): FormState<T> {
   switch (action.type) {
     case 'SET_VALUE': {
-      const newValues = { ...state.values };
+      // Deep clone only along the path being changed
+      const newValues = cloneAlongPath(state.values, action.path);
+
       setValueAtPath(
         newValues as Record<string | number, unknown>,
         action.path,
@@ -135,8 +143,12 @@ function formReducer<T extends Record<string | number, unknown>>(
     case 'BATCH_UPDATE':
       return {
         ...state,
-        ...(action.updates.values ? { values: action.updates.values } : {}),
-        ...(action.updates.touched ? { touched: action.updates.touched } : {}),
+        ...(action.updates.values !== undefined
+          ? { values: action.updates.values }
+          : {}),
+        ...(action.updates.touched !== undefined
+          ? { touched: action.updates.touched }
+          : {}),
         ...(action.updates.errors !== undefined
           ? { errors: action.updates.errors }
           : {}),
@@ -289,8 +301,8 @@ export function FormProvider<T extends Record<string | number, unknown>>({
   // Queue setTouched operations to be processed in a batch
   const queueSetTouched = useCallback(
     (path: (string | number)[], value: boolean) => {
-      // Store the path as a string key
-      const pathKey = path.join('.');
+      // Store the path as a string key using serializePath to prevent collisions
+      const pathKey = serializePath(path);
       pendingSetTouchedRef.current.set(pathKey, { path, value });
 
       // Clear any existing timeout
@@ -313,13 +325,13 @@ export function FormProvider<T extends Record<string | number, unknown>>({
         // Apply all pending setTouched operations
         for (const { path, value } of pendingOperations) {
           // Mark the field and all parent paths as touched
-          newTouched[path.join('.')] = value;
+          newTouched[serializePath(path)] = value;
 
           // If value is true, mark all parent paths as touched too
           if (value) {
             for (let i = 1; i <= path.length; i++) {
               const parentPath = path.slice(0, i);
-              newTouched[parentPath.join('.')] = true;
+              newTouched[serializePath(parentPath)] = true;
             }
           }
         }
@@ -352,13 +364,13 @@ export function FormProvider<T extends Record<string | number, unknown>>({
 
     // Mark all paths as touched
     for (const path of allPaths) {
-      const pathKey = path.join('.');
+      const pathKey = serializePath(path);
       newTouched[pathKey] = true;
 
       // Also mark parent paths
       for (let i = 1; i <= path.length; i++) {
         const parentPath = path.slice(0, i);
-        newTouched[parentPath.join('.')] = true;
+        newTouched[serializePath(parentPath)] = true;
       }
     }
 
@@ -433,14 +445,15 @@ export function FormProvider<T extends Record<string | number, unknown>>({
       }
     }
 
-  return () => {
-    mountedRef.current = false;
-    // Prevent any pending batches from running after unmount
-    if (setValueTimeoutRef.current)   clearTimeout(setValueTimeoutRef.current);
-    if (setTouchedTimeoutRef.current) clearTimeout(setTouchedTimeoutRef.current);
-    if (setServerErrorTimeoutRef.current)
-      clearTimeout(setServerErrorTimeoutRef.current);
-  };
+    return () => {
+      mountedRef.current = false;
+      // Prevent any pending batches from running after unmount
+      if (setValueTimeoutRef.current) clearTimeout(setValueTimeoutRef.current);
+      if (setTouchedTimeoutRef.current)
+        clearTimeout(setTouchedTimeoutRef.current);
+      if (setServerErrorTimeoutRef.current)
+        clearTimeout(setServerErrorTimeoutRef.current);
+    };
   }, [validateOnMount, schema, performInitialValidation]);
 
   const getValue = useCallback(
@@ -455,12 +468,12 @@ export function FormProvider<T extends Record<string | number, unknown>>({
     (touched: Record<string, boolean>, path: (string | number)[]) => {
       const newTouched = { ...touched };
       // Mark the field itself
-      newTouched[path.join('.')] = true;
+      newTouched[serializePath(path)] = true;
 
       // Mark all parent paths
       for (let i = 1; i <= path.length; i++) {
         const parentPath = path.slice(0, i);
-        newTouched[parentPath.join('.')] = true;
+        newTouched[serializePath(parentPath)] = true;
       }
       return newTouched;
     },
@@ -470,8 +483,8 @@ export function FormProvider<T extends Record<string | number, unknown>>({
   // Queue setValue operations to be processed in a batch
   const queueSetValue = useCallback(
     (path: (string | number)[], value: unknown) => {
-      // Store the path as a string key
-      const pathKey = path.join('.');
+      // Store the path as a string key using serializePath to prevent collisions
+      const pathKey = serializePath(path);
       pendingSetValueRef.current.set(pathKey, { path, value });
 
       // Clear any existing timeout
@@ -489,18 +502,24 @@ export function FormProvider<T extends Record<string | number, unknown>>({
         if (pendingOperations.length === 0) return;
 
         // Create a new values object with all updates
-        const newValues = { ...values };
+        let newValues = { ...values };
         let newTouched = { ...touched };
         let newErrors = [...errors];
 
         // Apply all pending setValue operations
         for (const { path, value } of pendingOperations) {
+          // Deep clone only along the path being changed
+          const clonedValues = cloneAlongPath(newValues, path);
+
           // Update values
           setValueAtPath(
-            newValues as Record<string | number, unknown>,
+            clonedValues as Record<string | number, unknown>,
             path,
             value
           );
+
+          // Update newValues for the next operation
+          newValues = clonedValues;
 
           // Mark path as touched
           newTouched = markPathAsTouched(newTouched, path);
@@ -652,12 +671,14 @@ export function FormProvider<T extends Record<string | number, unknown>>({
         // Remove touched states for the deleted item and its children
         // and adjust indices for items after the deleted one
         Object.keys(newTouched).forEach((key) => {
-          const keyPath = key.split('.');
+          try {
+            // Try to parse the key as a JSON path
+            const keyPath = JSON.parse(key);
 
             // Check if this key is related to the array we're modifying
             if (
               keyPath.length > parentPath.length &&
-            parentPath.every((val, idx) => String(val) === keyPath[idx])
+              parentPath.every((val, idx) => val === keyPath[idx])
             ) {
               const itemIndex = Number(keyPath[parentPath.length]);
 
@@ -667,15 +688,20 @@ export function FormProvider<T extends Record<string | number, unknown>>({
               }
               // If this is for an item after the deleted one, adjust its index
               else if (!isNaN(itemIndex) && itemIndex > arrayIndex) {
-              const newKey = [
+                const newPathArray = [
                   ...keyPath.slice(0, parentPath.length),
-                String(itemIndex - 1),
+                  itemIndex - 1,
                   ...keyPath.slice(parentPath.length + 1),
-              ].join('.');
+                ];
+                const newKey = serializePath(newPathArray);
                 newTouched[newKey] = newTouched[key];
                 delete newTouched[key];
               }
             }
+          } catch {
+            // If key isn't valid JSON, it's not a path we created with serializePath
+            // so we can safely ignore it
+          }
         });
 
         // Create a new errors array with the deleted item's errors removed
@@ -733,9 +759,9 @@ export function FormProvider<T extends Record<string | number, unknown>>({
             );
 
             // Merge with existing errors, avoiding duplicates
-            const existingPaths = newErrors.map((e) => e.path.join('.'));
+            const existingPaths = newErrors.map((e) => serializePath(e.path));
             const newArrayErrors = arrayErrors.filter(
-              (e) => !existingPaths.includes(e.path.join('.'))
+              (e) => !existingPaths.includes(serializePath(e.path))
             );
 
             finalErrors = [...newErrors, ...newArrayErrors];
@@ -782,18 +808,30 @@ export function FormProvider<T extends Record<string | number, unknown>>({
 
         // Create a new touched state with all related touched states removed
         const newTouched = { ...touched };
-        const pathPrefix = path.join('.') + '.';
+        const serializedPath = serializePath(path);
 
         // Remove touched state for the deleted field and all its children
         Object.keys(newTouched).forEach((key) => {
           // Remove exact match
-          if (key === path.join('.')) {
-              delete newTouched[key];
+          if (key === serializedPath) {
+            delete newTouched[key];
+          }
+          // For nested fields, we need to check if they're children of the deleted path
+          // This is more complex with JSON serialization, so we'll deserialize and check
+          else {
+            try {
+              const keyPath = JSON.parse(key);
+              if (
+                keyPath.length > path.length &&
+                path.every((val, idx) => keyPath[idx] === val)
+              ) {
+                delete newTouched[key];
+              }
+            } catch {
+              // If key isn't valid JSON, it's not a path we created with serializePath
+              // so we can safely ignore it
             }
-          // Remove all nested fields
-          else if (key.startsWith(pathPrefix)) {
-              delete newTouched[key];
-            }
+          }
         });
 
         // Create a new errors array with all related errors removed
@@ -830,9 +868,9 @@ export function FormProvider<T extends Record<string | number, unknown>>({
             );
 
             // Merge with existing errors, avoiding duplicates
-            const existingPaths = newErrors.map((e) => e.path.join('.'));
+            const existingPaths = newErrors.map((e) => serializePath(e.path));
             const newParentErrors = parentErrors.filter(
-              (e) => !existingPaths.includes(e.path.join('.'))
+              (e) => !existingPaths.includes(serializePath(e.path))
             );
 
             finalErrors = [...newErrors, ...newParentErrors];
@@ -853,20 +891,6 @@ export function FormProvider<T extends Record<string | number, unknown>>({
       }
     },
     [values, touched, errors, canSubmit, validateOnChange, schema]
-  );
-
-  const pathExists = useCallback(
-    (path: (string | number)[]) => {
-      let current: Record<string | number, unknown> | unknown = values;
-      for (let i = 0; i < path.length; i++) {
-        if (current === undefined || current === null) return false;
-        if (typeof path[i] === 'number' && !Array.isArray(current))
-          return false;
-        current = (current as Record<string | number, unknown>)[path[i]];
-      }
-      return true;
-    },
-    [values]
   );
 
   const getError = useCallback(
@@ -905,8 +929,8 @@ export function FormProvider<T extends Record<string | number, unknown>>({
   // Queue setServerError operations to be processed in a batch
   const queueSetServerError = useCallback(
     (path: (string | number)[], message: string | string[] | null) => {
-      // Store the path as a string key
-      const pathKey = path.join('.');
+      // Store the path as a string key using serializePath to prevent collisions
+      const pathKey = serializePath(path);
       const messages =
         message === null ? null : Array.isArray(message) ? message : [message];
 
@@ -941,7 +965,7 @@ export function FormProvider<T extends Record<string | number, unknown>>({
               );
             } else {
               // Only proceed if path exists (except for root errors)
-              if (path.length > 0 && !pathExists(path)) continue;
+              if (path.length > 0 && !hasField(path)) continue;
 
               // Remove existing server errors at the same exact path
               updatedErrors = updatedErrors.filter(
@@ -966,7 +990,7 @@ export function FormProvider<T extends Record<string | number, unknown>>({
         });
       }, 0);
     },
-    [setErrors, pathExists]
+    [setErrors, hasField]
   );
 
   const submit = useCallback(async () => {
@@ -998,7 +1022,7 @@ export function FormProvider<T extends Record<string | number, unknown>>({
             );
             const validServerErrors = newErrors
               .filter(
-                (error) => error.path.length === 0 || pathExists(error.path)
+                (error) => error.path.length === 0 || hasField(error.path)
               )
               .map((error) => ({ ...error, source: 'server' as const }));
 
@@ -1052,13 +1076,12 @@ export function FormProvider<T extends Record<string | number, unknown>>({
     schema,
     values,
     errors,
-    pathExists,
+    hasField,
     queueSetServerError,
     reset,
     setValue,
     clearValue,
     deleteField,
-    hasField,
     touched,
     validateFunction,
     setFieldTouched,
@@ -1093,7 +1116,7 @@ export function FormProvider<T extends Record<string | number, unknown>>({
         // Filter out validation errors and invalid paths
         const validationErrors = errors.filter((e) => e.source !== 'server');
         const validServerErrors = newErrors
-          .filter((error) => error.path.length === 0 || pathExists(error.path))
+          .filter((error) => error.path.length === 0 || hasField(error.path))
           .map((error) => ({ ...error, source: 'server' as const }));
 
         setErrors([...validationErrors, ...validServerErrors]);
@@ -1125,7 +1148,6 @@ export function FormProvider<T extends Record<string | number, unknown>>({
       getErrorPaths,
       hasField,
       setErrors,
-      pathExists,
       queueSetServerError,
     ]
   );

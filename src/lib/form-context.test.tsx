@@ -5,6 +5,7 @@ import '@testing-library/jest-dom';
 import { z } from 'zod';
 import { FormProvider, FormContext } from './form-context';
 import { ValidationError } from './zod-helpers';
+import { serializePath } from './utils';
 
 // Helper function to advance timers and settle promises
 const advanceTimers = async () => {
@@ -96,6 +97,10 @@ function TestField({ name }: TestFieldProps) {
   const errors = form.getError(path);
   const hasError = errors.length > 0;
 
+  // Use serializePath for accessing touched state
+  const pathKey = serializePath(path);
+  const isTouched = form.touched[pathKey];
+
   return (
     <div>
       <input
@@ -103,10 +108,16 @@ function TestField({ name }: TestFieldProps) {
         value={value !== undefined && value !== null ? String(value) : ''}
         onChange={(e) => form.setValue(path, e.target.value)}
         aria-invalid={hasError}
+        // Add a class when the field is touched
+        className={isTouched ? 'touched' : ''}
       />
       {hasError && (
         <span data-testid={`error-${name}`}>{errors[0].message}</span>
       )}
+      {/* Display touched state for debugging */}
+      <span data-testid={`touched-${name}`} style={{ display: 'none' }}>
+        {isTouched ? 'touched' : 'untouched'}
+      </span>
     </div>
   );
 }

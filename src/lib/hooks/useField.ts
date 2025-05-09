@@ -1,10 +1,11 @@
 import { useCallback } from 'react';
 import { useFormContext } from './useFormContext';
+import { serializePath } from '../utils';
 
 export function useField(path: (string | number)[]) {
   const form = useFormContext();
   const value = form.getValue(path);
-  const pathKey = path.join('.');
+  const pathKey = serializePath(path);
   const isTouched = form.touched[pathKey];
   const errors = form.getError(path);
 

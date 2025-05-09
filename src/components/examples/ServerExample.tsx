@@ -30,14 +30,22 @@ function UsernameAvailability({ username }: UsernameAvailabilityProps) {
     networkErrorRef.current = networkErrorEnabled;
   }, [networkErrorEnabled]);
 
+  // Store form in a ref to avoid triggering the effect when form changes
+  const formRef = useRef(form);
   useEffect(() => {
-    currentUsernameRef.current = username;
+    formRef.current = form;
+  }, [form]);
 
-    // Only reset states if username actually changed
-    if (username !== currentUsernameRef.current) {
-      setAvailable(null);
-      setError(null);
+  useEffect(() => {
+    // Only proceed if username has actually changed
+    if (username === currentUsernameRef.current) {
+      return;
     }
+
+    // Update current username ref and reset states
+    currentUsernameRef.current = username;
+    setAvailable(null);
+    setError(null);
 
     // Clear previous timeout
     if (timeoutRef.current) {
@@ -45,7 +53,7 @@ function UsernameAvailability({ username }: UsernameAvailabilityProps) {
     }
 
     // Only check if username is valid (pre-check)
-    const usernameErrors = form.getError(['username']);
+    const usernameErrors = formRef.current.getError(['username']);
     if (!username || usernameErrors.length > 0) {
       setChecking(false);
       setAvailable(null);
@@ -61,7 +69,7 @@ function UsernameAvailability({ username }: UsernameAvailabilityProps) {
         }
 
         // Verify username is still valid before checking (pre-request check)
-        const preRequestErrors = form.getError(['username']);
+        const preRequestErrors = formRef.current.getError(['username']);
         if (
           !username ||
           preRequestErrors.length > 0 ||
@@ -77,7 +85,7 @@ function UsernameAvailability({ username }: UsernameAvailabilityProps) {
         );
 
         // Verify username hasn't changed and is still valid (post-request check)
-        const postRequestErrors = form.getError(['username']);
+        const postRequestErrors = formRef.current.getError(['username']);
         if (
           currentUsernameRef.current === username &&
           postRequestErrors.length === 0 &&
@@ -102,10 +110,10 @@ function UsernameAvailability({ username }: UsernameAvailabilityProps) {
         clearTimeout(timeoutRef.current);
       }
     };
-  }, [username, form]); // Add form to dependencies
+  }, [username]); // Only depend on username changes
 
   // Don't show anything if the field is empty or invalid
-  const usernameErrors = form.getError(['username']);
+  const usernameErrors = formRef.current.getError(['username']);
   if (!username || usernameErrors.length > 0) return null;
 
   return (

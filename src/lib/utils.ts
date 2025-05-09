@@ -1,3 +1,26 @@
+/**
+ * Safely serializes a path array into a string that can be used as a map key
+ * without risk of collisions even if path segments contain special characters.
+ *
+ * @param path An array of path segments (strings or numbers)
+ * @returns A string representation of the path that can be safely used as a map key
+ */
+
+export function serializePath(path: (string | number)[]): string {
+  return JSON.stringify(path);
+}
+
+/**
+ * Deserializes a path string back into an array of path segments
+ *
+ * @param serialized The serialized path string
+ * @returns The original path array
+ */
+
+export function deserializePath(serialized: string): (string | number)[] {
+  return JSON.parse(serialized);
+}
+
 // Helper to get a value at a path
 export function getValueAtPath(
   obj: unknown,
@@ -97,6 +120,53 @@ export function setValueAtPath<T extends Record<string | number, unknown>>(
  * @param value The value to get an empty version of
  * @returns An empty version of the value with the same structure
  */
+/**
+ * Deep clones objects/arrays only along a specific path, creating new references
+ * for each object in the path while leaving the rest of the object untouched.
+ * This is more efficient than a full deep clone when you only need to modify
+ * a specific nested property.
+ *
+ * @param obj The object to clone along a path
+ * @param path The path to clone along
+ * @returns The original object with new references created along the specified path
+ */
+export function cloneAlongPath<T extends Record<string | number, unknown>>(
+  obj: T,
+  path: (string | number)[]
+): T {
+  if (path.length === 0) return obj;
+
+  // Create a shallow copy of the root object
+  const result = { ...obj };
+
+  // Clone each object along the path
+  let cursor: Record<string | number, unknown> = result;
+  for (let i = 0; i < path.length - 1; i++) {
+    const segment = path[i];
+    const next = cursor[segment];
+
+    // Only clone if next is an object or array
+    if (next !== null && typeof next === 'object') {
+      // Preserve arrays vs. objects
+      cursor[segment] = Array.isArray(next)
+        ? [...next]
+        : { ...(next as Record<string | number, unknown>) };
+    }
+
+    // Move to the next level (ensuring it's an object)
+    const nextObj = cursor[segment];
+    if (nextObj !== null && typeof nextObj === 'object') {
+      cursor = nextObj as Record<string | number, unknown>;
+    } else {
+      // If not an object, create one to continue the path
+      cursor[segment] = {};
+      cursor = cursor[segment] as Record<string | number, unknown>;
+    }
+  }
+
+  return result;
+}
+
 export function getEmptyValue(value: unknown): unknown {
   if (Array.isArray(value)) {
     // For arrays, simply return an empty array

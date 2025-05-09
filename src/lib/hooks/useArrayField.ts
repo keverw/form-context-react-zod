@@ -1,6 +1,7 @@
 import { useCallback, useMemo } from 'react';
 import { useFormContext } from './useFormContext';
 import { ValidationError } from '../zod-helpers';
+import { deserializePath, serializePath } from '../utils';
 
 export function useArrayField(path: (string | number)[]) {
   const form = useFormContext();
@@ -63,31 +64,33 @@ export function useArrayField(path: (string | number)[]) {
 
       // Collect all paths we need to process
       Object.keys(currentTouched).forEach((touchedKey) => {
-        const keyPath = touchedKey
-          .split('.')
-          .map((part) => (!isNaN(Number(part)) ? Number(part) : part));
+        try {
+          // Use deserializePath to get the actual path array
+          const keyPath = deserializePath(touchedKey);
 
-        if (
-          keyPath.length > path.length &&
-          keyPath
-            .slice(0, path.length)
-            .every((val, idx) => String(val) === String(path[idx]))
-        ) {
-          // This is a touched path under our array
-          const itemIndex = keyPath[path.length];
-          const relativePath = keyPath.slice(path.length + 1);
+          if (
+            keyPath.length > path.length &&
+            keyPath.slice(0, path.length).every((val, idx) => val === path[idx])
+          ) {
+            // This is a touched path under our array
+            const itemIndex = Number(keyPath[path.length]);
+            const relativePath = keyPath.slice(path.length + 1);
 
-          if (itemIndex === from) {
-            fromTouchedPaths.push({
-              originalPath: keyPath,
-              relativePath,
-            });
-          } else if (itemIndex === to) {
-            toTouchedPaths.push({
-              originalPath: keyPath,
-              relativePath,
-            });
+            if (itemIndex === from) {
+              fromTouchedPaths.push({
+                originalPath: keyPath,
+                relativePath,
+              });
+            } else if (itemIndex === to) {
+              toTouchedPaths.push({
+                originalPath: keyPath,
+                relativePath,
+              });
+            }
           }
+        } catch {
+          // If key isn't valid JSON, it's not a path we created with serializePath
+          // so we can safely ignore it
         }
       });
 
@@ -142,7 +145,16 @@ export function useArrayField(path: (string | number)[]) {
       // Update errors while preserving their sources
       const newValidationErrors = adjustErrorPaths(validationErrors);
       const newServerErrors = adjustErrorPaths(serverErrors);
-      form.setErrors([...newValidationErrors, ...newServerErrors]);
+
+      // Use serializePath for error path comparison to avoid collisions
+      const existingErrorPaths = newValidationErrors.map((err) =>
+        serializePath(err.path)
+      );
+      const newServerErrorsFiltered = newServerErrors.filter(
+        (err) => !existingErrorPaths.includes(serializePath(err.path))
+      );
+
+      form.setErrors([...newValidationErrors, ...newServerErrorsFiltered]);
     },
     [form, items, path]
   );

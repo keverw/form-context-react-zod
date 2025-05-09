@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useFormContext } from '../hooks/useFormContext';
+import { serializePath } from '../utils';
 
 interface Palette {
   bg: string;
@@ -341,7 +342,11 @@ export function FormState({
               validationErrors.map((error, i) => (
                 <div key={i} style={{ marginBottom: '0.25rem' }}>
                   <span style={{ color: palette.subtext }}>
-                    {error.path.join('.')}:{' '}
+                    {/* Display path safely - for display purposes we can still use join but with a custom separator */}
+                    {error.path.length > 0
+                      ? JSON.parse(serializePath(error.path)).join(' → ')
+                      : '(root)'}
+                    :{' '}
                   </span>
                   <span style={{ color: palette.error }}>{error.message}</span>
                 </div>
@@ -358,7 +363,11 @@ export function FormState({
               serverErrors.map((error, i) => (
                 <div key={i} style={{ marginBottom: '0.25rem' }}>
                   <span style={{ color: palette.subtext }}>
-                    {error.path.join('.')}:{' '}
+                    {/* Display path safely - for display purposes we can still use join but with a custom separator */}
+                    {error.path.length > 0
+                      ? JSON.parse(serializePath(error.path)).join(' → ')
+                      : '(root)'}
+                    :{' '}
                   </span>
                   <span style={{ color: palette.serverError }}>
                     {error.message}
