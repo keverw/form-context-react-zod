@@ -42,7 +42,7 @@ State getters:
 - Form operations:
 
   - `submit()`: Trigger form submission
-  - `reset()`: Reset form to initial values
+  - `reset(force?: boolean): boolean`: Reset form to initial values, returns true if successful.
   - `resetWithValues(newValues, force?)`: Reset form with new values
   - `validate(force?: boolean)`: Manually trigger form validation
 
@@ -86,7 +86,7 @@ export interface FormHelpers {
   hasField: (path: (string | number)[]) => boolean;
   touched: Record<string, boolean>;
   setFieldTouched: (path: (string | number)[], value?: boolean) => void;
-  reset: () => void;
+  reset: (force?: boolean) => boolean;
   resetWithValues: <T = unknown>(newValues: T, force?: boolean) => boolean;
   currentSubmissionId: string | null;
   isCurrentSubmission: (submissionId: string) => boolean;
@@ -300,10 +300,44 @@ The `helpers` object provides access to:
 - `hasField`: Check if field exists
 - `touched`: Current touched state
 - `setFieldTouched`: Mark field as touched
-- `reset`: Reset form to initial values
+- `reset`: Reset form to initial values. Returns `true` if successful, `false` otherwise (e.g., if submitting and not forced).
 - `resetWithValues`: Reset form with new values
 - `currentSubmissionId`: The ID of the current submission
 - `isCurrentSubmission`: Function to check if a submission ID is current
+
+### Resetting the Form
+
+The `reset` function allows you to revert the form to its original `initialValues`. It now includes a `force` option and returns a boolean indicating success.
+
+```tsx
+// Basic usage - resets to initialValues
+const wasReset = form.reset();
+
+// Force reset even during submission
+const wasForcedReset = form.reset(true); // force=true will cancel any ongoing submission
+
+// Check if reset was successful
+if (wasReset) {
+  console.log('Form was reset successfully');
+} else {
+  console.log(
+    'Form reset was not performed (e.g., due to ongoing submission without force)'
+  );
+}
+```
+
+The function returns:
+
+- `true` if the reset was successfully performed.
+- `false` if the reset was not performed (e.g., when the form is submitting and `force` is `false`).
+
+This is useful for:
+
+- Providing a standard "clear form" or "start over" functionality.
+- Canceling an ongoing submission and reverting to the initial state.
+- Knowing whether the reset was actually performed to take appropriate actions.
+
+**Note:** The `reset` function, when forced during a submission or when resetting normally, also clears the `currentSubmissionID` to `null`.
 
 ### Resetting with New Values
 

@@ -24,7 +24,7 @@ export interface FormHelpers {
   hasField: (path: (string | number)[]) => boolean;
   touched: Record<string, boolean>;
   setFieldTouched: (path: (string | number)[], value?: boolean) => void;
-  reset: () => void;
+  reset: (force?: boolean) => boolean;
   resetWithValues: <T = unknown>(newValues: T, force?: boolean) => boolean;
   currentSubmissionID: string | null;
   isCurrentSubmission: (submissionId: string) => boolean;
@@ -42,7 +42,7 @@ export interface FormContextValue<T> {
   lastValidated: number | null;
   currentSubmissionID: string | null;
   submit: () => Promise<void>;
-  reset: () => void;
+  reset: (force?: boolean) => boolean;
   resetWithValues: (newValues: T, force?: boolean) => boolean;
   validate: (force?: boolean) => boolean;
   getValue: <V = unknown>(path: (string | number)[]) => V;
@@ -111,7 +111,7 @@ type FormAction<T> =
         isSubmitting?: boolean;
         lastValidated?: number | null;
         canSubmit?: boolean;
-        currentSubmissionID?: string | null;
+        currentSubmissionID?: string | null; // Allow batch update for consistency, though not primary use
       };
     };
 
@@ -188,6 +188,10 @@ function formReducer<T extends Record<string | number, unknown>>(
           action.updates.canSubmit !== undefined
             ? action.updates.canSubmit
             : state.canSubmit,
+        currentSubmissionID:
+          action.updates.currentSubmissionID !== undefined
+            ? action.updates.currentSubmissionID
+            : state.currentSubmissionID,
       };
     default:
       return state;
@@ -216,11 +220,19 @@ export function FormProvider<T extends Record<string | number, unknown>>({
   });
 
   // Destructure state for easier access
-  const { values, touched, errors, isSubmitting, lastValidated, canSubmit } =
-    state;
+  const {
+    values,
+    touched,
+    errors,
+    isSubmitting,
+    lastValidated,
+    canSubmit,
+    // currentSubmissionID is accessed via state.currentSubmissionID in contextValue
+  } = state;
 
   // Using useRef instead of useState to avoid race conditions
   const mountedRef = React.useRef(false);
+  const currentSubmissionIDRef = React.useRef<string | null>(null);
 
   // Keep track of pending setValue operations
   const pendingSetValueRef = React.useRef<
@@ -945,15 +957,29 @@ export function FormProvider<T extends Record<string | number, unknown>>({
     [errors]
   );
 
-  const reset = useCallback(() => {
-    // Prevent resetting while submitting
-    if (isSubmitting) {
-      console.warn('Attempted to reset form while submitting.');
-      return;
-    }
+  const reset = useCallback(
+    (force?: boolean): boolean => {
+      // Prevent resetting while submitting unless forced
+      if (isSubmitting && !force) {
+        console.warn(
+          'Attempted to reset form while submitting. Use force=true to reset anyway.'
+        );
+        return false;
+      }
 
-    dispatch({ type: 'RESET', initialValues });
-  }, [initialValues, dispatch, isSubmitting]);
+      // If we're forcing a reset while submitting, cancel the submission first
+      if (isSubmitting && force) {
+        setIsSubmitting(false);
+        // Also clear the submission ID ref since the submission is being cancelled
+        currentSubmissionIDRef.current = null;
+        dispatch({ type: 'SET_SUBMISSION_ID', submissionId: null });
+      }
+
+      dispatch({ type: 'RESET', initialValues });
+      return true;
+    },
+    [initialValues, dispatch, isSubmitting, setIsSubmitting]
+  );
 
   // Type-safe resetWithValues function
   const resetWithValues = useCallback(
@@ -1045,16 +1071,14 @@ export function FormProvider<T extends Record<string | number, unknown>>({
   );
 
   // Function to check if a submission ID is the current one
-  const isCurrentSubmission = useCallback(
-    (submissionId: string) => {
-      return state.currentSubmissionID === submissionId;
-    },
-    [state.currentSubmissionID]
-  );
+  const isCurrentSubmission = useCallback((submissionId: string) => {
+    return currentSubmissionIDRef.current === submissionId;
+  }, []);
 
   // Set the current submission ID
   const setSubmissionId = useCallback(
     (submissionId: string | null) => {
+      currentSubmissionIDRef.current = submissionId;
       dispatch({
         type: 'SET_SUBMISSION_ID',
         submissionId,
@@ -1088,73 +1112,119 @@ export function FormProvider<T extends Record<string | number, unknown>>({
 
     // Update state to indicate we're submitting and store the submission ID
     setIsSubmitting(true);
-    setSubmissionId(submissionId);
+    setSubmissionId(submissionId); // This updates both ref and state
+
     try {
       const result = validateForm();
       if (!schema || result.valid) {
         // Pass only the values and a subset of helper functions
         // This avoids the circular dependency and ref usage
         const helpers: FormHelpers = {
-          setErrors,
+          setErrors: (newErrors: ValidationError[]) => {
+            if (isCurrentSubmission(submissionId)) {
+              setErrors(newErrors);
+            }
+          },
           setServerErrors: (newErrors: ValidationError[]) => {
-            // Filter out validation errors and invalid paths
-            const validationErrors = errors.filter(
-              (e) => e.source !== 'server'
-            );
-            const validServerErrors = newErrors
-              .filter(
-                (error) => error.path.length === 0 || hasField(error.path)
-              )
-              .map((error) => ({ ...error, source: 'server' as const }));
-
-            setErrors([...validationErrors, ...validServerErrors]);
+            if (isCurrentSubmission(submissionId)) {
+              // Filter out validation errors and invalid paths
+              const validationErrors = errors.filter(
+                (e) => e.source !== 'server'
+              );
+              const validServerErrors = newErrors
+                .filter(
+                  (error) => error.path.length === 0 || hasField(error.path)
+                )
+                .map((error) => ({ ...error, source: 'server' as const }));
+              setErrors([...validationErrors, ...validServerErrors]);
+            }
           },
           setServerError: (
             path: (string | number)[],
             message: string | string[] | null
           ) => {
-            queueSetServerError(path, message);
+            if (isCurrentSubmission(submissionId)) {
+              queueSetServerError(path, message);
+            }
           },
-          setValue,
-          clearValue,
-          deleteField,
-          validate: validateFunction,
-          hasField,
-          touched,
-          setFieldTouched,
-          reset,
+          setValue: <V = unknown,>(
+            path: (string | number)[],
+            value: V
+          ): void => {
+            if (isCurrentSubmission(submissionId)) {
+              setValue(path, value);
+            }
+          },
+          clearValue: (path: (string | number)[]) => {
+            if (isCurrentSubmission(submissionId)) {
+              clearValue(path);
+            }
+          },
+          deleteField: (path: (string | number)[]) => {
+            if (isCurrentSubmission(submissionId)) {
+              deleteField(path);
+            }
+          },
+          validate: validateFunction, // Validate doesn't need the guard itself, it's a query
+          hasField, // HasField doesn't need the guard, it's a query
+          touched, // Touched is a snapshot, not an action
+          setFieldTouched: (
+            path: (string | number)[],
+            value: boolean = true
+          ) => {
+            if (isCurrentSubmission(submissionId)) {
+              setFieldTouched(path, value);
+            }
+          },
+          reset: (force?: boolean): boolean => {
+            if (isCurrentSubmission(submissionId)) {
+              return reset(force);
+            }
+            return false;
+          },
           resetWithValues: <V = unknown,>(
             newValues: V,
             force?: boolean
           ): boolean => {
-            return resetWithValues(newValues as unknown as T, force);
+            if (isCurrentSubmission(submissionId)) {
+              return resetWithValues(newValues as unknown as T, force);
+            }
+            return false; // Or handle as per desired behavior for stale call
           },
-          currentSubmissionID: submissionId,
-          isCurrentSubmission,
+          currentSubmissionID: submissionId, // Changed to use the submissionId from this closure
+          isCurrentSubmission, // This function already uses the ref correctly
         };
 
         await onSubmit(values, helpers);
       } else if (result.errors) {
-        setErrors((prev) => {
-          const serverErrors = prev.filter((e) => e.source === 'server');
-          return [...serverErrors, ...(result.errors || [])];
-        });
+        // Only set errors if this is still the current submission
+        if (isCurrentSubmission(submissionId)) {
+          setErrors((prev) => {
+            const serverErrors = prev.filter((e) => e.source === 'server');
+            return [...serverErrors, ...(result.errors || [])];
+          });
+        }
       }
     } catch (error: unknown) {
-      // Only log unexpected errors
-      console.error('Unexpected form submission error:', error);
-      setErrors([
-        {
-          path: [],
-          message:
-            error instanceof Error
-              ? error.message
-              : 'An unexpected error occurred',
-          source: 'server',
-        },
-      ]);
+      // Only log unexpected errors and set errors if this is still the current submission
+      if (isCurrentSubmission(submissionId)) {
+        console.error('Unexpected form submission error:', error);
+        setErrors([
+          {
+            path: [],
+            message:
+              error instanceof Error
+                ? error.message
+                : 'An unexpected error occurred',
+            source: 'server',
+          },
+        ]);
+      }
     } finally {
-      setIsSubmitting(false);
+      // Only reset submitting state if this is still the current submission
+      if (isCurrentSubmission(submissionId)) {
+        setIsSubmitting(false);
+      }
     }
   }, [
     onSubmit,
@@ -1191,7 +1261,7 @@ export function FormProvider<T extends Record<string | number, unknown>>({
       isValid: mountedRef.current && errors.length === 0,
       canSubmit,
       lastValidated,
-      currentSubmissionID: state.currentSubmissionID,
+      currentSubmissionID: state.currentSubmissionID, // Use state for reactivity
       submit,
       reset,
       resetWithValues,
@@ -1232,7 +1302,7 @@ export function FormProvider<T extends Record<string | number, unknown>>({
       isSubmitting,
       canSubmit,
       lastValidated,
-      state.currentSubmissionID,
+      state.currentSubmissionID, // Use state for reactivity in dependency array
       submit,
       reset,
       resetWithValues,
