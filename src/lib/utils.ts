@@ -192,3 +192,8 @@ export function getEmptyValue(value: unknown): unknown {
     return '';
   }
 }
+
+// Helper function to generate a identifier for the current submission
+export function generateID(): string {
+  return Date.now().toString(36) + Math.random().toString(36).substring(2);
+}

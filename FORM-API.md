@@ -43,6 +43,7 @@ State getters:
 
   - `submit()`: Trigger form submission
   - `reset()`: Reset form to initial values
+  - `resetWithValues(newValues, force?)`: Reset form with new values
   - `validate(force?: boolean)`: Manually trigger form validation
 
 The `useFormTag` prop allows wrapping the form content in a native HTML `<form>` tag with automatic `preventDefault` handling on submit events. When enabled, you can use standard HTML submit buttons instead of manually calling `form.submit()`.
@@ -86,6 +87,9 @@ export interface FormHelpers {
   touched: Record<string, boolean>;
   setFieldTouched: (path: (string | number)[], value?: boolean) => void;
   reset: () => void;
+  resetWithValues: <T = unknown>(newValues: T, force?: boolean) => boolean;
+  currentSubmissionId: string | null;
+  isCurrentSubmission: (submissionId: string) => boolean;
 }
 ```
 
@@ -260,8 +264,20 @@ When using the `onSubmit` prop, it receives the form values and a set of helper 
   initialValues={{ name: '', email: '' }}
   onSubmit={async (values, helpers) => {
     try {
+      // The current submission ID is available in helpers
+      const { currentSubmissionId } = helpers;
+
       // Attempt to submit the form
-      await submitToServer(values);
+      const result = await submitToServer(values);
+
+      // Check if this submission is still current before updating
+      if (helpers.isCurrentSubmission(currentSubmissionId)) {
+        // Safe to update form state
+        console.log('Submission successful');
+      } else {
+        // This submission was canceled or replaced by a newer one
+        console.log('Submission was canceled or replaced');
+      }
     } catch (error) {
       // Set a server error
       helpers.setServerError([], 'Failed to submit form');
@@ -285,6 +301,82 @@ The `helpers` object provides access to:
 - `touched`: Current touched state
 - `setFieldTouched`: Mark field as touched
 - `reset`: Reset form to initial values
+- `resetWithValues`: Reset form with new values
+- `currentSubmissionId`: The ID of the current submission
+- `isCurrentSubmission`: Function to check if a submission ID is current
+
+### Resetting with New Values
+
+The `resetWithValues` function allows you to reset the form with new values and returns a boolean indicating whether the reset was successful:
+
+```tsx
+// Basic usage
+const wasReset = form.resetWithValues({
+  name: 'New Name',
+  email: 'new@example.com',
+});
+
+// Reset with new values even during submission
+const wasReset = form.resetWithValues(
+  {
+    name: 'New Name',
+    email: 'new@example.com',
+  },
+  true
+); // force=true will cancel any ongoing submission
+
+// Check if reset was successful
+if (wasReset) {
+  console.log('Form was reset successfully');
+} else {
+  console.log('Form reset was not performed');
+}
+```
+
+The function returns:
+
+- `true` if the reset was successfully performed
+- `false` if the reset was not performed (e.g., when the form is submitting and `force` is false)
+
+This is useful for:
+
+- Updating the form with data from an API
+- Implementing "Load Saved Data" functionality
+- Resetting to a different state than the initial values
+- Canceling an ongoing submission and starting fresh
+- Knowing whether the reset was actually performed to take appropriate actions
+
+**Note:** The `resetWithValues` function resets the submission ID to `null` upon success. This ensures that any ongoing submission tracking is cleared when the form is reset with new values.
+
+### Submission ID Tracking
+
+The form context includes a submission ID tracking system to help prevent race conditions:
+
+```tsx
+// In your onSubmit handler
+const handleSubmit = async (values, helpers) => {
+  // The submission ID is available in the helpers
+  const { currentSubmissionId, isCurrentSubmission } = helpers;
+
+  // Start an async operation
+  const result = await someAsyncOperation();
+
+  // Check if this submission is still current before updating
+  if (isCurrentSubmission(currentSubmissionId)) {
+    // Safe to update form state
+    helpers.setValue(['result'], result);
+  } else {
+    // This submission was canceled or replaced by a newer one
+    console.log('Submission was canceled or replaced');
+  }
+};
+```
+
+This helps prevent race conditions when:
+
+- Multiple submissions happen in quick succession
+- A submission is canceled by a forced reset
+- Async operations complete out of order
 
 ## Best Practices
 

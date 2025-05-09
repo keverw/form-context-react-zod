@@ -7,6 +7,7 @@ import {
   getEmptyValue,
   serializePath,
   cloneAlongPath,
+  generateID,
 } from './utils';
 
 export interface FormHelpers {
@@ -24,6 +25,9 @@ export interface FormHelpers {
   touched: Record<string, boolean>;
   setFieldTouched: (path: (string | number)[], value?: boolean) => void;
   reset: () => void;
+  resetWithValues: <T = unknown>(newValues: T, force?: boolean) => boolean;
+  currentSubmissionID: string | null;
+  isCurrentSubmission: (submissionId: string) => boolean;
 }
 
 export interface FormContextValue<T> {
@@ -36,8 +40,10 @@ export interface FormContextValue<T> {
   isValid: boolean;
   canSubmit: boolean;
   lastValidated: number | null;
+  currentSubmissionID: string | null;
   submit: () => Promise<void>;
   reset: () => void;
+  resetWithValues: (newValues: T, force?: boolean) => boolean;
   validate: (force?: boolean) => boolean;
   getValue: <V = unknown>(path: (string | number)[]) => V;
   setValue: <V = unknown>(path: (string | number)[], value: V) => void;
@@ -52,11 +58,13 @@ export interface FormContextValue<T> {
     path: (string | number)[],
     message: string | string[] | null
   ) => void;
+  isCurrentSubmission: (submissionId: string) => boolean;
 }
 
-export const FormContext = createContext<FormContextValue<unknown> | null>(
-  null
-);
+// Create a context with a more specific type
+export const FormContext = createContext<FormContextValue<
+  Record<string | number, unknown>
+> | null>(null);
 
 interface FormProviderProps<T> {
   initialValues: T;
@@ -83,6 +91,7 @@ interface FormState<T> {
   isSubmitting: boolean;
   lastValidated: number | null;
   canSubmit: boolean;
+  currentSubmissionID: string | null;
 }
 
 // Define action types
@@ -91,6 +100,7 @@ type FormAction<T> =
   | { type: 'SET_TOUCHED'; touched: Record<string, boolean> }
   | { type: 'SET_ERRORS'; errors: ValidationError[] }
   | { type: 'SET_SUBMITTING'; isSubmitting: boolean }
+  | { type: 'SET_SUBMISSION_ID'; submissionId: string | null }
   | { type: 'RESET'; initialValues: T }
   | {
       type: 'BATCH_UPDATE';
@@ -101,6 +111,7 @@ type FormAction<T> =
         isSubmitting?: boolean;
         lastValidated?: number | null;
         canSubmit?: boolean;
+        currentSubmissionID?: string | null;
       };
     };
 
@@ -139,6 +150,11 @@ function formReducer<T extends Record<string | number, unknown>>(
         ...state,
         isSubmitting: action.isSubmitting,
       };
+    case 'SET_SUBMISSION_ID':
+      return {
+        ...state,
+        currentSubmissionID: action.submissionId,
+      };
     case 'RESET':
       return {
         values: action.initialValues,
@@ -147,6 +163,7 @@ function formReducer<T extends Record<string | number, unknown>>(
         isSubmitting: false,
         lastValidated: null,
         canSubmit: false,
+        currentSubmissionID: null,
       };
     case 'BATCH_UPDATE':
       return {
@@ -195,6 +212,7 @@ export function FormProvider<T extends Record<string | number, unknown>>({
     isSubmitting: false,
     lastValidated: null,
     canSubmit: false,
+    currentSubmissionID: null,
   });
 
   // Destructure state for easier access
@@ -937,6 +955,28 @@ export function FormProvider<T extends Record<string | number, unknown>>({
     dispatch({ type: 'RESET', initialValues });
   }, [initialValues, dispatch, isSubmitting]);
 
+  // Type-safe resetWithValues function
+  const resetWithValues = useCallback(
+    (newValues: T, force?: boolean): boolean => {
+      // Check if we're submitting and not forcing
+      if (isSubmitting && !force) {
+        console.warn(
+          'Attempted to reset form while submitting. Use force=true to reset anyway.'
+        );
+        return false;
+      }
+
+      // If we're forcing a reset while submitting, cancel the submission first
+      if (isSubmitting && force) {
+        setIsSubmitting(false);
+      }
+
+      dispatch({ type: 'RESET', initialValues: newValues });
+      return true;
+    },
+    [dispatch, isSubmitting, setIsSubmitting]
+  );
+
   // Queue setServerError operations to be processed in a batch
   const queueSetServerError = useCallback(
     (path: (string | number)[], message: string | string[] | null) => {
@@ -1004,6 +1044,25 @@ export function FormProvider<T extends Record<string | number, unknown>>({
     [setErrors, hasField]
   );
 
+  // Function to check if a submission ID is the current one
+  const isCurrentSubmission = useCallback(
+    (submissionId: string) => {
+      return state.currentSubmissionID === submissionId;
+    },
+    [state.currentSubmissionID]
+  );
+
+  // Set the current submission ID
+  const setSubmissionId = useCallback(
+    (submissionId: string | null) => {
+      dispatch({
+        type: 'SET_SUBMISSION_ID',
+        submissionId,
+      });
+    },
+    [dispatch]
+  );
+
   const submit = useCallback(async () => {
     if (!onSubmit) return;
 
@@ -1024,7 +1083,12 @@ export function FormProvider<T extends Record<string | number, unknown>>({
       queueSetTouched(path, true);
     }
 
+    // Generate a new submission ID to track this submission
+    const submissionId = generateID();
+
+    // Update state to indicate we're submitting and store the submission ID
     setIsSubmitting(true);
+    setSubmissionId(submissionId);
     try {
       const result = validateForm();
       if (!schema || result.valid) {
@@ -1059,6 +1123,14 @@ export function FormProvider<T extends Record<string | number, unknown>>({
           touched,
           setFieldTouched,
           reset,
+          resetWithValues: <V = unknown,>(
+            newValues: V,
+            force?: boolean
+          ): boolean => {
+            return resetWithValues(newValues as unknown as T, force);
+          },
+          currentSubmissionID: submissionId,
+          isCurrentSubmission,
         };
 
         await onSubmit(values, helpers);
@@ -1090,6 +1162,7 @@ export function FormProvider<T extends Record<string | number, unknown>>({
     setErrors,
     getValuePaths,
     setIsSubmitting,
+    setSubmissionId,
     queueSetTouched,
     validateForm,
     schema,
@@ -1101,9 +1174,11 @@ export function FormProvider<T extends Record<string | number, unknown>>({
     touched,
     setFieldTouched,
     reset,
+    isCurrentSubmission,
     values,
     errors,
     queueSetServerError,
+    resetWithValues,
   ]);
 
   const contextValue = React.useMemo<FormContextValue<T>>(
@@ -1116,8 +1191,10 @@ export function FormProvider<T extends Record<string | number, unknown>>({
       isValid: mountedRef.current && errors.length === 0,
       canSubmit,
       lastValidated,
+      currentSubmissionID: state.currentSubmissionID,
       submit,
       reset,
+      resetWithValues,
       validate: validateFunction,
       getValue,
       setValue,
@@ -1145,6 +1222,7 @@ export function FormProvider<T extends Record<string | number, unknown>>({
       ) => {
         queueSetServerError(path, message);
       },
+      isCurrentSubmission,
     }),
     [
       values,
@@ -1154,8 +1232,10 @@ export function FormProvider<T extends Record<string | number, unknown>>({
       isSubmitting,
       canSubmit,
       lastValidated,
+      state.currentSubmissionID,
       submit,
       reset,
+      resetWithValues,
       validateFunction,
       getValue,
       setValue,
@@ -1165,6 +1245,7 @@ export function FormProvider<T extends Record<string | number, unknown>>({
       getError,
       getErrorPaths,
       hasField,
+      isCurrentSubmission,
       setErrors,
       queueSetServerError,
     ]
@@ -1181,7 +1262,14 @@ export function FormProvider<T extends Record<string | number, unknown>>({
 
   // Conditionally wrap in form tag based on useFormTag prop
   return (
-    <FormContext.Provider value={contextValue}>
+    // Use type assertion to make TypeScript happy with the context value
+    <FormContext.Provider
+      value={
+        contextValue as unknown as FormContextValue<
+          Record<string | number, unknown>
+        >
+      }
+    >
       {useFormTag ? (
         <form onSubmit={handleSubmit} noValidate {...formProps}>
           {children}
