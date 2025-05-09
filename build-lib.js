@@ -7,7 +7,7 @@ import * as esbuild from 'esbuild';
 // Package configuration
 const PACKAGE_CONFIG = {
   name: 'form-context-react-zod',
-  version: '1.0.7',
+  version: '1.0.8',
   description: 'React form context with Zod validation helpers',
   author: '',
   license: 'MIT',
@@ -69,13 +69,13 @@ async function build() {
     // Generate TypeScript declaration files
     console.log('Generating TypeScript declarations...');
     try {
-      execSync('npx tsc --project tsconfig.lib.json --emitDeclarationOnly', {
-        stdio: 'inherit',
-        env: {
-          ...process.env,
-          PATH: `${process.env.PATH}:${path.resolve('./node_modules/.bin')}`,
-        },
-      });
+      // Use the locally installed typescript compiler directly
+      execSync(
+        'node ./node_modules/typescript/bin/tsc --project tsconfig.lib.json --emitDeclarationOnly',
+        {
+          stdio: 'inherit',
+        }
+      );
       console.log('✅ TypeScript declarations generated successfully');
     } catch (error) {
       console.error('❌ Error generating TypeScript declarations:', error);
@@ -154,6 +154,10 @@ ${PACKAGE_CONFIG.description}
 
 Current version: ${PACKAGE_CONFIG.version}
 
+## Demo
+
+Check out the [live demo](https://keverw.github.io/form-context-react-zod/) to see the library in action.
+
 ## Installation
 
 \`\`\`bash
@@ -217,6 +221,10 @@ For detailed documentation, see:
 ## License
 
 ${PACKAGE_CONFIG.license}
+
+## Disclaimer
+
+This project is not affiliated with, endorsed by, or sponsored by React or Zod. All product names, logos, and brands are property of their respective owners.
 `;
 
     fs.writeFileSync(path.join('dist_module', 'README.md'), readme);
