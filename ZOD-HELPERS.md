@@ -210,9 +210,13 @@ The validation helpers are designed to work seamlessly with the form library:
 Example integration:
 
 ```typescript
-const form = useForm({
-  schema: userSchema,
-  onSubmit: async (values) => {
+// First, wrap your component with FormProvider
+<FormProvider
+  initialValues={initialValues}
+  schema={userSchema}
+  useFormTag={true} // Wraps children in an HTML <form> tag
+  formProps={{ className: 'my-form' }} // Optional HTML form attributes
+  onSubmit={async (values, helpers) => {
     try {
       await submitToServer(values);
     } catch (error) {
@@ -221,8 +225,18 @@ const form = useForm({
         isServer: true,
         rootMessages: error.message,
       });
-      form.setErrors(result.errors);
+      helpers.setErrors(result.errors);
     }
-  },
-});
+  }}
+>
+  {/* Form components */}
+</FormProvider>
+
+// Then in your form components, use useFormContext
+function MyFormComponent() {
+  const form = useFormContext();
+
+  // Access form methods and state
+  // form.values, form.errors, form.submit(), etc.
+}
 ```

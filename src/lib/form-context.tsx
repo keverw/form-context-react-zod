@@ -265,7 +265,6 @@ export function FormProvider<T extends Record<string | number, unknown>>({
       // Recursively gather all paths
       const traverse = (obj: unknown, currentPath: (string | number)[]) => {
         if (obj && typeof obj === 'object') {
-          // Using for...of instead of .forEach
           for (const [key, value] of Object.entries(obj)) {
             const newPath = [...currentPath, key];
             paths.push(newPath);
@@ -710,7 +709,7 @@ export function FormProvider<T extends Record<string | number, unknown>>({
 
         // Remove touched states for the deleted item and its children
         // and adjust indices for items after the deleted one
-        Object.keys(newTouched).forEach((key) => {
+        for (const key of Object.keys(newTouched)) {
           try {
             // Try to parse the key as a JSON path
             const keyPath = JSON.parse(key);
@@ -742,7 +741,7 @@ export function FormProvider<T extends Record<string | number, unknown>>({
             // If key isn't valid JSON, it's not a path we created with serializePath
             // so we can safely ignore it
           }
-        });
+        }
 
         // Create a new errors array with the deleted item's errors removed
         const newErrors = errors
@@ -851,7 +850,7 @@ export function FormProvider<T extends Record<string | number, unknown>>({
         const serializedPath = serializePath(path);
 
         // Remove touched state for the deleted field and all its children
-        Object.keys(newTouched).forEach((key) => {
+        for (const key of Object.keys(newTouched)) {
           // Remove exact match
           if (key === serializedPath) {
             delete newTouched[key];
@@ -872,7 +871,7 @@ export function FormProvider<T extends Record<string | number, unknown>>({
               // so we can safely ignore it
             }
           }
-        });
+        }
 
         // Create a new errors array with all related errors removed
         const newErrors = errors.filter((error) => {
