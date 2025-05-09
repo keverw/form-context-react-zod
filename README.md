@@ -1,5 +1,7 @@
 # Form Context React Zod
 
+[![npm version](https://badge.fury.io/js/form-context-react-zod.svg)](https://badge.fury.io/js/form-context-react-zod)
+
 A powerful React form management library with Zod validation.
 
 ## Project Overview
