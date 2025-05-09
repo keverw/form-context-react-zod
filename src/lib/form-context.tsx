@@ -28,6 +28,7 @@ export interface FormContextValue<T> {
   setErrors: (errors: ValidationError[]) => void;
   isSubmitting: boolean;
   isValid: boolean;
+  canSubmit: boolean;
   lastValidated: number | null;
   submit: () => Promise<void>;
   reset: () => void;
@@ -67,6 +68,7 @@ interface FormState<T> {
   errors: ValidationError[];
   isSubmitting: boolean;
   lastValidated: number | null;
+  canSubmit: boolean;
 }
 
 // Define action types
@@ -84,6 +86,7 @@ type FormAction<T> =
         errors?: ValidationError[];
         isSubmitting?: boolean;
         lastValidated?: number | null;
+        canSubmit?: boolean;
       };
     };
 
@@ -127,6 +130,7 @@ function formReducer<T extends Record<string | number, unknown>>(
         errors: [],
         isSubmitting: false,
         lastValidated: null,
+        canSubmit: false,
       };
     case 'BATCH_UPDATE':
       return {
@@ -143,7 +147,11 @@ function formReducer<T extends Record<string | number, unknown>>(
           action.updates.lastValidated !== undefined
             ? action.updates.lastValidated
             : state.lastValidated,
-      } as FormState<T>;
+        canSubmit:
+          action.updates.canSubmit !== undefined
+            ? action.updates.canSubmit
+            : state.canSubmit,
+      };
     default:
       return state;
   }
@@ -164,10 +172,12 @@ export function FormProvider<T extends Record<string | number, unknown>>({
     errors: [],
     isSubmitting: false,
     lastValidated: null,
+    canSubmit: false,
   });
 
   // Destructure state for easier access
-  const { values, touched, errors, isSubmitting, lastValidated } = state;
+  const { values, touched, errors, isSubmitting, lastValidated, canSubmit } =
+    state;
 
   // Using useRef instead of useState to avoid race conditions
   const mountedRef = React.useRef(false);
@@ -229,11 +239,12 @@ export function FormProvider<T extends Record<string | number, unknown>>({
     // Validate the entire form
     const result = validate(schema, values);
 
-    // Update lastValidated in state
+    // Update lastValidated and canSubmit in state
     dispatch({
       type: 'BATCH_UPDATE',
       updates: {
         lastValidated: now,
+        canSubmit: result.valid,
       },
     });
 
@@ -361,6 +372,7 @@ export function FormProvider<T extends Record<string | number, unknown>>({
         touched: newTouched,
         errors: result.valid ? [] : result.errors || [],
         lastValidated: Date.now(),
+        canSubmit: result.valid,
       },
     });
   }, [getValuePaths, validateForm]);
@@ -493,8 +505,13 @@ export function FormProvider<T extends Record<string | number, unknown>>({
         }
 
         // Validate the new values
+        let newCanSubmit = canSubmit;
+
         if (validateOnChange && schema) {
           const result = validate(schema, newValues);
+          // Update canSubmit based on validation result
+          newCanSubmit = result.valid;
+
           if (!result.valid && result.errors) {
             // Only add new validation errors for all updated paths
             for (const { path } of pendingOperations) {
@@ -516,6 +533,7 @@ export function FormProvider<T extends Record<string | number, unknown>>({
             touched: newTouched,
             errors: newErrors,
             lastValidated: Date.now(),
+            canSubmit: newCanSubmit,
           },
         });
       }, 0);
@@ -524,10 +542,11 @@ export function FormProvider<T extends Record<string | number, unknown>>({
       values,
       touched,
       errors,
-      markPathAsTouched,
-      filterErrorsForPath,
+      canSubmit,
       validateOnChange,
       schema,
+      markPathAsTouched,
+      filterErrorsForPath,
     ]
   );
 
@@ -690,8 +709,14 @@ export function FormProvider<T extends Record<string | number, unknown>>({
 
         // Validate the new array after deletion
         let finalErrors = newErrors;
+        let newCanSubmit = canSubmit;
+
         if (validateOnChange && schema) {
           const result = validate(schema, newValues);
+
+          // Update canSubmit based on validation result
+          newCanSubmit = result.valid;
+
           if (!result.valid && result.errors) {
             // Only add new validation errors for the array path
             const arrayErrors = result.errors.filter(
@@ -720,6 +745,7 @@ export function FormProvider<T extends Record<string | number, unknown>>({
             touched: newTouched,
             errors: finalErrors,
             lastValidated: Date.now(),
+            canSubmit: newCanSubmit,
           },
         });
       } else {
@@ -780,8 +806,14 @@ export function FormProvider<T extends Record<string | number, unknown>>({
 
         // Validate the form after deletion
         let finalErrors = newErrors;
+        let newCanSubmit = canSubmit;
+
         if (validateOnChange && schema) {
           const result = validate(schema, newValues);
+
+          // Update canSubmit based on validation result
+          newCanSubmit = result.valid;
+
           if (!result.valid && result.errors) {
             // Only add new validation errors for the parent path
             const parentErrors = result.errors.filter(
@@ -810,11 +842,12 @@ export function FormProvider<T extends Record<string | number, unknown>>({
             touched: newTouched,
             errors: finalErrors,
             lastValidated: Date.now(),
+            canSubmit: newCanSubmit,
           },
         });
       }
     },
-    [values, touched, errors, dispatch, validateOnChange, schema]
+    [values, touched, errors, canSubmit, validateOnChange, schema]
   );
 
   const pathExists = useCallback(
@@ -1035,6 +1068,7 @@ export function FormProvider<T extends Record<string | number, unknown>>({
       errors,
       isSubmitting,
       isValid: mountedRef.current && errors.length === 0,
+      canSubmit,
       lastValidated,
       submit,
       reset,
@@ -1072,15 +1106,16 @@ export function FormProvider<T extends Record<string | number, unknown>>({
       setFieldTouched,
       errors,
       isSubmitting,
+      canSubmit,
       lastValidated,
       submit,
       reset,
       validateFunction,
-      getValuePaths,
       getValue,
       setValue,
       clearValue,
       deleteField,
+      getValuePaths,
       getError,
       getErrorPaths,
       hasField,

@@ -278,6 +278,15 @@ export default function FormState({
             style={{
               display: 'inline-flex',
               alignItems: 'center',
+              color: form.canSubmit ? palette.valid : palette.invalid,
+            }}
+          >
+            {form.canSubmit ? '✓ Can Submit' : '✗ Cannot Submit'}
+          </span>
+          <span
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
               color: form.isSubmitting ? palette.submitting : palette.idle,
             }}
           >

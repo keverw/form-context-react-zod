@@ -32,7 +32,8 @@ Provides context with:
 State getters:
 
 - `isSubmitting`: Boolean indicating submission state
-- `isValid`: Boolean indicating if form passes validation
+- `isValid`: Boolean indicating if form passes validation for touched fields
+- `canSubmit`: Boolean indicating if the entire form passes Zod schema validation
 - `errors`: Current validation/server errors
 - `lastValidated`: Timestamp of the last validation
 
@@ -583,6 +584,38 @@ form.setServerErrors(errors);
 - Array field errors track by index
 - Nested object errors maintain path structure
 - Root level errors possible with .strict() schemas
+
+### Form Validation States
+
+The form provides two distinct validation states:
+
+1. `isValid`: Indicates if there are no errors for fields that have been touched or interacted with. This is useful for showing validation feedback as users fill out the form.
+
+2. `canSubmit`: Indicates if the entire form passes Zod schema validation, regardless of which fields have been touched. This is useful for controlling when to enable the submit button.
+
+Example usage with a submit button:
+
+```tsx
+function MyForm() {
+  const form = useFormContext();
+
+  return (
+    <form onSubmit={form.submit}>
+      {/* Form fields */}
+
+      <button
+        type="submit"
+        disabled={!form.canSubmit || form.isSubmitting}
+        className="submit-button"
+      >
+        {form.isSubmitting ? 'Submitting...' : 'Submit'}
+      </button>
+    </form>
+  );
+}
+```
+
+This pattern ensures the submit button is only enabled when the entire form is valid according to the Zod schema, providing a better user experience by preventing submission attempts with invalid data.
 
 #### Error Priority
 
