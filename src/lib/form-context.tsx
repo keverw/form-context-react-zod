@@ -923,6 +923,7 @@ export function FormProvider<T extends Record<string | number, unknown>>({
       console.warn('Attempted to reset form while submitting.');
       return;
     }
+
     dispatch({ type: 'RESET', initialValues });
   }, [initialValues, dispatch, isSubmitting]);
 
@@ -995,6 +996,12 @@ export function FormProvider<T extends Record<string | number, unknown>>({
 
   const submit = useCallback(async () => {
     if (!onSubmit) return;
+
+    // Prevent multiple simultaneous submissions
+    if (isSubmitting) {
+      console.warn('Form submission prevented: already submitting.');
+      return;
+    }
 
     // Clear any server errors before starting a new submission
     setErrors((prev) => prev.filter((e) => e.source !== 'server'));
@@ -1069,23 +1076,24 @@ export function FormProvider<T extends Record<string | number, unknown>>({
     }
   }, [
     onSubmit,
+    isSubmitting,
     setErrors,
     getValuePaths,
     setIsSubmitting,
+    queueSetTouched,
     validateForm,
     schema,
-    values,
-    errors,
-    hasField,
-    queueSetServerError,
-    reset,
     setValue,
     clearValue,
     deleteField,
-    touched,
     validateFunction,
+    hasField,
+    touched,
     setFieldTouched,
-    queueSetTouched,
+    reset,
+    values,
+    errors,
+    queueSetServerError,
   ]);
 
   const contextValue = React.useMemo<FormContextValue<T>>(
