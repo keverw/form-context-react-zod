@@ -433,9 +433,14 @@ export function FormProvider<T extends Record<string | number, unknown>>({
       }
     }
 
-    return () => {
-      mountedRef.current = false;
-    };
+  return () => {
+    mountedRef.current = false;
+    // Prevent any pending batches from running after unmount
+    if (setValueTimeoutRef.current)   clearTimeout(setValueTimeoutRef.current);
+    if (setTouchedTimeoutRef.current) clearTimeout(setTouchedTimeoutRef.current);
+    if (setServerErrorTimeoutRef.current)
+      clearTimeout(setServerErrorTimeoutRef.current);
+  };
   }, [validateOnMount, schema, performInitialValidation]);
 
   const getValue = useCallback(
@@ -649,28 +654,28 @@ export function FormProvider<T extends Record<string | number, unknown>>({
         Object.keys(newTouched).forEach((key) => {
           const keyPath = key.split('.');
 
-          // Check if this key is related to the array we're modifying
-          if (
-            keyPath.length > parentPath.length &&
+            // Check if this key is related to the array we're modifying
+            if (
+              keyPath.length > parentPath.length &&
             parentPath.every((val, idx) => String(val) === keyPath[idx])
-          ) {
-            const itemIndex = Number(keyPath[parentPath.length]);
+            ) {
+              const itemIndex = Number(keyPath[parentPath.length]);
 
-            // If this is for the deleted item or its children, remove it
-            if (!isNaN(itemIndex) && itemIndex === arrayIndex) {
-              delete newTouched[key];
-            }
-            // If this is for an item after the deleted one, adjust its index
-            else if (!isNaN(itemIndex) && itemIndex > arrayIndex) {
+              // If this is for the deleted item or its children, remove it
+              if (!isNaN(itemIndex) && itemIndex === arrayIndex) {
+                delete newTouched[key];
+              }
+              // If this is for an item after the deleted one, adjust its index
+              else if (!isNaN(itemIndex) && itemIndex > arrayIndex) {
               const newKey = [
-                ...keyPath.slice(0, parentPath.length),
+                  ...keyPath.slice(0, parentPath.length),
                 String(itemIndex - 1),
-                ...keyPath.slice(parentPath.length + 1),
+                  ...keyPath.slice(parentPath.length + 1),
               ].join('.');
-              newTouched[newKey] = newTouched[key];
-              delete newTouched[key];
+                newTouched[newKey] = newTouched[key];
+                delete newTouched[key];
+              }
             }
-          }
         });
 
         // Create a new errors array with the deleted item's errors removed
@@ -783,12 +788,12 @@ export function FormProvider<T extends Record<string | number, unknown>>({
         Object.keys(newTouched).forEach((key) => {
           // Remove exact match
           if (key === path.join('.')) {
-            delete newTouched[key];
-          }
+              delete newTouched[key];
+            }
           // Remove all nested fields
           else if (key.startsWith(pathPrefix)) {
-            delete newTouched[key];
-          }
+              delete newTouched[key];
+            }
         });
 
         // Create a new errors array with all related errors removed
