@@ -782,7 +782,7 @@ function MultiSectionForm() {
       {/* Each component can access the same form context */}
       <PersonalInfoSection />
       <ContactInfoSection />
-      <FormDebugger />
+      <FormState />
       <SubmitButton />
     </FormProvider>
   );

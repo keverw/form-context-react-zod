@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useFormContext } from '../lib/hooks/useFormContext';
+import { useFormContext } from '../hooks/useFormContext';
 
 interface Palette {
   bg: string;
@@ -120,7 +120,7 @@ type FormStateProps = {
   showToggle?: boolean;
 };
 
-export default function FormState({
+export function FormState({
   mode = 'light',
   showToggle = false,
 }: FormStateProps) {

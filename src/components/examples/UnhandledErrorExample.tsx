@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { FormProvider } from '../../lib/form-context';
 import { RootErrors, SubmitButton } from './shared';
-import FormState from '../FormState';
+import { FormState } from '../../lib/components/FormState';
 import { AlertTriangle } from 'lucide-react';
 import { useFormContext } from '../../lib/hooks/useFormContext';
 import { useField } from '../../lib/hooks/useField';

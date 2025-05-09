@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { FormProvider } from '../../lib/form-context';
 import FormInput from '../FormInput';
 import { RootErrors, SubmitButton, FormNotice } from './shared';
-import FormState from '../FormState';
+import { FormState } from '../../lib/components/FormState';
 import {
   Check,
   X,

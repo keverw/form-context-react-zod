@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { FormProvider, FormContext } from '../../lib/form-context';
 import FormInput from '../FormInput';
-import FormState from '../FormState';
+import { FormState } from '../../lib/components/FormState';
 import { useContext, useCallback } from 'react';
 
 // Define a schema for our form
