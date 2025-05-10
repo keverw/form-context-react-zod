@@ -2,12 +2,11 @@
 import fs from 'fs';
 import path from 'path';
 import { execSync } from 'child_process';
-import * as esbuild from 'esbuild';
 
 // Package configuration
 const PACKAGE_CONFIG = {
   name: 'form-context-react-zod',
-  version: '1.1.0',
+  version: '1.1.1',
   description: 'React form context with Zod validation helpers',
   author: '',
   license: 'MIT',
@@ -34,51 +33,22 @@ if (!fs.existsSync('dist_module')) {
 
 async function build() {
   try {
-    console.log('Building with esbuild...');
-
-    // Build ESM version
-    await esbuild.build({
-      entryPoints: ['src/lib/index.ts'],
-      bundle: true,
-      outfile: 'dist_module/index.js',
-      format: 'esm',
-      platform: 'neutral',
-      external: ['react', 'react-dom', 'zod'],
-      sourcemap: true,
-      minify: true,
-      target: 'es2019',
-      jsx: 'automatic',
-    });
-
-    // Build CJS version
-    await esbuild.build({
-      entryPoints: ['src/lib/index.ts'],
-      bundle: true,
-      outfile: 'dist_module/index.cjs',
-      format: 'cjs',
-      platform: 'neutral',
-      external: ['react', 'react-dom', 'zod'],
-      sourcemap: true,
-      minify: true,
-      target: 'es2019',
-      jsx: 'automatic',
-    });
-
-    console.log('✅ JavaScript bundles built successfully');
-
     // Build the library with tsup (bundles JS and generates type declarations)
     console.log('Building library with tsup...');
     try {
+      // Use tsup with config file for JSX support
+      console.log('Running tsup with config file...');
       execSync(
-        'node ./node_modules/tsup/bin/tsup.js src/lib/index.ts --format esm,cjs --dts --out-dir dist_module --tsconfig tsconfig.lib.json',
+        'npx tsup --config tsup.config.ts --out-dir dist_module --tsconfig tsconfig.lib.json',
         {
           stdio: 'inherit',
         }
       );
+
       console.log('✅ Library built successfully with tsup');
     } catch (error) {
       console.error('❌ Error building library with tsup:', error);
-      // Continue anyway, as we have the JS bundles
+      process.exit(1); // Exit if tsup fails since we no longer have esbuild as fallback
     }
 
     // Copy documentation files
