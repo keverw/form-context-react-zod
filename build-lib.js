@@ -7,7 +7,7 @@ import * as esbuild from 'esbuild';
 // Package configuration
 const PACKAGE_CONFIG = {
   name: 'form-context-react-zod',
-  version: '1.0.9',
+  version: '1.1.0',
   description: 'React form context with Zod validation helpers',
   author: '',
   license: 'MIT',
@@ -66,111 +66,18 @@ async function build() {
 
     console.log('✅ JavaScript bundles built successfully');
 
-    // Generate TypeScript declaration files
-    console.log('Generating TypeScript declarations...');
+    // Build the library with tsup (bundles JS and generates type declarations)
+    console.log('Building library with tsup...');
     try {
-      // Use the locally installed typescript compiler directly
       execSync(
-        'node ./node_modules/typescript/bin/tsc --project tsconfig.lib.json --emitDeclarationOnly',
+        'node ./node_modules/tsup/bin/tsup.js src/lib/index.ts --format esm,cjs --dts --out-dir dist_module --tsconfig tsconfig.lib.json',
         {
           stdio: 'inherit',
         }
       );
-      
-      // Post-process TypeScript declarations - fix the index.d.ts file
-      console.log('Post-processing TypeScript declarations...');
-      
-      try {
-        // Read all the declaration files to extract their exports
-        const formContextTypes = fs.readFileSync('dist_module/form-context.d.ts', 'utf8');
-        const zodHelpersTypes = fs.readFileSync('dist_module/zod-helpers.d.ts', 'utf8');
-        const useFormContextTypes = fs.readFileSync('dist_module/hooks/useFormContext.d.ts', 'utf8');
-        const useFieldTypes = fs.readFileSync('dist_module/hooks/useField.d.ts', 'utf8');
-        const useArrayFieldTypes = fs.readFileSync('dist_module/hooks/useArrayField.d.ts', 'utf8');
-        const formStateTypes = fs.readFileSync('dist_module/components/FormState.d.ts', 'utf8');
-        
-        // Process the files to inline their content and remove imports
-        const processTypeFile = (content) => {
-          // Remove import statements
-          let processed = content.replace(/import .+ from ['|"].+['|"];\n/g, '');
-
-          // Replace relative paths in type references with their proper names
-          processed = processed.replace(/['|"]\.\/zod-helpers['|"]/g, '""');
-          processed = processed.replace(/['|"]\.\/form-context['|"]/g, '""');
-          processed = processed.replace(/['|"]\.\/utils['|"]/g, '""');
-          processed = processed.replace(/['|"]\.\.\/.+['|"]/g, '""');
-
-          // Remove any empty exports (export {};) that are just module markers
-          processed = processed.replace(/export \{\};\n?/g, '');
-          return processed;
-        };
-        
-        // Generate a new index.d.ts file with all needed types
-        const indexDtsContent = 
-`import React from 'react';
-import { z } from 'zod';
-
-// Zod Helpers
-${processTypeFile(zodHelpersTypes)}
-
-// Form Context
-${processTypeFile(formContextTypes)}
-
-// Hooks
-${processTypeFile(useFormContextTypes)}
-${processTypeFile(useFieldTypes)}
-${processTypeFile(useArrayFieldTypes)}
-
-// Components
-${processTypeFile(formStateTypes)}
-`;
-        
-        // Write the new index.d.ts file
-        fs.writeFileSync('dist_module/index.d.ts', indexDtsContent);
-        
-        // Clean up individual .d.ts files since they're now combined into index.d.ts
-        console.log('Cleaning up individual declaration files...');
-        try {
-          // Remove form-context.d.ts and other root level .d.ts files except index.d.ts
-          const rootDtsFiles = fs.readdirSync('dist_module')
-            .filter(file => file.endsWith('.d.ts') && file !== 'index.d.ts');
-          
-          for (const file of rootDtsFiles) {
-            fs.unlinkSync(`dist_module/${file}`);
-          }
-          
-          // Remove .d.ts files in subdirectories
-          const cleanDir = (dir) => {
-            if (fs.existsSync(`dist_module/${dir}`)) {
-              const files = fs.readdirSync(`dist_module/${dir}`)
-                .filter(file => file.endsWith('.d.ts'));
-                
-              for (const file of files) {
-                fs.unlinkSync(`dist_module/${dir}/${file}`);
-              }
-              
-              // If directory is now empty, remove it
-              if (fs.readdirSync(`dist_module/${dir}`).length === 0) {
-                fs.rmdirSync(`dist_module/${dir}`);
-              }
-            }
-          };
-          
-          // Clean up known subdirectories
-          cleanDir('hooks');
-          cleanDir('components');
-          
-          console.log('✅ Declaration files cleanup complete');
-        } catch (cleanupError) {
-          console.error('Error cleaning up declaration files:', cleanupError);
-        }
-      } catch (error) {
-        console.error('Error during TypeScript declarations post-processing:', error);
-      }
-      
-      console.log('✅ TypeScript declarations generated successfully');
+      console.log('✅ Library built successfully with tsup');
     } catch (error) {
-      console.error('❌ Error generating TypeScript declarations:', error);
+      console.error('❌ Error building library with tsup:', error);
       // Continue anyway, as we have the JS bundles
     }
 
@@ -210,6 +117,7 @@ ${processTypeFile(formStateTypes)}
         'index.js',
         'index.cjs',
         'index.d.ts',
+        'index.d.cts',
         'README.md',
         'FORM-API.md',
         'ZOD-HELPERS.md',
