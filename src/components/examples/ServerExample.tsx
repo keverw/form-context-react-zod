@@ -3,7 +3,15 @@ import { FormProvider } from '../../lib/form-context';
 import FormInput from '../FormInput';
 import { FormNotice, SubmitButton, LoadingSpinner } from './shared';
 import { FormState } from '../../lib/components/FormState';
-import { Bug, Trash2, Check, X, WifiOff, AlertTriangle } from 'lucide-react';
+import {
+  Bug,
+  Trash2,
+  Check,
+  X,
+  WifiOff,
+  AlertTriangle,
+  AlertCircle,
+} from 'lucide-react';
 import { simulateServer } from './utils';
 import { useFormContext } from '../../lib/hooks/useFormContext';
 import { useField } from '../../lib/hooks/useField';
@@ -228,6 +236,10 @@ function ServerForm() {
           <li>
             Type <code>admin@example.com</code> - Shows root-level server error
           </li>
+          <li>
+            Click "Force Submit" with invalid form - Tests server validation
+            with invalid form
+          </li>
         </ul>
       </FormNotice>
 
@@ -271,9 +283,26 @@ function ServerForm() {
           type="password"
           placeholder="••••••••"
         />
-        <SubmitButton />
-
         <div className="flex gap-2">
+          <SubmitButton />
+          <button
+            type="button"
+            onClick={() => {
+              // Mark all fields as touched
+              const paths = form.getValuePaths();
+              paths.forEach((path) => form.setFieldTouched(path, true));
+
+              // Submit the form even if invalid
+              form.submit();
+            }}
+            className="flex items-center px-4 py-2 text-orange-700 bg-orange-50 rounded-lg hover:bg-orange-100"
+          >
+            <AlertCircle className="w-4 h-4 mr-2" />
+            Force Submit
+          </button>
+        </div>
+
+        <div className="flex gap-2 mt-4">
           <button
             type="button"
             onClick={() =>
