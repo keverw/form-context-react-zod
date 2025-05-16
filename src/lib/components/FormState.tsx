@@ -126,8 +126,13 @@ export function FormState({
   showToggle = false,
 }: FormStateProps) {
   const form = useFormContext();
-  const validationErrors = form.errors.filter((e) => e.source !== 'server');
+  const validationErrors = form.errors.filter(
+    (e) => e.source !== 'server' && e.source !== 'client-form-handler'
+  );
   const serverErrors = form.errors.filter((e) => e.source === 'server');
+  const clientSubmissionErrors = form.errors.filter(
+    (e) => e.source === 'client-form-handler'
+  );
   const [timeAgo, setTimeAgo] = useState<string>('Never');
   const [internalMode, setInternalMode] = useState<'light' | 'dark'>(mode);
   const effectiveMode = showToggle ? internalMode : mode;
@@ -354,6 +359,24 @@ export function FormState({
             ) : (
               <span style={{ color: palette.subtext }}>
                 No validation errors
+              </span>
+            )}
+          </Section>
+
+          <Section title="Client Submission Error" palette={palette}>
+            {clientSubmissionErrors.length > 0 ? (
+              clientSubmissionErrors.map((error, i) => (
+                <div key={i} style={{ marginBottom: '0.25rem' }}>
+                  <span style={{ color: palette.subtext }}>
+                    {/* Client submission errors are always at root */}
+                    (root):{' '}
+                  </span>
+                  <span style={{ color: palette.error }}>{error.message}</span>
+                </div>
+              ))
+            ) : (
+              <span style={{ color: palette.subtext }}>
+                No client submission error messages
               </span>
             )}
           </Section>

@@ -113,10 +113,42 @@ form.setServerError(
 
 // Clear server errors for a specific field
 form.setServerError(['username'], null);
+```
 
-// Clear all server errors while preserving validation errors
+### Error Types in the Form System
+
+The form library handles three distinct types of errors:
+
+1. **Client Validation Errors**: Generated automatically by Zod schema validation. These are field-specific errors based on your schema rules (e.g., "Email must be valid", "Name is required").
+
+2. **Server Validation Errors**: Set with `setServerErrors()` or `setServerError()`, these represent validation errors from your backend (e.g., "Username already taken", "Email domain is blocked").
+
+3. **Client Submission Errors**: Set with `setClientSubmissionError()`, these are for general submission failures like network issues, authentication problems, or any other client-side issue preventing successful form submission.
+
+#### Client Submission Error Handling:
+
+```typescript
+// Set a client submission error (network failures, auth issues, etc.)
+// These appear at the root level and are independent of validation/server errors
+form.setClientSubmissionError('Network connection failed, please try again');
+
+// Set multiple client submission errors
+form.setClientSubmissionError([
+  'Your session has expired',
+  'Please sign in again to continue',
+]);
+
+// Clear client submission errors
+form.clearClientSubmissionError();
+
+// Get current client submission errors
+const clientErrors = form.getClientSubmissionError(); // Returns string[]
+
+// Clear all server errors while preserving client validation errors
 form.setServerErrors([]);
 ```
+
+Client submission errors are always displayed at the root level of the form and are ideal for situations where the entire form submission fails for reasons unrelated to individual field validation.
 
 Important Server Error Behaviors:
 
@@ -286,6 +318,24 @@ When using the `onSubmit` prop, it receives the form values and a set of helper 
 >
   {/* Form components */}
 </FormProvider>
+```
+
+### Error Clearing on Resubmission
+
+When a form is submitted, the library automatically clears:
+
+- All server errors (`source: 'server'`)
+- All client error slot messages (`source: 'client-form-handler'`)
+
+This provides a clean slate for each submission attempt, ensuring old error messages don't persist when the user tries again. Validation errors are rechecked during submission and will still appear if validation fails.
+
+```tsx
+// This happens automatically on form submission:
+// 1. Clear all server errors
+// 2. Clear client error slot
+// 3. Perform validation
+// 4. Submit if valid
+form.submit();
 ```
 
 The `helpers` object provides access to:

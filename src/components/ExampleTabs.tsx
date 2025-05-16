@@ -4,6 +4,7 @@ import NestedExample from './examples/NestedExample';
 import ArrayExample from './examples/ArrayExample';
 import ArraySingleValuesExample from './examples/ArraySingleValuesExample';
 import ServerExample from './examples/ServerExample';
+import ClientSubmissionErrorExample from './examples/ClientSubmissionErrorExample';
 import PrefilledExample from './examples/PrefilledExample';
 import ApiExample from './examples/ApiExample';
 import UnhandledErrorExample from './examples/UnhandledErrorExample';
@@ -18,6 +19,7 @@ const tabs = [
   'Array - Object',
   'Array - Single Values',
   'Server',
+  'Client Submission Error',
   'Prefilled',
   'API',
   'Multiple Children',
@@ -183,6 +185,9 @@ export default function ExampleTabs() {
               <ArraySingleValuesExample />
             )}
             {activeTab === 'Server' && <ServerExample />}
+            {activeTab === 'Client Submission Error' && (
+              <ClientSubmissionErrorExample />
+            )}
             {activeTab === 'Prefilled' && <PrefilledExample />}
             {activeTab === 'API' && <ApiExample />}
             {activeTab === 'Multiple Children' && <MultipleChildrenExample />}

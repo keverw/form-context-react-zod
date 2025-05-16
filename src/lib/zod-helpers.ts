@@ -3,7 +3,7 @@ import { SafeParseError, ZodError, z } from 'zod';
 export interface ValidationError {
   path: (string | number)[];
   message: string;
-  source?: 'client' | 'server';
+  source?: 'client' | 'server' | 'client-form-handler';
 }
 
 export interface ValidationResult<T> {

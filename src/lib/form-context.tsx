@@ -17,6 +17,22 @@ export interface FormHelpers {
     path: (string | number)[],
     message: string | string[] | null
   ) => void;
+  /**
+   * Sets client submission errors (network failures, auth issues, etc.) at the form root level.
+   * These are separate from field validation errors and server errors, and represent
+   * issues preventing the entire form submission from completing.
+   * @param message A string, array of strings, or null to clear all client submission errors
+   */
+  setClientSubmissionError: (message: string | string[] | null) => void;
+  /**
+   * Clears all client submission errors while preserving validation and server errors.
+   */
+  clearClientSubmissionError: () => void;
+  /**
+   * Returns the current client submission errors.
+   * @returns An array of error message strings
+   */
+  getClientSubmissionError: () => string[];
   setValue: <V = unknown>(path: (string | number)[], value: V) => void;
   clearValue: (path: (string | number)[]) => void;
   deleteField: (path: (string | number)[]) => void;
@@ -58,6 +74,22 @@ export interface FormContextValue<T> {
     path: (string | number)[],
     message: string | string[] | null
   ) => void;
+  /**
+   * Sets client submission errors (network failures, auth issues, etc.) at the form root level.
+   * These are separate from field validation errors and server errors, and represent
+   * issues preventing the entire form submission from completing.
+   * @param message A string, array of strings, or null to clear all client submission errors
+   */
+  setClientSubmissionError: (message: string | string[] | null) => void;
+  /**
+   * Clears all client submission errors while preserving validation and server errors.
+   */
+  clearClientSubmissionError: () => void;
+  /**
+   * Returns the current client submission errors.
+   * @returns An array of error message strings
+   */
+  getClientSubmissionError: () => string[];
   isCurrentSubmission: (submissionId: string) => boolean;
 }
 
@@ -111,7 +143,7 @@ type FormAction<T> =
         isSubmitting?: boolean;
         lastValidated?: number | null;
         canSubmit?: boolean;
-        currentSubmissionID?: string | null; // Allow batch update for consistency, though not primary use
+        currentSubmissionID?: string | null;
       };
     };
 
@@ -230,33 +262,55 @@ export function FormProvider<T extends Record<string | number, unknown>>({
     // currentSubmissionID is accessed via state.currentSubmissionID in contextValue
   } = state;
 
+  /**
+   * IMPLEMENTATION PATTERN:
+   * This form context uses a hybrid approach combining refs and reducer state:
+   *
+   * 1. Refs (valuesRef, errorsRef, touchedRef) provide immediate, synchronous access
+   *    to the latest form data without waiting for React render cycles.
+   *
+   * 2. Reducer state triggers UI updates when values change.
+   *
+   * The core pattern used throughout this codebase is:
+   *   - Update refs first for immediate access
+   *   - Then dispatch state updates to trigger UI re-renders
+   *
+   * This approach prevents race conditions and ensures both immediate data access
+   * and proper UI updates, eliminating the need for a complex operation queue.
+   */
+
   // Using useRef instead of useState to avoid race conditions
   const mountedRef = React.useRef(false);
   const currentSubmissionIDRef = React.useRef<string | null>(null);
 
-  // Keep track of pending setValue operations
-  const pendingSetValueRef = React.useRef<
-    Map<string, { path: (string | number)[]; value: unknown }>
-  >(new Map());
+  // Remove queue refs and replace with direct value/touched refs
+  const valuesRef = React.useRef<T>(initialValues);
+  const touchedRef = React.useRef<Record<string, boolean>>({});
+
+  // Keep existing timeout refs to handle debounced updates
   const setValueTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(
     null
   );
-
-  // Keep track of pending setTouched operations
-  const pendingSetTouchedRef = React.useRef<
-    Map<string, { path: (string | number)[]; value: boolean }>
-  >(new Map());
   const setTouchedTimeoutRef = React.useRef<ReturnType<
     typeof setTimeout
   > | null>(null);
 
-  // Keep track of pending setServerError operations
-  const pendingServerErrorsRef = React.useRef<
-    Map<string, { path: (string | number)[]; messages: string[] | null }>
-  >(new Map());
-  const setServerErrorTimeoutRef = React.useRef<ReturnType<
-    typeof setTimeout
-  > | null>(null);
+  // Error handling refs
+  // Keep track of client submission error messages for real-time access
+  const clientSubmissionErrorRef = React.useRef<string[]>([]);
+
+  // Keep all errors in a ref for immediate access/updates, syncing with state for UI
+  const errorsRef = React.useRef<ValidationError[]>([]);
+
+  // Keep track of server errors separately to prevent race conditions
+  const serverErrorsRef = React.useRef<ValidationError[]>([]);
+
+  // Initialize refs with current state values
+  React.useEffect(() => {
+    errorsRef.current = errors;
+    valuesRef.current = values;
+    touchedRef.current = touched;
+  }, [errors, values, touched]);
 
   const getValuePaths = useCallback(
     (basePath: (string | number)[] = []) => {
@@ -302,95 +356,80 @@ export function FormProvider<T extends Record<string | number, unknown>>({
     return result;
   }, [schema, values, dispatch]);
 
-  // Helper function to filter errors for a specific path
-  const filterErrorsForPath = useCallback(
-    (errors: ValidationError[], path: (string | number)[]) => {
-      return errors.filter(
-        (error) =>
-          error.path.length !== path.length ||
-          !error.path.every((val, idx) => path[idx] === val)
-      );
+  // Helper function to create a new touched state with a path marked as touched
+  const markPathAsTouched = useCallback(
+    (touched: Record<string, boolean>, path: (string | number)[]) => {
+      const newTouched = { ...touched };
+      // Mark the field itself
+      newTouched[serializePath(path)] = true;
+
+      // Mark all parent paths
+      for (let i = 1; i <= path.length; i++) {
+        const parentPath = path.slice(0, i);
+        newTouched[serializePath(parentPath)] = true;
+      }
+      return newTouched;
     },
     []
   );
 
-  // Define wrapper functions for dispatch
-  const setErrors = useCallback(
-    (
-      errorsOrUpdater:
-        | ValidationError[]
-        | ((prev: ValidationError[]) => ValidationError[])
-    ) => {
-      if (typeof errorsOrUpdater === 'function') {
-        const updater = errorsOrUpdater;
-        dispatch({
-          type: 'SET_ERRORS',
-          errors: updater(errors),
-        });
+  // Simplified setFieldTouched function that uses refs
+  const setFieldTouched = useCallback(
+    (path: (string | number)[], value: boolean = true) => {
+      // Update the ref immediately
+      if (value) {
+        touchedRef.current = markPathAsTouched(touchedRef.current, path);
       } else {
-        dispatch({
-          type: 'SET_ERRORS',
-          errors: errorsOrUpdater,
-        });
+        // If not touching, just set the specific path
+        touchedRef.current = {
+          ...touchedRef.current,
+          [serializePath(path)]: value,
+        };
       }
-    },
-    [errors, dispatch]
-  );
 
-  // Queue setTouched operations to be processed in a batch
-  const queueSetTouched = useCallback(
-    (path: (string | number)[], value: boolean) => {
-      // Store the path as a string key using serializePath to prevent collisions
-      const pathKey = serializePath(path);
-      pendingSetTouchedRef.current.set(pathKey, { path, value });
-
-      // Clear any existing timeout
+      // Debounce the state update
       if (setTouchedTimeoutRef.current) {
         clearTimeout(setTouchedTimeoutRef.current);
       }
 
-      // Process all pending setTouched operations in the next tick
       setTouchedTimeoutRef.current = setTimeout(() => {
-        const pendingOperations = Array.from(
-          pendingSetTouchedRef.current.values()
-        );
-        pendingSetTouchedRef.current.clear();
-
-        if (pendingOperations.length === 0) return;
-
-        // Create a new touched object with all updates
-        const newTouched = { ...touched };
-
-        // Apply all pending setTouched operations
-        for (const { path, value } of pendingOperations) {
-          // Mark the field and all parent paths as touched
-          newTouched[serializePath(path)] = value;
-
-          // If value is true, mark all parent paths as touched too
-          if (value) {
-            for (let i = 1; i <= path.length; i++) {
-              const parentPath = path.slice(0, i);
-              newTouched[serializePath(parentPath)] = true;
-            }
-          }
-        }
-
-        // Dispatch a single update with all changes
         dispatch({
           type: 'SET_TOUCHED',
-          touched: newTouched,
+          touched: touchedRef.current,
         });
       }, 0);
     },
-    [touched, dispatch]
+    [markPathAsTouched]
   );
 
-  // The simple setTouched function for path-based updates
-  const setFieldTouched = useCallback(
-    (path: (string | number)[], value: boolean = true) => {
-      queueSetTouched(path, value);
+  // Create a validate function that can be used by components
+  const validateFunction = useCallback(
+    (force?: boolean) => {
+      if (force) {
+        // Mark all fields as touched first
+        const allPaths = getValuePaths();
+        for (const path of allPaths) {
+          setFieldTouched(path, true);
+        }
+      }
+      const result = validateForm();
+      if (!result.valid && result.errors) {
+        // Update errors ref first
+        const serverErrors = errorsRef.current.filter(
+          (e) => e.source === 'server'
+        );
+        const newErrors = [...serverErrors, ...(result.errors || [])];
+        errorsRef.current = newErrors;
+
+        // Then update state
+        dispatch({
+          type: 'SET_ERRORS',
+          errors: newErrors,
+        });
+      }
+      return result.valid;
     },
-    [queueSetTouched]
+    [getValuePaths, setFieldTouched, validateForm, dispatch]
   );
 
   // Function used for mount validation
@@ -398,7 +437,7 @@ export function FormProvider<T extends Record<string | number, unknown>>({
     // Get all paths for marking as touched
     const allPaths = getValuePaths();
 
-    // Create a new touched object directly instead of using queueSetTouched
+    // Mark all paths as touched in the ref
     const newTouched: Record<string, boolean> = {};
 
     // Mark all paths as touched
@@ -413,51 +452,29 @@ export function FormProvider<T extends Record<string | number, unknown>>({
       }
     }
 
+    // Update the touched ref
+    touchedRef.current = newTouched;
+
     // Validate form directly
     const result = validateForm();
+    const newErrors = result.valid ? [] : result.errors || [];
+
+    // Update errors ref
+    errorsRef.current = newErrors;
 
     // Combine everything into a single batch update
     dispatch({
       type: 'BATCH_UPDATE',
       updates: {
         touched: newTouched,
-        errors: result.valid ? [] : result.errors || [],
+        errors: newErrors,
         lastValidated: Date.now(),
         canSubmit: result.valid,
       },
     });
   }, [getValuePaths, validateForm]);
 
-  // Create a reusable validate function that can be shared
-  const createValidateFunction = useCallback(
-    (force?: boolean) => {
-      if (force) {
-        // Mark all fields as touched first
-        const allPaths = getValuePaths();
-        // Instead of using the functional pattern with setTouched,
-        // we'll mark each path as touched individually
-        for (const path of allPaths) {
-          queueSetTouched(path, true);
-        }
-      }
-      const result = validateForm();
-      if (!result.valid && result.errors) {
-        setErrors((prev) => {
-          const serverErrors = prev.filter((e) => e.source === 'server');
-          return [...serverErrors, ...(result.errors || [])];
-        });
-      }
-      return result.valid;
-    },
-    [getValuePaths, queueSetTouched, validateForm, setErrors]
-  );
-
-  // Memoize the validate function to use in both places
-  const validateFunction = useCallback(
-    (force?: boolean) => createValidateFunction(force),
-    [createValidateFunction]
-  );
-
+  // Function to set isSubmitting status
   const setIsSubmitting = useCallback(
     (isSubmitting: boolean) => {
       dispatch({
@@ -490,85 +507,77 @@ export function FormProvider<T extends Record<string | number, unknown>>({
       if (setValueTimeoutRef.current) clearTimeout(setValueTimeoutRef.current);
       if (setTouchedTimeoutRef.current)
         clearTimeout(setTouchedTimeoutRef.current);
-      if (setServerErrorTimeoutRef.current)
-        clearTimeout(setServerErrorTimeoutRef.current);
     };
   }, [validateOnMount, schema, performInitialValidation]);
 
-  const getValue = useCallback(
-    <V = unknown,>(path: (string | number)[]): V => {
-      return getValueAtPath(values, path) as V;
-    },
-    [values]
-  );
+  const getValue = useCallback(<V = unknown,>(path: (string | number)[]): V => {
+    // Use the ref for immediate value access
+    return getValueAtPath(valuesRef.current, path) as V;
+  }, []);
 
-  // Helper function to create a new touched state with a path marked as touched
-  const markPathAsTouched = useCallback(
-    (touched: Record<string, boolean>, path: (string | number)[]) => {
-      const newTouched = { ...touched };
-      // Mark the field itself
-      newTouched[serializePath(path)] = true;
+  // Helper function removed since we now filter errors directly
 
-      // Mark all parent paths
-      for (let i = 1; i <= path.length; i++) {
-        const parentPath = path.slice(0, i);
-        newTouched[serializePath(parentPath)] = true;
+  // Set errors with proper ref sync
+  const setErrors = useCallback(
+    (
+      errorsOrUpdater:
+        | ValidationError[]
+        | ((prev: ValidationError[]) => ValidationError[])
+    ) => {
+      if (typeof errorsOrUpdater === 'function') {
+        const updater = errorsOrUpdater;
+        const newErrors = updater(errorsRef.current);
+        // Update ref first
+        errorsRef.current = newErrors;
+        // Then update state
+        dispatch({
+          type: 'SET_ERRORS',
+          errors: newErrors,
+        });
+      } else {
+        // Update ref first
+        errorsRef.current = errorsOrUpdater;
+        // Then update state
+        dispatch({
+          type: 'SET_ERRORS',
+          errors: errorsOrUpdater,
+        });
       }
-      return newTouched;
     },
-    []
+    [dispatch]
   );
 
-  // Queue setValue operations to be processed in a batch
-  const queueSetValue = useCallback(
-    (path: (string | number)[], value: unknown) => {
-      // Store the path as a string key using serializePath to prevent collisions
-      const pathKey = serializePath(path);
-      pendingSetValueRef.current.set(pathKey, { path, value });
+  // Simplified setValue function that uses refs
+  const setValue = useCallback(
+    <V = unknown,>(path: (string | number)[], value: V) => {
+      // Update the values ref immediately
+      const newValues = cloneAlongPath(valuesRef.current, path);
+      setValueAtPath(
+        newValues as Record<string | number, unknown>,
+        path,
+        value
+      );
+      valuesRef.current = newValues;
 
-      // Clear any existing timeout
+      // Update touched state to mark this path
+      touchedRef.current = markPathAsTouched(touchedRef.current, path);
+
+      // Filter out errors for this path immediately in the ref
+      errorsRef.current = errorsRef.current.filter(
+        (error) =>
+          error.path.length !== path.length ||
+          !error.path.every((val, idx) => path[idx] === val)
+      );
+
+      // Debounce the state update
       if (setValueTimeoutRef.current) {
         clearTimeout(setValueTimeoutRef.current);
       }
 
-      // Process all pending setValue operations in the next tick
       setValueTimeoutRef.current = setTimeout(() => {
-        const pendingOperations = Array.from(
-          pendingSetValueRef.current.values()
-        );
-        pendingSetValueRef.current.clear();
-
-        if (pendingOperations.length === 0) return;
-
-        // Create a new values object with all updates
-        let newValues = { ...values };
-        let newTouched = { ...touched };
-        let newErrors = [...errors];
-
-        // Apply all pending setValue operations
-        for (const { path, value } of pendingOperations) {
-          // Deep clone only along the path being changed
-          const clonedValues = cloneAlongPath(newValues, path);
-
-          // Update values
-          setValueAtPath(
-            clonedValues as Record<string | number, unknown>,
-            path,
-            value
-          );
-
-          // Update newValues for the next operation
-          newValues = clonedValues;
-
-          // Mark path as touched
-          newTouched = markPathAsTouched(newTouched, path);
-
-          // Filter out errors for this path
-          newErrors = filterErrorsForPath(newErrors, path);
-        }
-
-        // Validate the new values
+        // Create a validation result if needed
         let newCanSubmit = canSubmit;
+        let newErrors = [...errorsRef.current];
 
         if (validateOnChange && schema) {
           const result = validate(schema, newValues);
@@ -576,15 +585,14 @@ export function FormProvider<T extends Record<string | number, unknown>>({
           newCanSubmit = result.valid;
 
           if (!result.valid && result.errors) {
-            // Only add new validation errors for all updated paths
-            for (const { path } of pendingOperations) {
-              const pathErrors = result.errors.filter(
-                (error) =>
-                  error.path.length === path.length &&
-                  error.path.every((val, idx) => path[idx] === val)
-              );
-              newErrors = [...newErrors, ...pathErrors];
-            }
+            // Only add new validation errors for the updated path
+            const pathErrors = result.errors.filter(
+              (error) =>
+                error.path.length === path.length &&
+                error.path.every((val, idx) => path[idx] === val)
+            );
+            newErrors = [...newErrors, ...pathErrors];
+            errorsRef.current = newErrors; // Update the ref
           }
         }
 
@@ -593,7 +601,7 @@ export function FormProvider<T extends Record<string | number, unknown>>({
           type: 'BATCH_UPDATE',
           updates: {
             values: newValues,
-            touched: newTouched,
+            touched: touchedRef.current,
             errors: newErrors,
             lastValidated: Date.now(),
             canSubmit: newCanSubmit,
@@ -601,24 +609,7 @@ export function FormProvider<T extends Record<string | number, unknown>>({
         });
       }, 0);
     },
-    [
-      values,
-      touched,
-      errors,
-      canSubmit,
-      validateOnChange,
-      schema,
-      markPathAsTouched,
-      filterErrorsForPath,
-    ]
-  );
-
-  // The setValue function that users will call
-  const setValue = useCallback(
-    <V = unknown,>(path: (string | number)[], value: V) => {
-      queueSetValue(path, value);
-    },
-    [queueSetValue]
+    [validateOnChange, schema, canSubmit, markPathAsTouched]
   );
 
   // Check if a field exists at the given path
@@ -668,6 +659,16 @@ export function FormProvider<T extends Record<string | number, unknown>>({
       const currentValue = getValue(path);
       const emptyValue = getEmptyValue(currentValue);
 
+      // Update the ref first for immediate access
+      const newValues = cloneAlongPath(valuesRef.current, path);
+      setValueAtPath(
+        newValues as Record<string | number, unknown>,
+        path,
+        emptyValue
+      );
+      valuesRef.current = newValues;
+
+      // Then update state
       dispatch({ type: 'SET_VALUE', path, value: emptyValue });
     },
     [dispatch, getValue, hasField]
@@ -685,7 +686,7 @@ export function FormProvider<T extends Record<string | number, unknown>>({
       let arrayIndex = -1;
 
       // First, determine if this is an array item
-      const parent = getValueAtPath(values, parentPath);
+      const parent = getValueAtPath(valuesRef.current, parentPath);
 
       if (parent && typeof parent === 'object' && Array.isArray(parent)) {
         isArrayItem = true;
@@ -700,12 +701,13 @@ export function FormProvider<T extends Record<string | number, unknown>>({
         // Create a new array without the deleted item
         const newItems = array.filter((_, i) => i !== arrayIndex);
 
-        // Create a new values object with the updated array
-        const newValues = { ...values };
+        // Create a new values object with the updated array - first update valuesRef
+        const newValues = { ...valuesRef.current };
         setValueAtPath(newValues, parentPath, newItems);
+        valuesRef.current = newValues;
 
         // Create a new touched state with the deleted item removed
-        const newTouched = { ...touched };
+        const newTouched = { ...touchedRef.current };
 
         // Remove touched states for the deleted item and its children
         // and adjust indices for items after the deleted one
@@ -743,8 +745,11 @@ export function FormProvider<T extends Record<string | number, unknown>>({
           }
         }
 
+        // Update touchedRef immediately
+        touchedRef.current = newTouched;
+
         // Create a new errors array with the deleted item's errors removed
-        const newErrors = errors
+        const newErrors = errorsRef.current
           .filter(
             (error) =>
               error.path.length < parentPath.length ||
@@ -777,6 +782,9 @@ export function FormProvider<T extends Record<string | number, unknown>>({
             return error;
           });
 
+        // Update errorsRef immediately
+        errorsRef.current = newErrors;
+
         // Validate the new array after deletion
         let finalErrors = newErrors;
         let newCanSubmit = canSubmit;
@@ -804,6 +812,9 @@ export function FormProvider<T extends Record<string | number, unknown>>({
             );
 
             finalErrors = [...newErrors, ...newArrayErrors];
+
+            // Update errorsRef again if we have new validation errors
+            errorsRef.current = finalErrors;
           }
         }
 
@@ -820,8 +831,8 @@ export function FormProvider<T extends Record<string | number, unknown>>({
         });
       } else {
         // For non-array items, implement a comprehensive approach
-        // Create a new values object with the item removed
-        const newValues = { ...values };
+        // Create a new values object with the item removed - update valuesRef first
+        const newValues = { ...valuesRef.current };
 
         // Handle the case where we're deleting a top-level field
         if (parentPath.length === 0) {
@@ -845,8 +856,11 @@ export function FormProvider<T extends Record<string | number, unknown>>({
           }
         }
 
+        // Update valuesRef immediately
+        valuesRef.current = newValues;
+
         // Create a new touched state with all related touched states removed
-        const newTouched = { ...touched };
+        const newTouched = { ...touchedRef.current };
         const serializedPath = serializePath(path);
 
         // Remove touched state for the deleted field and all its children
@@ -873,8 +887,11 @@ export function FormProvider<T extends Record<string | number, unknown>>({
           }
         }
 
+        // Update touchedRef immediately
+        touchedRef.current = newTouched;
+
         // Create a new errors array with all related errors removed
-        const newErrors = errors.filter((error) => {
+        const newErrors = errorsRef.current.filter((error) => {
           // Keep errors not related to this path
           if (error.path.length < path.length) {
             return true;
@@ -885,6 +902,9 @@ export function FormProvider<T extends Record<string | number, unknown>>({
             .slice(0, path.length)
             .every((val, idx) => path[idx] === val);
         });
+
+        // Update errorsRef immediately
+        errorsRef.current = newErrors;
 
         // Validate the form after deletion
         let finalErrors = newErrors;
@@ -913,6 +933,9 @@ export function FormProvider<T extends Record<string | number, unknown>>({
             );
 
             finalErrors = [...newErrors, ...newParentErrors];
+
+            // Update errorsRef again if we have new validation errors
+            errorsRef.current = finalErrors;
           }
         }
 
@@ -929,7 +952,7 @@ export function FormProvider<T extends Record<string | number, unknown>>({
         });
       }
     },
-    [values, touched, errors, canSubmit, validateOnChange, schema]
+    [canSubmit, validateOnChange, schema]
   );
 
   const getError = useCallback(
@@ -974,6 +997,14 @@ export function FormProvider<T extends Record<string | number, unknown>>({
         dispatch({ type: 'SET_SUBMISSION_ID', submissionId: null });
       }
 
+      // Update refs first - this is critical for immediate access
+      valuesRef.current = initialValues;
+      touchedRef.current = {};
+      errorsRef.current = [];
+      serverErrorsRef.current = [];
+      clientSubmissionErrorRef.current = [];
+
+      // Then update state
       dispatch({ type: 'RESET', initialValues });
       return true;
     },
@@ -996,77 +1027,18 @@ export function FormProvider<T extends Record<string | number, unknown>>({
         setIsSubmitting(false);
       }
 
+      // Update refs first - this is critical for immediate access
+      valuesRef.current = newValues;
+      touchedRef.current = {};
+      errorsRef.current = [];
+      serverErrorsRef.current = [];
+      clientSubmissionErrorRef.current = [];
+
+      // Then update state
       dispatch({ type: 'RESET', initialValues: newValues });
       return true;
     },
     [dispatch, isSubmitting, setIsSubmitting]
-  );
-
-  // Queue setServerError operations to be processed in a batch
-  const queueSetServerError = useCallback(
-    (path: (string | number)[], message: string | string[] | null) => {
-      // Store the path as a string key using serializePath to prevent collisions
-      const pathKey = serializePath(path);
-      const messages =
-        message === null ? null : Array.isArray(message) ? message : [message];
-
-      pendingServerErrorsRef.current.set(pathKey, { path, messages });
-
-      // Clear any existing timeout
-      if (setServerErrorTimeoutRef.current) {
-        clearTimeout(setServerErrorTimeoutRef.current);
-      }
-
-      // Process all pending setServerError operations in the next tick
-      setServerErrorTimeoutRef.current = setTimeout(() => {
-        const pendingOperations = Array.from(
-          pendingServerErrorsRef.current.values()
-        );
-        pendingServerErrorsRef.current.clear();
-
-        if (pendingOperations.length === 0) return;
-
-        // Apply all pending setServerError operations at once
-        setErrors((prev) => {
-          let updatedErrors = [...prev];
-
-          for (const { path, messages } of pendingOperations) {
-            // If messages is null, clear server errors at this path
-            if (messages === null) {
-              updatedErrors = updatedErrors.filter(
-                (error) =>
-                  error.source !== 'server' ||
-                  error.path.length !== path.length ||
-                  !error.path.every((val, idx) => path[idx] === val)
-              );
-            } else {
-              // Only proceed if path exists (except for root errors)
-              if (path.length > 0 && !hasField(path)) continue;
-
-              // Remove existing server errors at the same exact path
-              updatedErrors = updatedErrors.filter(
-                (error) =>
-                  error.source !== 'server' ||
-                  error.path.length !== path.length ||
-                  !error.path.every((val, idx) => path[idx] === val)
-              );
-
-              // Add new server errors
-              const newErrors = messages.map((msg) => ({
-                path,
-                message: msg,
-                source: 'server' as const,
-              }));
-
-              updatedErrors = [...updatedErrors, ...newErrors];
-            }
-          }
-
-          return updatedErrors;
-        });
-      }, 0);
-    },
-    [setErrors, hasField]
   );
 
   // Function to check if a submission ID is the current one
@@ -1086,6 +1058,150 @@ export function FormProvider<T extends Record<string | number, unknown>>({
     [dispatch]
   );
 
+  // Client submission error methods - improved with refs
+  const setClientSubmissionError = useCallback(
+    (message: string | string[] | null) => {
+      // Directly update the client submission error ref
+      if (message === null) {
+        clientSubmissionErrorRef.current = [];
+      } else {
+        clientSubmissionErrorRef.current = Array.isArray(message)
+          ? [...message]
+          : [message];
+      }
+
+      // Update errors state to include client error messages while preserving server errors
+      const filteredErrors = errorsRef.current.filter(
+        (e) => e.source !== 'client-form-handler'
+      );
+
+      // Add new client submission error messages if they exist
+      let newErrors = [...filteredErrors];
+      if (clientSubmissionErrorRef.current.length > 0) {
+        const clientErrors = clientSubmissionErrorRef.current.map((msg) => ({
+          path: [],
+          message: msg,
+          source: 'client-form-handler' as const,
+        }));
+        newErrors = [...filteredErrors, ...clientErrors];
+      }
+
+      // Update ref first for immediate access
+      errorsRef.current = newErrors;
+
+      // Then update state
+      dispatch({
+        type: 'SET_ERRORS',
+        errors: newErrors,
+      });
+    },
+    [dispatch]
+  );
+
+  const clearClientSubmissionError = useCallback(() => {
+    // Directly clear the ref
+    clientSubmissionErrorRef.current = [];
+
+    // Update errors state to remove client error messages while preserving others
+    const newErrors = errorsRef.current.filter(
+      (e) => e.source !== 'client-form-handler'
+    );
+
+    // Update ref first
+    errorsRef.current = newErrors;
+
+    // Then update state
+    dispatch({
+      type: 'SET_ERRORS',
+      errors: newErrors,
+    });
+  }, [dispatch]);
+
+  const getClientSubmissionError = useCallback(() => {
+    return [...clientSubmissionErrorRef.current]; // Return a copy to prevent mutation
+  }, []);
+
+  // Updated server error methods
+  const setServerErrors = useCallback(
+    (newErrors: ValidationError[]) => {
+      // Filter out invalid paths
+      const validServerErrors = newErrors
+        .filter((error) => error.path.length === 0 || hasField(error.path))
+        .map((error) => ({ ...error, source: 'server' as const }));
+
+      // Update server errors ref
+      serverErrorsRef.current = validServerErrors;
+
+      // Get current validation and client errors (using refs to avoid race conditions)
+      const validationErrors = errorsRef.current.filter(
+        (e) => e.source !== 'server'
+      );
+
+      // Combine all errors
+      const combinedErrors = [...validationErrors, ...validServerErrors];
+
+      // Update errors ref
+      errorsRef.current = combinedErrors;
+
+      // Update state
+      dispatch({
+        type: 'SET_ERRORS',
+        errors: combinedErrors,
+      });
+    },
+    [hasField, dispatch]
+  );
+
+  const setServerError = useCallback(
+    (path: (string | number)[], message: string | string[] | null) => {
+      // Get current server errors from ref
+      const currentServerErrors = [...serverErrorsRef.current];
+
+      // Filter out errors at this exact path
+      const filteredServerErrors = currentServerErrors.filter(
+        (e) =>
+          e.path.length !== path.length ||
+          !e.path.every((val, idx) => path[idx] === val)
+      );
+
+      // If message is null, we're just clearing errors for this path
+      let newServerErrors = filteredServerErrors;
+
+      // Otherwise add new server errors
+      if (message !== null) {
+        const messages = Array.isArray(message) ? message : [message];
+        const pathErrors = messages.map((msg) => ({
+          path,
+          message: msg,
+          source: 'server' as const,
+        }));
+
+        newServerErrors = [...filteredServerErrors, ...pathErrors];
+      }
+
+      // Update server errors ref
+      serverErrorsRef.current = newServerErrors;
+
+      // Get current non-server errors using ref
+      const nonServerErrors = errorsRef.current.filter(
+        (e) => e.source !== 'server'
+      );
+
+      // Combine all errors
+      const combinedErrors = [...nonServerErrors, ...newServerErrors];
+
+      // Update errors ref
+      errorsRef.current = combinedErrors;
+
+      // Update state
+      dispatch({
+        type: 'SET_ERRORS',
+        errors: combinedErrors,
+      });
+    },
+    [dispatch]
+  );
+
   const submit = useCallback(async () => {
     if (!onSubmit) return;
 
@@ -1095,15 +1211,21 @@ export function FormProvider<T extends Record<string | number, unknown>>({
       return;
     }
 
-    // Clear any server errors before starting a new submission
-    setErrors((prev) => prev.filter((e) => e.source !== 'server'));
+    // Clear any server errors and client submission errors before starting a new submission
+    // Update refs first for immediate access
+    errorsRef.current = errorsRef.current.filter(
+      (e) => e.source !== 'server' && e.source !== 'client-form-handler'
+    );
+    serverErrorsRef.current = []; // Clear server errors ref
+    clientSubmissionErrorRef.current = []; // Clear client submission error ref
+
+    // Then update state
+    setErrors(errorsRef.current);
 
     // Mark all fields as touched on submit
     const allPaths = getValuePaths();
-    // Instead of using the functional pattern with setTouched,
-    // we'll mark each path as touched individually
     for (const path of allPaths) {
-      queueSetTouched(path, true);
+      setFieldTouched(path, true);
     }
 
     // Generate a new submission ID to track this submission
@@ -1121,21 +1243,15 @@ export function FormProvider<T extends Record<string | number, unknown>>({
         const helpers: FormHelpers = {
           setErrors: (newErrors: ValidationError[]) => {
             if (isCurrentSubmission(submissionId)) {
+              // Update ref first
+              errorsRef.current = newErrors;
+              // Then update state
               setErrors(newErrors);
             }
           },
           setServerErrors: (newErrors: ValidationError[]) => {
             if (isCurrentSubmission(submissionId)) {
-              // Filter out validation errors and invalid paths
-              const validationErrors = errors.filter(
-                (e) => e.source !== 'server'
-              );
-              const validServerErrors = newErrors
-                .filter(
-                  (error) => error.path.length === 0 || hasField(error.path)
-                )
-                .map((error) => ({ ...error, source: 'server' as const }));
-              setErrors([...validationErrors, ...validServerErrors]);
+              setServerErrors(newErrors);
             }
           },
           setServerError: (
@@ -1143,13 +1259,10 @@ export function FormProvider<T extends Record<string | number, unknown>>({
             message: string | string[] | null
           ) => {
             if (isCurrentSubmission(submissionId)) {
-              queueSetServerError(path, message);
+              setServerError(path, message);
             }
           },
-          setValue: <V = unknown,>(
-            path: (string | number)[],
-            value: V
-          ): void => {
+          setValue: <V = unknown,>(path: (string | number)[], value: V) => {
             if (isCurrentSubmission(submissionId)) {
               setValue(path, value);
             }
@@ -1190,6 +1303,21 @@ export function FormProvider<T extends Record<string | number, unknown>>({
             }
             return false; // Or handle as per desired behavior for stale call
           },
+          setClientSubmissionError: (message: string | string[] | null) => {
+            if (isCurrentSubmission(submissionId)) {
+              setClientSubmissionError(message);
+            }
+          },
+          clearClientSubmissionError: () => {
+            if (isCurrentSubmission(submissionId)) {
+              clearClientSubmissionError();
+            }
+          },
+          getClientSubmissionError: () => {
+            return isCurrentSubmission(submissionId)
+              ? getClientSubmissionError()
+              : [];
+          },
           currentSubmissionID: submissionId, // Changed to use the submissionId from this closure
           isCurrentSubmission, // This function already uses the ref correctly
         };
@@ -1198,26 +1326,33 @@ export function FormProvider<T extends Record<string | number, unknown>>({
       } else if (result.errors) {
         // Only set errors if this is still the current submission
         if (isCurrentSubmission(submissionId)) {
-          setErrors((prev) => {
-            const serverErrors = prev.filter((e) => e.source === 'server');
-            return [...serverErrors, ...(result.errors || [])];
+          // Use our improved setErrors implementation
+          const serverErrors = errorsRef.current.filter(
+            (e) => e.source === 'server'
+          );
+          const newErrors = [...serverErrors, ...(result.errors || [])];
+
+          // Update ref first
+          errorsRef.current = newErrors;
+
+          // Then update state
+          dispatch({
+            type: 'SET_ERRORS',
+            errors: newErrors,
           });
         }
       }
     } catch (error: unknown) {
-      // Only log unexpected errors and set errors if this is still the current submission
+      // Only log unexpected errors and set client errors if this is still the current submission
       if (isCurrentSubmission(submissionId)) {
         console.error('Unexpected form submission error:', error);
-        setErrors([
-          {
-            path: [],
-            message:
-              error instanceof Error
-                ? error.message
-                : 'An unexpected error occurred',
-            source: 'server',
-          },
-        ]);
+        // Use setClientSubmissionError instead of setting server errors
+        // This is more appropriate as these are client-side errors during submission
+        setClientSubmissionError(
+          error instanceof Error
+            ? error.message
+            : 'An unexpected error occurred'
+        );
       }
     } finally {
       // Only reset submitting state if this is still the current submission
@@ -1232,7 +1367,7 @@ export function FormProvider<T extends Record<string | number, unknown>>({
     getValuePaths,
     setIsSubmitting,
     setSubmissionId,
-    queueSetTouched,
+    setFieldTouched,
     validateForm,
     schema,
     setValue,
@@ -1241,13 +1376,16 @@ export function FormProvider<T extends Record<string | number, unknown>>({
     validateFunction,
     hasField,
     touched,
-    setFieldTouched,
     reset,
+    resetWithValues,
     isCurrentSubmission,
     values,
-    errors,
-    queueSetServerError,
-    resetWithValues,
+    clearClientSubmissionError,
+    getClientSubmissionError,
+    setClientSubmissionError,
+    setServerErrors,
+    setServerError,
+    dispatch,
   ]);
 
   const contextValue = React.useMemo<FormContextValue<T>>(
@@ -1274,23 +1412,16 @@ export function FormProvider<T extends Record<string | number, unknown>>({
       getErrorPaths,
       hasField,
       setErrors: (newErrors: ValidationError[]) => {
+        // Update ref first
+        errorsRef.current = newErrors;
+        // Then update state
         setErrors(newErrors);
       },
-      setServerErrors: (newErrors: ValidationError[]) => {
-        // Filter out validation errors and invalid paths
-        const validationErrors = errors.filter((e) => e.source !== 'server');
-        const validServerErrors = newErrors
-          .filter((error) => error.path.length === 0 || hasField(error.path))
-          .map((error) => ({ ...error, source: 'server' as const }));
-
-        setErrors([...validationErrors, ...validServerErrors]);
-      },
-      setServerError: (
-        path: (string | number)[],
-        message: string | string[] | null
-      ) => {
-        queueSetServerError(path, message);
-      },
+      setServerErrors,
+      setServerError,
+      setClientSubmissionError,
+      clearClientSubmissionError,
+      getClientSubmissionError,
       isCurrentSubmission,
     }),
     [
@@ -1314,9 +1445,13 @@ export function FormProvider<T extends Record<string | number, unknown>>({
       getError,
       getErrorPaths,
       hasField,
-      isCurrentSubmission,
       setErrors,
-      queueSetServerError,
+      setServerErrors,
+      setServerError,
+      setClientSubmissionError,
+      clearClientSubmissionError,
+      getClientSubmissionError,
+      isCurrentSubmission,
     ]
   );
 

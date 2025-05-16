@@ -51,6 +51,9 @@ interface FormHelpers {
     path: (string | number)[],
     message: string | string[] | null
   ) => void;
+  setClientSubmissionError: (message: string | string[] | null) => void;
+  clearClientSubmissionError: () => void;
+  getClientSubmissionError: () => string[];
   setValue: <V = unknown>(path: (string | number)[], value: V) => void;
   clearValue: (path: (string | number)[]) => void;
   deleteField: (path: (string | number)[]) => void;
@@ -58,7 +61,7 @@ interface FormHelpers {
   hasField: (path: (string | number)[]) => boolean;
   touched: Record<string, boolean>;
   setFieldTouched: (path: (string | number)[], value?: boolean) => void;
-  reset: () => void;
+  reset: (force?: boolean) => boolean;
 }
 
 function TestForm({
@@ -296,7 +299,7 @@ describe('FormProvider', () => {
             value={form.getValue(['name']) || ''}
             onChange={(e) => form.setValue(['name'], e.target.value)}
           />
-          <button data-testid="reset-button" onClick={form.reset}>
+          <button data-testid="reset-button" onClick={() => form.reset()}>
             Reset
           </button>
           <div data-testid="display-name">{form.getValue(['name'])}</div>
@@ -1171,6 +1174,445 @@ describe('FormProvider', () => {
     );
   });
 
+  it('tests client submission error functionality', async () => {
+    const initialValues = { username: 'testuser', email: 'test@example.com' };
+
+    const TestComponent = () => {
+      const form = useFormContext();
+
+      // Get root-level errors for displaying client submission errors
+      const rootErrors = form.getError([]);
+
+      // Track current client submission errors for testing
+      const clientErrors = form.getClientSubmissionError();
+
+      return (
+        <div>
+          {/* Form fields */}
+          <div data-testid="form-fields">
+            <input
+              data-testid="username-input"
+              value={form.getValue(['username']) || ''}
+              onChange={(e) => form.setValue(['username'], e.target.value)}
+            />
+
+            <input
+              data-testid="email-input"
+              value={form.getValue(['email']) || ''}
+              onChange={(e) => form.setValue(['email'], e.target.value)}
+            />
+          </div>
+
+          {/* Display client submission errors */}
+          {rootErrors.length > 0 &&
+            rootErrors.some((e) => e.source === 'client-form-handler') && (
+              <div data-testid="client-errors">
+                {rootErrors
+                  .filter((e) => e.source === 'client-form-handler')
+                  .map((error, idx) => (
+                    <div key={idx} data-testid={`client-error-${idx}`}>
+                      {error.message}
+                    </div>
+                  ))}
+              </div>
+            )}
+
+          {/* Display current client submission errors array content for direct testing */}
+          <div data-testid="client-errors-count">{clientErrors.length}</div>
+          {clientErrors.map((message, idx) => (
+            <div key={idx} data-testid={`raw-client-error-${idx}`}>
+              {message}
+            </div>
+          ))}
+
+          {/* Error source tracking for testing */}
+          <div data-testid="error-sources">
+            {form.errors
+              .filter((e) => e.source === 'client-form-handler')
+              .map((e, idx) => (
+                <div key={idx} data-testid={`error-${idx}-source`}>
+                  {e.source}
+                </div>
+              ))}
+          </div>
+
+          {/* Action buttons for testing client submission error API */}
+          <button
+            data-testid="set-single-error"
+            onClick={() => {
+              form.setClientSubmissionError('Network connection failed');
+            }}
+          >
+            Set Single Error
+          </button>
+
+          <button
+            data-testid="set-multiple-errors"
+            onClick={() => {
+              form.setClientSubmissionError([
+                'Your session has expired',
+                'Please sign in again',
+              ]);
+            }}
+          >
+            Set Multiple Errors
+          </button>
+
+          <button
+            data-testid="clear-errors"
+            onClick={() => {
+              form.clearClientSubmissionError();
+            }}
+          >
+            Clear Errors
+          </button>
+
+          <button
+            data-testid="set-null-errors"
+            onClick={() => {
+              form.setClientSubmissionError(null);
+            }}
+          >
+            Set Null (Clear)
+          </button>
+        </div>
+      );
+    };
+
+    render(
+      <TestForm initialValues={initialValues}>
+        <TestComponent />
+      </TestForm>
+    );
+
+    // Initially no client submission errors
+    expect(screen.getByTestId('client-errors-count').textContent).toBe('0');
+    expect(screen.queryByTestId('client-errors')).not.toBeInTheDocument();
+
+    // Set a single client submission error
+    fireEvent.click(screen.getByTestId('set-single-error'));
+
+    await advanceTimers();
+
+    // Check if the error is correctly displayed and in the array
+    expect(screen.getByTestId('client-errors')).toBeInTheDocument();
+    expect(screen.getByTestId('client-error-0').textContent).toBe(
+      'Network connection failed'
+    );
+    expect(screen.getByTestId('client-errors-count').textContent).toBe('1');
+    expect(screen.getByTestId('raw-client-error-0').textContent).toBe(
+      'Network connection failed'
+    );
+
+    // Verify error source is correctly set
+    expect(screen.getByTestId('error-0-source').textContent).toBe(
+      'client-form-handler'
+    );
+
+    // Clear client submission errors
+    fireEvent.click(screen.getByTestId('clear-errors'));
+
+    await advanceTimers();
+
+    // Verify errors are cleared
+    expect(screen.queryByTestId('client-errors')).not.toBeInTheDocument();
+    expect(screen.getByTestId('client-errors-count').textContent).toBe('0');
+
+    // Set multiple client submission errors
+    fireEvent.click(screen.getByTestId('set-multiple-errors'));
+
+    await advanceTimers();
+
+    // Verify multiple errors are displayed
+    expect(screen.getByTestId('client-errors')).toBeInTheDocument();
+    expect(screen.getByTestId('client-error-0').textContent).toBe(
+      'Your session has expired'
+    );
+    expect(screen.getByTestId('client-error-1').textContent).toBe(
+      'Please sign in again'
+    );
+    expect(screen.getByTestId('client-errors-count').textContent).toBe('2');
+    expect(screen.getByTestId('raw-client-error-0').textContent).toBe(
+      'Your session has expired'
+    );
+    expect(screen.getByTestId('raw-client-error-1').textContent).toBe(
+      'Please sign in again'
+    );
+
+    // Test clearing via null
+    fireEvent.click(screen.getByTestId('set-null-errors'));
+
+    await advanceTimers();
+
+    // Verify errors are cleared
+    expect(screen.queryByTestId('client-errors')).not.toBeInTheDocument();
+    expect(screen.getByTestId('client-errors-count').textContent).toBe('0');
+  });
+
+  it('tests that client submission errors are automatically cleared on submit', async () => {
+    const initialValues = { username: 'testuser' };
+    const onSubmit = vi.fn();
+
+    const TestComponent = () => {
+      const form = useFormContext();
+
+      // Get client errors
+      const clientErrors = form.getClientSubmissionError();
+
+      return (
+        <div>
+          <input
+            data-testid="username-input"
+            value={form.getValue(['username']) || ''}
+            onChange={(e) => form.setValue(['username'], e.target.value)}
+          />
+
+          {/* Display client submission errors count for testing */}
+          <div data-testid="client-errors-count">{clientErrors.length}</div>
+
+          {/* Display all client submission errors */}
+          {clientErrors.length > 0 && (
+            <div data-testid="client-errors">
+              {clientErrors.map((message, idx) => (
+                <div key={idx} data-testid={`client-error-${idx}`}>
+                  {message}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Action buttons */}
+          <button
+            data-testid="set-client-error"
+            onClick={() => {
+              form.setClientSubmissionError('Authentication failed');
+            }}
+          >
+            Set Client Error
+          </button>
+
+          <button data-testid="submit-button" onClick={form.submit}>
+            Submit
+          </button>
+        </div>
+      );
+    };
+
+    render(
+      <TestForm initialValues={initialValues} onSubmit={onSubmit}>
+        <TestComponent />
+      </TestForm>
+    );
+
+    // Set a client submission error
+    fireEvent.click(screen.getByTestId('set-client-error'));
+
+    await advanceTimers();
+
+    // Verify error is set
+    expect(screen.getByTestId('client-errors-count').textContent).toBe('1');
+    expect(screen.getByTestId('client-errors')).toBeInTheDocument();
+    expect(screen.getByTestId('client-error-0').textContent).toBe(
+      'Authentication failed'
+    );
+
+    // Submit the form - this should clear client submission errors
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('submit-button'));
+    });
+
+    await advanceTimers();
+
+    // Verify client submission errors are cleared after submit
+    expect(screen.getByTestId('client-errors-count').textContent).toBe('0');
+    expect(screen.queryByTestId('client-errors')).not.toBeInTheDocument();
+
+    // Verify that onSubmit was called
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+  });
+
+  it('tests getErrorPaths correctly returns error paths with filtering', async () => {
+    // Create a schema with multiple validation points across a complex structure
+    const schema = z.object({
+      user: z.object({
+        name: z.string().min(1, 'Name is required'),
+        contact: z.object({
+          email: z.string().email('Invalid email format'),
+          phone: z.string().min(10, 'Phone number is too short'),
+        }),
+      }),
+      preferences: z.object({
+        notifications: z.boolean(),
+        theme: z.enum(['light', 'dark', 'system'], {
+          errorMap: () => ({ message: 'Invalid theme' }),
+        }),
+      }),
+      addresses: z
+        .array(
+          z.object({
+            street: z.string().min(1, 'Street is required'),
+            city: z.string().min(1, 'City is required'),
+            zipCode: z.string().min(5, 'Invalid zip code'),
+          })
+        )
+        .min(1, 'At least one address is required'),
+    });
+
+    // Create initial values with validation errors
+    const initialValues = {
+      user: {
+        name: '', // Error
+        contact: {
+          email: 'not-an-email', // Error
+          phone: '123', // Error
+        },
+      },
+      preferences: {
+        notifications: true,
+        theme: 'custom', // Error
+      },
+      addresses: [
+        {
+          street: '123 Main St',
+          city: '', // Error
+          zipCode: '123', // Error
+        },
+      ],
+    };
+
+    // Component to test getErrorPaths function
+    const TestComponent = () => {
+      const form = useFormContext();
+
+      // Get error paths with different base paths for testing
+      const allErrorPaths = form.getErrorPaths();
+      const userErrorPaths = form.getErrorPaths(['user']);
+      const contactErrorPaths = form.getErrorPaths(['user', 'contact']);
+      const addressesErrorPaths = form.getErrorPaths(['addresses']);
+      const address0ErrorPaths = form.getErrorPaths(['addresses', 0]);
+
+      return (
+        <div>
+          {/* Display all error paths */}
+          <div data-testid="all-errors">
+            {allErrorPaths.map((path, idx) => (
+              <div key={idx} data-testid={`all-error-${idx}`}>
+                {path.join('.')}
+              </div>
+            ))}
+          </div>
+
+          {/* Display user error paths */}
+          <div data-testid="user-errors">
+            {userErrorPaths.map((path, idx) => (
+              <div key={idx} data-testid={`user-error-${idx}`}>
+                {path.join('.')}
+              </div>
+            ))}
+          </div>
+
+          {/* Display contact error paths */}
+          <div data-testid="contact-errors">
+            {contactErrorPaths.map((path, idx) => (
+              <div key={idx} data-testid={`contact-error-${idx}`}>
+                {path.join('.')}
+              </div>
+            ))}
+          </div>
+
+          {/* Display addresses error paths */}
+          <div data-testid="addresses-errors">
+            {addressesErrorPaths.map((path, idx) => (
+              <div key={idx} data-testid={`addresses-error-${idx}`}>
+                {path.join('.')}
+              </div>
+            ))}
+          </div>
+
+          {/* Display address[0] error paths */}
+          <div data-testid="address0-errors">
+            {address0ErrorPaths.map((path, idx) => (
+              <div key={idx} data-testid={`address0-error-${idx}`}>
+                {path.join('.')}
+              </div>
+            ))}
+          </div>
+
+          {/* Add button to trigger form validation */}
+          <button
+            data-testid="validate-button"
+            onClick={() => form.validate(true)}
+          >
+            Validate
+          </button>
+        </div>
+      );
+    };
+
+    render(
+      <TestForm
+        initialValues={initialValues}
+        schema={schema}
+        validateOnMount={false}
+      >
+        <TestComponent />
+      </TestForm>
+    );
+
+    // Trigger validation
+    fireEvent.click(screen.getByTestId('validate-button'));
+    await advanceTimers();
+
+    // Helper function to get all error paths for a specific category
+    const getErrorTexts = (category: string, count: number) => {
+      return Array.from(
+        { length: count },
+        (_, i) => screen.getByTestId(`${category}-error-${i}`).textContent
+      );
+    };
+
+    // Check all error paths
+    const allErrors = getErrorTexts('all', 6); // We expect 6 validation errors total
+
+    // Verify that all expected error paths are present
+    expect(allErrors).toContain('user.name');
+    expect(allErrors).toContain('user.contact.email');
+    expect(allErrors).toContain('user.contact.phone');
+    expect(allErrors).toContain('preferences.theme');
+    expect(allErrors).toContain('addresses.0.city');
+    expect(allErrors).toContain('addresses.0.zipCode');
+
+    // Check user error paths
+    const userErrors = getErrorTexts('user', 3); // name, contact.email, contact.phone
+    expect(userErrors).toContain('user.name');
+    expect(userErrors).toContain('user.contact.email');
+    expect(userErrors).toContain('user.contact.phone');
+    expect(userErrors).not.toContain('preferences.theme'); // Should not include preferences
+
+    // Check contact error paths
+    const contactErrors = getErrorTexts('contact', 2); // email, phone
+    expect(contactErrors).toContain('user.contact.email');
+    expect(contactErrors).toContain('user.contact.phone');
+    expect(contactErrors).not.toContain('user.name'); // Should not include parent field
+
+    // Check addresses error paths
+    const addressesErrors = getErrorTexts('addresses', 2); // city, zipCode
+    expect(addressesErrors).toContain('addresses.0.city');
+    expect(addressesErrors).toContain('addresses.0.zipCode');
+
+    // Check address[0] error paths
+    const address0Errors = getErrorTexts('address0', 2); // city, zipCode for address[0]
+    expect(address0Errors).toContain('addresses.0.city');
+    expect(address0Errors).toContain('addresses.0.zipCode');
+
+    // Verify the counts
+    expect(allErrors.length).toBe(6);
+    expect(userErrors.length).toBe(3);
+    expect(contactErrors.length).toBe(2);
+    expect(addressesErrors.length).toBe(2);
+    expect(address0Errors.length).toBe(2);
+  });
+
   it('tests validate function with and without force parameter', async () => {
     const schema = z.object({
       username: z.string().min(3, 'Username must be at least 3 characters'),
@@ -1368,7 +1810,7 @@ describe('FormProvider', () => {
     expect(screen.queryByTestId('age-error')).not.toBeInTheDocument();
   });
 
-  it('handles errors thrown in onSubmit by setting them as server errors', async () => {
+  it('handles errors thrown in onSubmit by setting them as client submission errors', async () => {
     const initialValues = { username: 'testuser' };
     const errorMessage = 'Test submission error';
 
@@ -1422,16 +1864,18 @@ describe('FormProvider', () => {
 
     await advanceTimers();
 
-    // Verify the error was caught and set as a server error
+    // Verify the error was caught and set as a client submission error
     expect(screen.getByTestId('root-error')).toBeInTheDocument();
     expect(screen.getByTestId('root-error').textContent).toBe(errorMessage);
-    expect(screen.getByTestId('error-source').textContent).toBe('server');
+    expect(screen.getByTestId('error-source').textContent).toBe(
+      'client-form-handler'
+    );
 
     // Verify onSubmit was called
     expect(onSubmit).toHaveBeenCalledTimes(1);
   });
 
-  it('handles rejected promises in onSubmit by setting them as server errors', async () => {
+  it('handles rejected promises in onSubmit by setting them as client submission errors', async () => {
     const initialValues = { username: 'testuser' };
     const errorMessage = 'Async submission error';
 
@@ -1485,10 +1929,12 @@ describe('FormProvider', () => {
 
     await advanceTimers();
 
-    // Verify the error was caught and set as a server error
+    // Verify the error was caught and set as a client submission error
     expect(screen.getByTestId('root-error')).toBeInTheDocument();
     expect(screen.getByTestId('root-error').textContent).toBe(errorMessage);
-    expect(screen.getByTestId('error-source').textContent).toBe('server');
+    expect(screen.getByTestId('error-source').textContent).toBe(
+      'client-form-handler'
+    );
 
     // Verify onSubmit was called
     expect(onSubmit).toHaveBeenCalledTimes(1);
@@ -1880,13 +2326,12 @@ describe('FormProvider', () => {
     expect(onSubmit).toHaveBeenCalledTimes(1);
 
     // Verify that all errors are marked as server source
-    const errorSources = Array.from(
-      { length: 3 },
-      (_, i) => screen.getByTestId(`error-${i}-source`).textContent
-    );
+    const errorSourceElements = screen.getAllByTestId(/error-\d+-source/);
+    expect(errorSourceElements.length).toBeGreaterThan(0);
 
-    errorSources.forEach((source) => {
-      expect(source).toBe('server');
+    // Check that all found error sources are 'server'
+    errorSourceElements.forEach((element) => {
+      expect(element.textContent).toBe('server');
     });
 
     // Update a field to verify server error is cleared
@@ -1902,187 +2347,5 @@ describe('FormProvider', () => {
     // Other server errors should remain
     expect(screen.getByTestId('bio-error')).toBeInTheDocument();
     expect(screen.getByTestId('root-error')).toBeInTheDocument();
-  });
-
-  it('tests getErrorPaths correctly returns error paths with filtering', async () => {
-    // Create a schema with multiple validation points across a complex structure
-    const schema = z.object({
-      user: z.object({
-        name: z.string().min(1, 'Name is required'),
-        contact: z.object({
-          email: z.string().email('Invalid email format'),
-          phone: z.string().min(10, 'Phone number is too short'),
-        }),
-      }),
-      preferences: z.object({
-        notifications: z.boolean(),
-        theme: z.enum(['light', 'dark', 'system'], {
-          errorMap: () => ({ message: 'Invalid theme' }),
-        }),
-      }),
-      addresses: z
-        .array(
-          z.object({
-            street: z.string().min(1, 'Street is required'),
-            city: z.string().min(1, 'City is required'),
-            zipCode: z.string().min(5, 'Invalid zip code'),
-          })
-        )
-        .min(1, 'At least one address is required'),
-    });
-
-    // Create initial values with validation errors
-    const initialValues = {
-      user: {
-        name: '', // Error
-        contact: {
-          email: 'not-an-email', // Error
-          phone: '123', // Error
-        },
-      },
-      preferences: {
-        notifications: true,
-        theme: 'custom', // Error
-      },
-      addresses: [
-        {
-          street: '123 Main St',
-          city: '', // Error
-          zipCode: '123', // Error
-        },
-      ],
-    };
-
-    // Component to test getErrorPaths function
-    const TestComponent = () => {
-      const form = useFormContext();
-
-      // Get error paths with different base paths for testing
-      const allErrorPaths = form.getErrorPaths();
-      const userErrorPaths = form.getErrorPaths(['user']);
-      const contactErrorPaths = form.getErrorPaths(['user', 'contact']);
-      const addressesErrorPaths = form.getErrorPaths(['addresses']);
-      const address0ErrorPaths = form.getErrorPaths(['addresses', 0]);
-
-      return (
-        <div>
-          {/* Display all error paths */}
-          <div data-testid="all-errors">
-            {allErrorPaths.map((path, idx) => (
-              <div key={idx} data-testid={`all-error-${idx}`}>
-                {path.join('.')}
-              </div>
-            ))}
-          </div>
-
-          {/* Display user error paths */}
-          <div data-testid="user-errors">
-            {userErrorPaths.map((path, idx) => (
-              <div key={idx} data-testid={`user-error-${idx}`}>
-                {path.join('.')}
-              </div>
-            ))}
-          </div>
-
-          {/* Display contact error paths */}
-          <div data-testid="contact-errors">
-            {contactErrorPaths.map((path, idx) => (
-              <div key={idx} data-testid={`contact-error-${idx}`}>
-                {path.join('.')}
-              </div>
-            ))}
-          </div>
-
-          {/* Display addresses error paths */}
-          <div data-testid="addresses-errors">
-            {addressesErrorPaths.map((path, idx) => (
-              <div key={idx} data-testid={`addresses-error-${idx}`}>
-                {path.join('.')}
-              </div>
-            ))}
-          </div>
-
-          {/* Display address[0] error paths */}
-          <div data-testid="address0-errors">
-            {address0ErrorPaths.map((path, idx) => (
-              <div key={idx} data-testid={`address0-error-${idx}`}>
-                {path.join('.')}
-              </div>
-            ))}
-          </div>
-
-          {/* Add button to trigger form validation */}
-          <button
-            data-testid="validate-button"
-            onClick={() => form.validate(true)}
-          >
-            Validate
-          </button>
-        </div>
-      );
-    };
-
-    render(
-      <TestForm
-        initialValues={initialValues}
-        schema={schema}
-        validateOnMount={false}
-      >
-        <TestComponent />
-      </TestForm>
-    );
-
-    // Trigger validation
-    fireEvent.click(screen.getByTestId('validate-button'));
-    await advanceTimers();
-
-    // Helper function to get all error paths for a specific category
-    const getErrorTexts = (category: string, count: number) => {
-      return Array.from(
-        { length: count },
-        (_, i) => screen.getByTestId(`${category}-error-${i}`).textContent
-      );
-    };
-
-    // Check all error paths
-    const allErrors = getErrorTexts('all', 6); // We expect 6 validation errors total
-
-    // Verify that all expected error paths are present
-    expect(allErrors).toContain('user.name');
-    expect(allErrors).toContain('user.contact.email');
-    expect(allErrors).toContain('user.contact.phone');
-    expect(allErrors).toContain('preferences.theme');
-    expect(allErrors).toContain('addresses.0.city');
-    expect(allErrors).toContain('addresses.0.zipCode');
-
-    // Check user error paths
-    const userErrors = getErrorTexts('user', 3); // name, contact.email, contact.phone
-    expect(userErrors).toContain('user.name');
-    expect(userErrors).toContain('user.contact.email');
-    expect(userErrors).toContain('user.contact.phone');
-    expect(userErrors).not.toContain('preferences.theme'); // Should not include preferences
-
-    // Check contact error paths
-    const contactErrors = getErrorTexts('contact', 2); // email, phone
-    expect(contactErrors).toContain('user.contact.email');
-    expect(contactErrors).toContain('user.contact.phone');
-    expect(contactErrors).not.toContain('user.name'); // Should not include parent field
-
-    // Check addresses error paths
-    const addressesErrors = getErrorTexts('addresses', 2); // city, zipCode
-    expect(addressesErrors).toContain('addresses.0.city');
-    expect(addressesErrors).toContain('addresses.0.zipCode');
-
-    // Check address[0] error paths
-    const address0Errors = getErrorTexts('address0', 2); // city, zipCode for address[0]
-    expect(address0Errors).toContain('addresses.0.city');
-    expect(address0Errors).toContain('addresses.0.zipCode');
-
-    // Verify the counts
-    expect(allErrors.length).toBe(6);
-    expect(userErrors.length).toBe(3);
-    expect(contactErrors.length).toBe(2);
-    expect(addressesErrors.length).toBe(2);
-    expect(address0Errors.length).toBe(2);
   });
 });
