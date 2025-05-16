@@ -10,7 +10,7 @@ import {
   generateID,
 } from './utils';
 
-export interface FormHelpers {
+export interface FormHelpers<T> {
   setErrors: (errors: ValidationError[]) => void;
   setServerErrors: (errors: ValidationError[]) => void;
   setServerError: (
@@ -41,7 +41,7 @@ export interface FormHelpers {
   touched: Record<string, boolean>;
   setFieldTouched: (path: (string | number)[], value?: boolean) => void;
   reset: (force?: boolean) => boolean;
-  resetWithValues: <T = unknown>(newValues: T, force?: boolean) => boolean;
+  resetWithValues: (newValues: T, force?: boolean) => boolean;
   currentSubmissionID: string | null;
   isCurrentSubmission: (submissionId: string) => boolean;
 }
@@ -94,13 +94,12 @@ export interface FormContextValue<T> {
 }
 
 // Create a context with a more specific type
-export const FormContext = createContext<FormContextValue<
-  Record<string | number, unknown>
-> | null>(null);
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export const FormContext = createContext<FormContextValue<any> | null>(null);
 
 interface FormProviderProps<T> {
   initialValues: T;
-  onSubmit?: (values: T, helpers: FormHelpers) => Promise<void> | void;
+  onSubmit?: (values: T, helpers: FormHelpers<T>) => Promise<void> | void;
   schema?: z.ZodType<T>;
   validateOnMount?: boolean;
   validateOnChange?: boolean;
@@ -128,23 +127,13 @@ interface FormState<T> {
 
 // Define action types
 type FormAction<T> =
-  | { type: 'SET_VALUE'; path: (string | number)[]; value: unknown }
-  | { type: 'SET_TOUCHED'; touched: Record<string, boolean> }
-  | { type: 'SET_ERRORS'; errors: ValidationError[] }
-  | { type: 'SET_SUBMITTING'; isSubmitting: boolean }
-  | { type: 'SET_SUBMISSION_ID'; submissionId: string | null }
-  | { type: 'RESET'; initialValues: T }
   | {
-      type: 'BATCH_UPDATE';
-      updates: {
-        values?: T;
-        touched?: Record<string, boolean>;
-        errors?: ValidationError[];
-        isSubmitting?: boolean;
-        lastValidated?: number | null;
-        canSubmit?: boolean;
-        currentSubmissionID?: string | null;
-      };
+      type: 'UPDATE_STATE';
+      updates: Partial<FormState<T>>;
+    }
+  | {
+      type: 'UPDATE_STATE_FUNC';
+      updater: (prevState: FormState<T>) => Partial<FormState<T>>;
     };
 
 // Implement the reducer function
@@ -153,78 +142,19 @@ function formReducer<T extends Record<string | number, unknown>>(
   action: FormAction<T>
 ): FormState<T> {
   switch (action.type) {
-    case 'SET_VALUE': {
-      // Deep clone only along the path being changed
-      const newValues = cloneAlongPath(state.values, action.path);
-
-      setValueAtPath(
-        newValues as Record<string | number, unknown>,
-        action.path,
-        action.value
-      );
+    case 'UPDATE_STATE': {
       return {
         ...state,
-        values: newValues,
+        ...action.updates,
       };
     }
-    case 'SET_TOUCHED':
+    case 'UPDATE_STATE_FUNC': {
+      const updates = action.updater(state);
       return {
         ...state,
-        touched: action.touched,
+        ...updates,
       };
-    case 'SET_ERRORS':
-      return {
-        ...state,
-        errors: action.errors,
-      };
-    case 'SET_SUBMITTING':
-      return {
-        ...state,
-        isSubmitting: action.isSubmitting,
-      };
-    case 'SET_SUBMISSION_ID':
-      return {
-        ...state,
-        currentSubmissionID: action.submissionId,
-      };
-    case 'RESET':
-      return {
-        values: action.initialValues,
-        touched: {},
-        errors: [],
-        isSubmitting: false,
-        lastValidated: null,
-        canSubmit: false,
-        currentSubmissionID: null,
-      };
-    case 'BATCH_UPDATE':
-      return {
-        ...state,
-        ...(action.updates.values !== undefined
-          ? { values: action.updates.values }
-          : {}),
-        ...(action.updates.touched !== undefined
-          ? { touched: action.updates.touched }
-          : {}),
-        ...(action.updates.errors !== undefined
-          ? { errors: action.updates.errors }
-          : {}),
-        ...(action.updates.isSubmitting !== undefined
-          ? { isSubmitting: action.updates.isSubmitting }
-          : {}),
-        lastValidated:
-          action.updates.lastValidated !== undefined
-            ? action.updates.lastValidated
-            : state.lastValidated,
-        canSubmit:
-          action.updates.canSubmit !== undefined
-            ? action.updates.canSubmit
-            : state.canSubmit,
-        currentSubmissionID:
-          action.updates.currentSubmissionID !== undefined
-            ? action.updates.currentSubmissionID
-            : state.currentSubmissionID,
-      };
+    }
     default:
       return state;
   }
@@ -266,8 +196,8 @@ export function FormProvider<T extends Record<string | number, unknown>>({
    * IMPLEMENTATION PATTERN:
    * This form context uses a hybrid approach combining refs and reducer state:
    *
-   * 1. Refs (valuesRef, errorsRef, touchedRef) provide immediate, synchronous access
-   *    to the latest form data without waiting for React render cycles.
+   * 1. Refs (valuesRef, errorsRef, touchedRef, canSubmitRef, isSubmittingRef) provide immediate,
+   *    synchronous access to the latest form data without waiting for React render cycles.
    *
    * 2. Reducer state triggers UI updates when values change.
    *
@@ -286,14 +216,8 @@ export function FormProvider<T extends Record<string | number, unknown>>({
   // Remove queue refs and replace with direct value/touched refs
   const valuesRef = React.useRef<T>(initialValues);
   const touchedRef = React.useRef<Record<string, boolean>>({});
-
-  // Keep existing timeout refs to handle debounced updates
-  const setValueTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(
-    null
-  );
-  const setTouchedTimeoutRef = React.useRef<ReturnType<
-    typeof setTimeout
-  > | null>(null);
+  const canSubmitRef = React.useRef<boolean>(false);
+  const isSubmittingRef = React.useRef<boolean>(false);
 
   // Error handling refs
   // Keep track of client submission error messages for real-time access
@@ -310,7 +234,9 @@ export function FormProvider<T extends Record<string | number, unknown>>({
     errorsRef.current = errors;
     valuesRef.current = values;
     touchedRef.current = touched;
-  }, [errors, values, touched]);
+    canSubmitRef.current = canSubmit;
+    isSubmittingRef.current = isSubmitting;
+  }, [errors, values, touched, canSubmit, isSubmitting]);
 
   const getValuePaths = useCallback(
     (basePath: (string | number)[] = []) => {
@@ -344,13 +270,16 @@ export function FormProvider<T extends Record<string | number, unknown>>({
     // Validate the entire form
     const result = validate(schema, values);
 
-    // Update lastValidated and canSubmit in state
+    // Update canSubmitRef first
+    canSubmitRef.current = result.valid;
+
+    // Then update state using functional update pattern
     dispatch({
-      type: 'BATCH_UPDATE',
-      updates: {
+      type: 'UPDATE_STATE_FUNC',
+      updater: () => ({
         lastValidated: now,
         canSubmit: result.valid,
-      },
+      }),
     });
 
     return result;
@@ -373,6 +302,102 @@ export function FormProvider<T extends Record<string | number, unknown>>({
     []
   );
 
+  // Simplified setValue function that uses refs
+  const setValue = useCallback(
+    <V = unknown,>(path: (string | number)[], value: V) => {
+      // Update the values ref immediately
+      const newValues = cloneAlongPath(valuesRef.current, path);
+      setValueAtPath(
+        newValues as Record<string | number, unknown>,
+        path,
+        value
+      );
+      valuesRef.current = newValues;
+
+      // Update touched state to mark this path
+      touchedRef.current = markPathAsTouched(touchedRef.current, path);
+
+      // Filter out errors for this path immediately in the ref
+      errorsRef.current = errorsRef.current.filter(
+        (error) =>
+          error.path.length !== path.length ||
+          !error.path.every((val, idx) => path[idx] === val)
+      );
+
+      // Create a validation result if needed
+      let newCanSubmit = canSubmitRef.current;
+      let newErrors = [...errorsRef.current];
+
+      if (validateOnChange && schema) {
+        const result = validate(schema, newValues);
+        // Update canSubmit based on validation result
+        newCanSubmit = result.valid;
+        // Update canSubmitRef immediately
+        canSubmitRef.current = newCanSubmit;
+
+        if (!result.valid && result.errors) {
+          // Only add new validation errors for the updated path
+          const pathErrors = result.errors.filter(
+            (error) =>
+              error.path.length === path.length &&
+              error.path.every((val, idx) => path[idx] === val)
+          );
+          newErrors = [...newErrors, ...pathErrors];
+          errorsRef.current = newErrors; // Update the ref
+        }
+      }
+
+      // Dispatch a single update with all changes using functional update
+      dispatch({
+        type: 'UPDATE_STATE_FUNC',
+        updater: () => ({
+          values: newValues,
+          touched: touchedRef.current,
+          errors: newErrors,
+          lastValidated: Date.now(),
+          canSubmit: newCanSubmit,
+        }),
+      });
+    },
+    [validateOnChange, schema, markPathAsTouched, dispatch]
+  );
+
+  // Function to set isSubmitting status - explicitly defined
+  const getValue = useCallback(<V = unknown,>(path: (string | number)[]): V => {
+    // Use the ref for immediate value access
+    return getValueAtPath(valuesRef.current, path) as V;
+  }, []);
+
+  // Set errors with proper ref sync
+  const setErrors = useCallback(
+    (
+      errorsOrUpdater:
+        | ValidationError[]
+        | ((prev: ValidationError[]) => ValidationError[])
+    ) => {
+      if (typeof errorsOrUpdater === 'function') {
+        const updater = errorsOrUpdater;
+        const newErrors = updater(errorsRef.current);
+        // Update ref first
+        errorsRef.current = newErrors;
+        // Then update state
+        dispatch({
+          type: 'UPDATE_STATE',
+          updates: { errors: newErrors },
+        });
+      } else {
+        // Update ref first
+        errorsRef.current = errorsOrUpdater;
+        // Then update state
+        dispatch({
+          type: 'UPDATE_STATE',
+          updates: { errors: errorsOrUpdater },
+        });
+      }
+    },
+    [dispatch]
+  );
+
   // Simplified setFieldTouched function that uses refs
   const setFieldTouched = useCallback(
     (path: (string | number)[], value: boolean = true) => {
@@ -387,19 +412,13 @@ export function FormProvider<T extends Record<string | number, unknown>>({
         };
       }
 
-      // Debounce the state update
-      if (setTouchedTimeoutRef.current) {
-        clearTimeout(setTouchedTimeoutRef.current);
-      }
-
-      setTouchedTimeoutRef.current = setTimeout(() => {
-        dispatch({
-          type: 'SET_TOUCHED',
-          touched: touchedRef.current,
-        });
-      }, 0);
+      // Directly dispatch the state update
+      dispatch({
+        type: 'UPDATE_STATE',
+        updates: { touched: touchedRef.current },
+      });
     },
-    [markPathAsTouched]
+    [markPathAsTouched, dispatch]
   );
 
   // Create a validate function that can be used by components
@@ -423,8 +442,8 @@ export function FormProvider<T extends Record<string | number, unknown>>({
 
         // Then update state
         dispatch({
-          type: 'SET_ERRORS',
-          errors: newErrors,
+          type: 'UPDATE_STATE',
+          updates: { errors: errorsRef.current },
         });
       }
       return result.valid;
@@ -464,7 +483,7 @@ export function FormProvider<T extends Record<string | number, unknown>>({
 
     // Combine everything into a single batch update
     dispatch({
-      type: 'BATCH_UPDATE',
+      type: 'UPDATE_STATE',
       updates: {
         touched: newTouched,
         errors: newErrors,
@@ -473,17 +492,6 @@ export function FormProvider<T extends Record<string | number, unknown>>({
       },
     });
   }, [getValuePaths, validateForm]);
-
-  // Function to set isSubmitting status
-  const setIsSubmitting = useCallback(
-    (isSubmitting: boolean) => {
-      dispatch({
-        type: 'SET_SUBMITTING',
-        isSubmitting,
-      });
-    },
-    [dispatch]
-  );
 
   // Combined effect for mount tracking and validation
   React.useEffect(() => {
@@ -503,114 +511,11 @@ export function FormProvider<T extends Record<string | number, unknown>>({
 
     return () => {
       mountedRef.current = false;
-      // Prevent any pending batches from running after unmount
-      if (setValueTimeoutRef.current) clearTimeout(setValueTimeoutRef.current);
-      if (setTouchedTimeoutRef.current)
-        clearTimeout(setTouchedTimeoutRef.current);
+      // No need to clear timeouts since we're not using them anymore
     };
   }, [validateOnMount, schema, performInitialValidation]);
 
-  const getValue = useCallback(<V = unknown,>(path: (string | number)[]): V => {
-    // Use the ref for immediate value access
-    return getValueAtPath(valuesRef.current, path) as V;
-  }, []);
-
   // Helper function removed since we now filter errors directly
-
-  // Set errors with proper ref sync
-  const setErrors = useCallback(
-    (
-      errorsOrUpdater:
-        | ValidationError[]
-        | ((prev: ValidationError[]) => ValidationError[])
-    ) => {
-      if (typeof errorsOrUpdater === 'function') {
-        const updater = errorsOrUpdater;
-        const newErrors = updater(errorsRef.current);
-        // Update ref first
-        errorsRef.current = newErrors;
-        // Then update state
-        dispatch({
-          type: 'SET_ERRORS',
-          errors: newErrors,
-        });
-      } else {
-        // Update ref first
-        errorsRef.current = errorsOrUpdater;
-        // Then update state
-        dispatch({
-          type: 'SET_ERRORS',
-          errors: errorsOrUpdater,
-        });
-      }
-    },
-    [dispatch]
-  );
-
-  // Simplified setValue function that uses refs
-  const setValue = useCallback(
-    <V = unknown,>(path: (string | number)[], value: V) => {
-      // Update the values ref immediately
-      const newValues = cloneAlongPath(valuesRef.current, path);
-      setValueAtPath(
-        newValues as Record<string | number, unknown>,
-        path,
-        value
-      );
-      valuesRef.current = newValues;
-
-      // Update touched state to mark this path
-      touchedRef.current = markPathAsTouched(touchedRef.current, path);
-
-      // Filter out errors for this path immediately in the ref
-      errorsRef.current = errorsRef.current.filter(
-        (error) =>
-          error.path.length !== path.length ||
-          !error.path.every((val, idx) => path[idx] === val)
-      );
-
-      // Debounce the state update
-      if (setValueTimeoutRef.current) {
-        clearTimeout(setValueTimeoutRef.current);
-      }
-
-      setValueTimeoutRef.current = setTimeout(() => {
-        // Create a validation result if needed
-        let newCanSubmit = canSubmit;
-        let newErrors = [...errorsRef.current];
-
-        if (validateOnChange && schema) {
-          const result = validate(schema, newValues);
-          // Update canSubmit based on validation result
-          newCanSubmit = result.valid;
-
-          if (!result.valid && result.errors) {
-            // Only add new validation errors for the updated path
-            const pathErrors = result.errors.filter(
-              (error) =>
-                error.path.length === path.length &&
-                error.path.every((val, idx) => path[idx] === val)
-            );
-            newErrors = [...newErrors, ...pathErrors];
-            errorsRef.current = newErrors; // Update the ref
-          }
-        }
-
-        // Dispatch a single update with all changes
-        dispatch({
-          type: 'BATCH_UPDATE',
-          updates: {
-            values: newValues,
-            touched: touchedRef.current,
-            errors: newErrors,
-            lastValidated: Date.now(),
-            canSubmit: newCanSubmit,
-          },
-        });
-      }, 0);
-    },
-    [validateOnChange, schema, canSubmit, markPathAsTouched]
-  );
 
   // Check if a field exists at the given path
   const hasField = useCallback(
@@ -669,7 +574,10 @@ export function FormProvider<T extends Record<string | number, unknown>>({
       valuesRef.current = newValues;
 
       // Then update state
-      dispatch({ type: 'SET_VALUE', path, value: emptyValue });
+      dispatch({
+        type: 'UPDATE_STATE',
+        updates: { values: valuesRef.current },
+      });
     },
     [dispatch, getValue, hasField]
   );
@@ -820,7 +728,7 @@ export function FormProvider<T extends Record<string | number, unknown>>({
 
         // Dispatch a single update with all changes
         dispatch({
-          type: 'BATCH_UPDATE',
+          type: 'UPDATE_STATE',
           updates: {
             values: newValues,
             touched: newTouched,
@@ -941,7 +849,7 @@ export function FormProvider<T extends Record<string | number, unknown>>({
 
         // Dispatch a single update with all changes
         dispatch({
-          type: 'BATCH_UPDATE',
+          type: 'UPDATE_STATE',
           updates: {
             values: newValues,
             touched: newTouched,
@@ -982,7 +890,7 @@ export function FormProvider<T extends Record<string | number, unknown>>({
   const reset = useCallback(
     (force?: boolean): boolean => {
       // Prevent resetting while submitting unless forced
-      if (isSubmitting && !force) {
+      if (isSubmittingRef.current && !force) {
         console.warn(
           'Attempted to reset form while submitting. Use force=true to reset anyway.'
         );
@@ -990,11 +898,14 @@ export function FormProvider<T extends Record<string | number, unknown>>({
       }
 
       // If we're forcing a reset while submitting, cancel the submission first
-      if (isSubmitting && force) {
-        setIsSubmitting(false);
-        // Also clear the submission ID ref since the submission is being cancelled
+      if (isSubmittingRef.current && force) {
+        isSubmittingRef.current = false;
         currentSubmissionIDRef.current = null;
-        dispatch({ type: 'SET_SUBMISSION_ID', submissionId: null });
+        // Dispatch updates for submission state if it was active
+        dispatch({
+          type: 'UPDATE_STATE',
+          updates: { isSubmitting: false, currentSubmissionID: null },
+        });
       }
 
       // Update refs first - this is critical for immediate access
@@ -1003,19 +914,31 @@ export function FormProvider<T extends Record<string | number, unknown>>({
       errorsRef.current = [];
       serverErrorsRef.current = [];
       clientSubmissionErrorRef.current = [];
+      canSubmitRef.current = false; // Typically, a reset form isn't immediately submittable until validated
 
-      // Then update state
-      dispatch({ type: 'RESET', initialValues });
+      // Then update the main state to reflect the reset
+      dispatch({
+        type: 'UPDATE_STATE',
+        updates: {
+          values: initialValues,
+          touched: {},
+          errors: [],
+          lastValidated: null,
+          canSubmit: false, // Reflects canSubmitRef.current
+          // isSubmitting and currentSubmissionID are handled above if forced
+          // If not forced, they remain as they were, or are already false/null
+        },
+      });
       return true;
     },
-    [initialValues, dispatch, isSubmitting, setIsSubmitting]
+    [initialValues, dispatch]
   );
 
   // Type-safe resetWithValues function
   const resetWithValues = useCallback(
     (newValues: T, force?: boolean): boolean => {
       // Check if we're submitting and not forcing
-      if (isSubmitting && !force) {
+      if (isSubmittingRef.current && !force) {
         console.warn(
           'Attempted to reset form while submitting. Use force=true to reset anyway.'
         );
@@ -1023,8 +946,11 @@ export function FormProvider<T extends Record<string | number, unknown>>({
       }
 
       // If we're forcing a reset while submitting, cancel the submission first
-      if (isSubmitting && force) {
-        setIsSubmitting(false);
+      if (isSubmittingRef.current && force) {
+        isSubmittingRef.current = false;
+        // currentSubmissionIDRef is not explicitly cleared here, but usually a reset implies a new context
+        // We'll let the general UPDATE_STATE handle isSubmitting, and if a new submission ID is needed, it'll be set by submit().
+        dispatch({ type: 'UPDATE_STATE', updates: { isSubmitting: false } });
       }
 
       // Update refs first - this is critical for immediate access
@@ -1033,12 +959,22 @@ export function FormProvider<T extends Record<string | number, unknown>>({
       errorsRef.current = [];
       serverErrorsRef.current = [];
       clientSubmissionErrorRef.current = [];
+      canSubmitRef.current = false; // Reset form isn't immediately submittable
 
-      // Then update state
-      dispatch({ type: 'RESET', initialValues: newValues });
+      // Then update the main state to reflect the reset
+      dispatch({
+        type: 'UPDATE_STATE',
+        updates: {
+          values: newValues,
+          touched: {},
+          errors: [],
+          lastValidated: null,
+          canSubmit: false, // Reflects canSubmitRef.current
+        },
+      });
       return true;
     },
-    [dispatch, isSubmitting, setIsSubmitting]
+    [dispatch] // initialValues is not needed here as newValues is passed
   );
 
   // Function to check if a submission ID is the current one
@@ -1051,8 +987,8 @@ export function FormProvider<T extends Record<string | number, unknown>>({
     (submissionId: string | null) => {
       currentSubmissionIDRef.current = submissionId;
       dispatch({
-        type: 'SET_SUBMISSION_ID',
-        submissionId,
+        type: 'UPDATE_STATE',
+        updates: { currentSubmissionID: submissionId },
       });
     },
     [dispatch]
@@ -1091,8 +1027,8 @@ export function FormProvider<T extends Record<string | number, unknown>>({
 
       // Then update state
       dispatch({
-        type: 'SET_ERRORS',
-        errors: newErrors,
+        type: 'UPDATE_STATE',
+        updates: { errors: errorsRef.current },
       });
     },
     [dispatch]
@@ -1112,8 +1048,8 @@ export function FormProvider<T extends Record<string | number, unknown>>({
 
     // Then update state
     dispatch({
-      type: 'SET_ERRORS',
-      errors: newErrors,
+      type: 'UPDATE_STATE',
+      updates: { errors: errorsRef.current },
     });
   }, [dispatch]);
 
@@ -1145,8 +1081,8 @@ export function FormProvider<T extends Record<string | number, unknown>>({
 
       // Update state
       dispatch({
-        type: 'SET_ERRORS',
-        errors: combinedErrors,
+        type: 'UPDATE_STATE',
+        updates: { errors: errorsRef.current },
       });
     },
     [hasField, dispatch]
@@ -1195,8 +1131,8 @@ export function FormProvider<T extends Record<string | number, unknown>>({
 
       // Update state
       dispatch({
-        type: 'SET_ERRORS',
-        errors: combinedErrors,
+        type: 'UPDATE_STATE',
+        updates: { errors: errorsRef.current },
       });
     },
     [dispatch]
@@ -1206,7 +1142,7 @@ export function FormProvider<T extends Record<string | number, unknown>>({
     if (!onSubmit) return;
 
     // Prevent multiple simultaneous submissions
-    if (isSubmitting) {
+    if (isSubmittingRef.current) {
       console.warn('Form submission prevented: already submitting.');
       return;
     }
@@ -1220,7 +1156,7 @@ export function FormProvider<T extends Record<string | number, unknown>>({
     clientSubmissionErrorRef.current = []; // Clear client submission error ref
 
     // Then update state
-    setErrors(errorsRef.current);
+    dispatch({ type: 'UPDATE_STATE', updates: { errors: errorsRef.current } });
 
     // Mark all fields as touched on submit
     const allPaths = getValuePaths();
@@ -1232,17 +1168,21 @@ export function FormProvider<T extends Record<string | number, unknown>>({
     const submissionId = generateID();
 
     // Update state to indicate we're submitting and store the submission ID
-    setIsSubmitting(true);
+    // Update ref first
+    isSubmittingRef.current = true;
     setSubmissionId(submissionId); // This updates both ref and state
+
+    // Then update state
+    dispatch({ type: 'UPDATE_STATE', updates: { isSubmitting: true } });
 
     try {
       const result = validateForm();
       if (!schema || result.valid) {
         // Pass only the values and a subset of helper functions
         // This avoids the circular dependency and ref usage
-        const helpers: FormHelpers = {
+        const helpers: FormHelpers<T> = {
           setErrors: (newErrors: ValidationError[]) => {
-            if (isCurrentSubmission(submissionId)) {
+            if (isCurrentSubmission(submissionId) && mountedRef.current) {
               // Update ref first
               errorsRef.current = newErrors;
               // Then update state
@@ -1250,7 +1190,7 @@ export function FormProvider<T extends Record<string | number, unknown>>({
             }
           },
           setServerErrors: (newErrors: ValidationError[]) => {
-            if (isCurrentSubmission(submissionId)) {
+            if (isCurrentSubmission(submissionId) && mountedRef.current) {
               setServerErrors(newErrors);
             }
           },
@@ -1258,22 +1198,22 @@ export function FormProvider<T extends Record<string | number, unknown>>({
             path: (string | number)[],
             message: string | string[] | null
           ) => {
-            if (isCurrentSubmission(submissionId)) {
+            if (isCurrentSubmission(submissionId) && mountedRef.current) {
               setServerError(path, message);
             }
           },
           setValue: <V = unknown,>(path: (string | number)[], value: V) => {
-            if (isCurrentSubmission(submissionId)) {
+            if (isCurrentSubmission(submissionId) && mountedRef.current) {
               setValue(path, value);
             }
           },
           clearValue: (path: (string | number)[]) => {
-            if (isCurrentSubmission(submissionId)) {
+            if (isCurrentSubmission(submissionId) && mountedRef.current) {
               clearValue(path);
             }
           },
           deleteField: (path: (string | number)[]) => {
-            if (isCurrentSubmission(submissionId)) {
+            if (isCurrentSubmission(submissionId) && mountedRef.current) {
               deleteField(path);
             }
           },
@@ -1284,32 +1224,29 @@ export function FormProvider<T extends Record<string | number, unknown>>({
             path: (string | number)[],
             value: boolean = true
           ) => {
-            if (isCurrentSubmission(submissionId)) {
+            if (isCurrentSubmission(submissionId) && mountedRef.current) {
               setFieldTouched(path, value);
             }
           },
           reset: (force?: boolean): boolean => {
-            if (isCurrentSubmission(submissionId)) {
+            if (isCurrentSubmission(submissionId) && mountedRef.current) {
               return reset(force);
             }
             return false;
           },
-          resetWithValues: <V = unknown,>(
-            newValues: V,
-            force?: boolean
-          ): boolean => {
-            if (isCurrentSubmission(submissionId)) {
-              return resetWithValues(newValues as unknown as T, force);
+          resetWithValues: (newValues: T, force?: boolean): boolean => {
+            if (isCurrentSubmission(submissionId) && mountedRef.current) {
+              return resetWithValues(newValues, force);
             }
             return false; // Or handle as per desired behavior for stale call
           },
           setClientSubmissionError: (message: string | string[] | null) => {
-            if (isCurrentSubmission(submissionId)) {
+            if (isCurrentSubmission(submissionId) && mountedRef.current) {
               setClientSubmissionError(message);
             }
           },
           clearClientSubmissionError: () => {
-            if (isCurrentSubmission(submissionId)) {
+            if (isCurrentSubmission(submissionId) && mountedRef.current) {
               clearClientSubmissionError();
             }
           },
@@ -1325,7 +1262,7 @@ export function FormProvider<T extends Record<string | number, unknown>>({
         await onSubmit(values, helpers);
       } else if (result.errors) {
         // Only set errors if this is still the current submission
-        if (isCurrentSubmission(submissionId)) {
+        if (isCurrentSubmission(submissionId) && mountedRef.current) {
           // Use our improved setErrors implementation
           const serverErrors = errorsRef.current.filter(
             (e) => e.source === 'server'
@@ -1337,14 +1274,14 @@ export function FormProvider<T extends Record<string | number, unknown>>({
 
           // Then update state
           dispatch({
-            type: 'SET_ERRORS',
-            errors: newErrors,
+            type: 'UPDATE_STATE',
+            updates: { errors: errorsRef.current },
           });
         }
       }
     } catch (error: unknown) {
       // Only log unexpected errors and set client errors if this is still the current submission
-      if (isCurrentSubmission(submissionId)) {
+      if (isCurrentSubmission(submissionId) && mountedRef.current) {
         console.error('Unexpected form submission error:', error);
         // Use setClientSubmissionError instead of setting server errors
         // This is more appropriate as these are client-side errors during submission
@@ -1355,17 +1292,21 @@ export function FormProvider<T extends Record<string | number, unknown>>({
         );
       }
     } finally {
-      // Only reset submitting state if this is still the current submission
-      if (isCurrentSubmission(submissionId)) {
-        setIsSubmitting(false);
+      // Only reset submitting state if this is still the current submission and component is mounted
+      if (isCurrentSubmission(submissionId) && mountedRef.current) {
+        // Update ref first
+        isSubmittingRef.current = false;
+        // Then update state
+        dispatch({
+          type: 'UPDATE_STATE',
+          updates: { isSubmitting: false },
+        });
       }
     }
   }, [
     onSubmit,
-    isSubmitting,
     setErrors,
     getValuePaths,
-    setIsSubmitting,
     setSubmissionId,
     setFieldTouched,
     validateForm,
@@ -1396,7 +1337,7 @@ export function FormProvider<T extends Record<string | number, unknown>>({
       errors,
       isSubmitting,
       isValid: mountedRef.current && errors.length === 0,
-      canSubmit,
+      canSubmit: canSubmitRef.current, // Use the ref value directly
       lastValidated,
       currentSubmissionID: state.currentSubmissionID, // Use state for reactivity
       submit,
@@ -1430,7 +1371,6 @@ export function FormProvider<T extends Record<string | number, unknown>>({
       setFieldTouched,
       errors,
       isSubmitting,
-      canSubmit,
       lastValidated,
       state.currentSubmissionID, // Use state for reactivity in dependency array
       submit,
@@ -1467,13 +1407,7 @@ export function FormProvider<T extends Record<string | number, unknown>>({
   // Conditionally wrap in form tag based on useFormTag prop
   return (
     // Use type assertion to make TypeScript happy with the context value
-    <FormContext.Provider
-      value={
-        contextValue as unknown as FormContextValue<
-          Record<string | number, unknown>
-        >
-      }
-    >
+    <FormContext.Provider value={contextValue}>
       {useFormTag ? (
         <form onSubmit={handleSubmit} noValidate {...formProps}>
           {children}

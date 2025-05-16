@@ -51,34 +51,42 @@ The `useFormTag` prop allows wrapping the form content in a native HTML `<form>`
 Value operations:
 
 - `getValue(path)`: Get value at specific path
-- `setValue(path, value)`: Set value at specific path (batched for performance)
+- `setValue(path, value)`: Set value at specific path
+- `getValue<K extends keyof T>([key]: [K]): T[K]`: Get value at a top-level key with type safety.
+- `getValue(path: (string|number)[]): unknown`: Get value at any specific path.
+- `setValue<K extends keyof T>([key]: [K], value: T[K])`: Set value at a top-level key with type safety.
+- `setValue(path: (string|number)[], value: V)`: Set value at any specific path
 - `clearValue(path)`: Reset field to empty value based on its type
 - `deleteField(path)`: Remove field at path (handles arrays properly)
 - `hasField(path)`: Check if field exists
-- `getValuePaths(path?)`: Get all value paths under given path
+- `getValuePaths(path?: (string|number)[]): (string|number)[][]`: Get all value paths under given path
 
 Error operations:
 
 - `getError(path)`: Get array of errors at specific path level
-- `getErrorPaths(path?)`: Get all error paths under given path
+- `getErrorPaths(path?: (string|number)[]): (string|number)[][]`: Get all error paths under given path
 - `setErrors(errors)`: Set all errors (replaces existing errors)
 - `setServerErrors(errors)`: Replace all server errors with new ones
 - `setServerError(path, message)`: Set server error(s) for a specific path
 
 Touch state operations:
 
-- `setFieldTouched(path, value?)`: Mark field as touched/untouched (batched for performance)
+- `setFieldTouched(path, value?)`: Mark field as touched/untouched
 
 ### FormHelpers Interface
 
 ```tsx
-export interface FormHelpers {
+export interface FormHelpers<T> {
   setErrors: (errors: ValidationError[]) => void;
   setServerErrors: (errors: ValidationError[]) => void;
   setServerError: (
     path: (string | number)[],
     message: string | string[] | null
   ) => void;
+  setClientSubmissionError: (message: string | string[] | null) => void;
+  clearClientSubmissionError: () => void;
+  getClientSubmissionError: () => string[];
+  setValue<K extends keyof T>(path: [K], value: T[K]): void;
   setValue: <V = unknown>(path: (string | number)[], value: V) => void;
   clearValue: (path: (string | number)[]) => void;
   deleteField: (path: (string | number)[]) => void;
@@ -87,8 +95,8 @@ export interface FormHelpers {
   touched: Record<string, boolean>;
   setFieldTouched: (path: (string | number)[], value?: boolean) => void;
   reset: (force?: boolean) => boolean;
-  resetWithValues: <T = unknown>(newValues: T, force?: boolean) => boolean;
-  currentSubmissionId: string | null;
+  resetWithValues: (newValues: T, force?: boolean) => boolean;
+  currentSubmissionID: string | null;
   isCurrentSubmission: (submissionId: string) => boolean;
 }
 ```
@@ -121,9 +129,15 @@ The form library handles three distinct types of errors:
 
 1. **Client Validation Errors**: Generated automatically by Zod schema validation. These are field-specific errors based on your schema rules (e.g., "Email must be valid", "Name is required").
 
-2. **Server Validation Errors**: Set with `setServerErrors()` or `setServerError()`, these represent validation errors from your backend (e.g., "Username already taken", "Email domain is blocked").
+2. **Server Validation Errors**: Set with `setServerErrors()` or `setServerError()`. These represent validation errors originating from your backend API after a submission attempt (e.g., "Username already taken", "Email domain is blocked").
 
-3. **Client Submission Errors**: Set with `setClientSubmissionError()`, these are for general submission failures like network issues, authentication problems, or any other client-side issue preventing successful form submission.
+   - `setServerErrors(errors: ValidationError[])`: This function **replaces all existing server errors** with the new array of errors provided. It effectively gives you a clean slate for server-side issues while preserving any client-side Zod validation errors. Use this when you want to set a complete new list of server errors, perhaps after an API response that details all current issues.
+   - `setServerError(path: (string | number)[], message: string | string[] | null)`: This function targets errors for a **specific field path**.
+     - If a `message` (or an array of messages) is provided, it **replaces any existing server errors at that exact path** with the new message(s).
+     - If `null` is passed as the `message`, it **clears all server errors for that specific path only**.
+     - This method is useful for granular control, like updating or clearing an error for a single field without affecting server errors on other fields.
+
+3. **Client Submission Errors**: Set with `setClientSubmissionError()`. Each call to this function **replaces any previous client submission errors**. These are for general submission failures like network issues, authentication problems, or any other client-side issue preventing successful form submission. Use `null` to clear all client submission errors.
 
 #### Client Submission Error Handling:
 
@@ -143,23 +157,32 @@ form.clearClientSubmissionError();
 
 // Get current client submission errors
 const clientErrors = form.getClientSubmissionError(); // Returns string[]
-
-// Clear all server errors while preserving client validation errors
-form.setServerErrors([]);
 ```
 
 Client submission errors are always displayed at the root level of the form and are ideal for situations where the entire form submission fails for reasons unrelated to individual field validation.
 
 Important Server Error Behaviors:
 
-1. `setServerErrors`:
+1. `setServerErrors(errors: ValidationError[])`:
 
+   - **Scope**: Affects _all_ server errors across the entire form.
+   - **Action**: Replaces ALL existing server errors with the `errors` array you provide.
+   - Preserves client-side Zod validation errors.
+   - Ignores errors in the provided array that target non-existent paths (except for root-level errors, i.e., `path: []`, which are always allowed).
+   - **Use Case**: Ideal for initializing or completely refreshing all server-side validation feedback after an API call.
+   - To clear all server errors globally, call `form.setServerErrors([])`.
+
+2. `setServerError(path: (string | number)[], message: string | string[] | null)`:
+
+   - **Scope**: Affects only the server errors for the _exact_ `path` specified.
+   - **Action with message(s)**: If `message` is a string or an array of strings, it replaces any existing server errors _only at that specific path_ with the new message(s).
+   - **Action with `null`**: If `message` is `null`, it clears all server errors _only for that specific path_.
    - Replaces ALL existing server errors
    - Preserves validation errors
    - Ignores errors for non-existent paths
    - Root errors (empty path) always allowed
 
-2. `setServerError`:
+3. `setServerError`:
    - Replaces server errors at the SAME path level only
    - Accepts single message or array of messages
    - Ignores non-existent paths (except root)
@@ -167,7 +190,6 @@ Important Server Error Behaviors:
    - Preserves all validation errors
    - Pass `null` to clear all server errors at the specified path
    - Use `setServerErrors([])` to clear all server errors while preserving validation errors
-   - Operations are batched for performance
 
 ```tsx
 // Direct value operations
@@ -202,9 +224,7 @@ The form library includes several performance optimizations:
 
 1. Batched updates:
 
-   - Multiple `setValue` calls are batched and processed together
-   - Multiple `setFieldTouched` calls are batched
-   - Multiple `setServerError` calls are batched
+Each public mutator (e.g. `setValue`, `setFieldTouched`, `setServerError`) collects all its internal state tweaks into one dispatch() call—so one re-render per operation, no matter how many bits of state it changes.
 
 2. Optimized validation:
 
@@ -297,13 +317,13 @@ When using the `onSubmit` prop, it receives the form values and a set of helper 
   onSubmit={async (values, helpers) => {
     try {
       // The current submission ID is available in helpers
-      const { currentSubmissionId } = helpers;
+      const { currentSubmissionID } = helpers;
 
       // Attempt to submit the form
       const result = await submitToServer(values);
 
       // Check if this submission is still current before updating
-      if (helpers.isCurrentSubmission(currentSubmissionId)) {
+      if (helpers.isCurrentSubmission(currentSubmissionID)) {
         // Safe to update form state
         console.log('Submission successful');
       } else {
@@ -352,7 +372,7 @@ The `helpers` object provides access to:
 - `setFieldTouched`: Mark field as touched
 - `reset`: Reset form to initial values. Returns `true` if successful, `false` otherwise (e.g., if submitting and not forced).
 - `resetWithValues`: Reset form with new values
-- `currentSubmissionId`: The ID of the current submission
+- `currentSubmissionID`: The ID of the current submission
 - `isCurrentSubmission`: Function to check if a submission ID is current
 
 ### Resetting the Form
@@ -440,13 +460,13 @@ The form context includes a submission ID tracking system to help prevent race c
 // In your onSubmit handler
 const handleSubmit = async (values, helpers) => {
   // The submission ID is available in the helpers
-  const { currentSubmissionId, isCurrentSubmission } = helpers;
+  const { currentSubmissionID, isCurrentSubmission } = helpers;
 
   // Start an async operation
   const result = await someAsyncOperation();
 
   // Check if this submission is still current before updating
-  if (isCurrentSubmission(currentSubmissionId)) {
+  if (isCurrentSubmission(currentSubmissionID)) {
     // Safe to update form state
     helpers.setValue(['result'], result);
   } else {

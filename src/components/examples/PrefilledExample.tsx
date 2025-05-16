@@ -8,13 +8,21 @@ import { useField } from '../../lib/hooks/useField';
 import { useToast } from '../useToast';
 import { simulateServer } from './utils';
 
+// Define the schema
 const prefilledSchema = z.object({
   username: z.string().min(3, 'Username must be at least 3 characters'),
   email: z.string().email('Invalid email address'),
-  age: z.number().min(18, 'Must be at least 18 years old'),
+  age: z.coerce.number().min(18, 'Must be at least 18 years old'),
   bio: z.string().min(10, 'Bio must be at least 10 characters'),
-  website: z.string().url('Invalid URL').optional(),
+  website: z
+    .string()
+    .transform((val) => (val.trim() === '' ? undefined : val))
+    .optional()
+    .pipe(z.string().url({ message: 'Invalid URL' }).optional()), // If string, must be URL. If undefined, it's fine.
 });
+
+// Infer the form values type from the schema. FormValues.age will now be number.
+type FormValues = z.infer<typeof prefilledSchema>;
 
 function PrefilledForm() {
   const form = useFormContext();
@@ -67,7 +75,7 @@ function PrefilledForm() {
         <FormInput
           {...ageField.props}
           label="Age"
-          type="number"
+          type="number" // HTML input type remains number for UX
           placeholder="18"
         />
         <FormInput
@@ -92,8 +100,8 @@ export default function PrefilledExample() {
   const toast = useToast();
 
   const onSubmit = async (
-    values: z.infer<typeof prefilledSchema>,
-    helpers: FormHelpers
+    values: FormValues,
+    helpers: FormHelpers<FormValues>
   ) => {
     try {
       await simulateServer(values);
@@ -114,7 +122,7 @@ export default function PrefilledExample() {
       initialValues={{
         username: 'johndoe', // Valid
         email: 'invalid-email', // Invalid format
-        age: 16, // Below minimum
+        age: 16, // Initial value is a number, below minimum
         bio: 'Too short', // Too short
         website: 'not-a-url', // Invalid URL
       }}
