@@ -6,7 +6,7 @@ import { execSync } from 'child_process';
 // Package configuration
 const PACKAGE_CONFIG = {
   name: 'form-context-react-zod',
-  version: '1.1.1',
+  version: '1.2.0',
   description: 'React form context with Zod validation helpers',
   author: '',
   license: 'MIT',
