@@ -66,21 +66,31 @@ exports throughout.
         no `shouldAdvanceTime` option in bun (dropped it; tests still green).
       - Removed `vitest`/`@vitest/coverage-v8`/`jsdom` + `vitest.config.ts`/`vitest.setup.ts`;
         added `@types/bun` for `bun:test` typings. Scripts → `bun test` (+ `test:coverage`).
-- [ ] Set published **React peer to `^19`** in build-lib's generated manifest (the *published*
-      peer, not the dev deps — those are done). Lands with the build-lib refactor + `check-deps`.
+- [x] Set published **React peer to `^19`**. ✅ Root now has a `peerDependencies` field
+      (`react ^19`, `react-dom ^19`, `zod ^3`); build-lib reads it into the published manifest.
+      Verified in `dist_module/package.json`. (zod stays `^3` until Track 2.)
 - [x] **Single source of truth for version + metadata.** ✅ Root `package.json` is now the real
       manifest: name `form-context-react-zod`, version `2.0.0`, description, author, license,
       homepage, repository, bugs, keywords (kept `private: true` so root itself can't be
       published). `build-lib.js` reads all of these from root (no more hard-coded `1.2.0` /
       inline metadata). Verified: generated `dist_module/package.json` carries them through.
-      REMAINING: `build-lib` reading **peerDependencies** from root is still TODO — peers stay
-      hard-coded (`react ^18` / `zod ^3`) until the peer-flip / `check-deps` step.
-- [ ] Port Unirend's scripts:
-      - `sync-version` — root `package.json` version → generated `src/version.ts` (`PKG_VERSION`).
-      - `update-docs` — `update-readme-version.ts` + markdown-toc-gen (kills README drift).
-      - `check-deps` — validate published `peerDependencies` match what we dev/test against.
-- [ ] **README drift.** Today the dev `README.md` and the build-lib.js-generated README are
-      separate and diverge. Consolidate: one source, generated/synced — not two hand-maintained copies.
+      ✅ `build-lib` now also reads **peerDependencies** from root (see React-peer item above).
+- [x] Port Unirend's scripts (`check-deps` only):
+      - ✅ `scripts/check-deps.ts` — validates root `peerDependencies` are satisfied by local
+        deps/devDeps (adapted from Unirend, minus the starter-template surface it doesn't have).
+        Added `semver`. Runs in `build:lib` before tsup. Currently passes.
+      - ❌ `sync-version` — SCRAPPED. Unirend needs it for its CLI's `PKG_VERSION`; this lib has
+        no runtime use for its own version, and `build-lib` already reads the version straight
+        from root. A public `VERSION` export would just be dead weight.
+      - ✅ `scripts/update-docs.ts` — stamps the version into the dev README's **H1 title**
+        (`# Form Context React Zod vX.Y.Z`), Unirend-style, from root version. Kept the dev +
+        published READMEs as separate documents (per plan), so this guards them from drifting on
+        version. Runs in `build:lib`. Verified both branches (corrects stale, stamps bare title).
+        (markdown-toc-gen TOC not added — README is short.)
+- [x] **README drift.** DECISION: keep the dev `README.md` and the build-lib-generated published
+      README as **separate documents** (different audiences — contributors vs npm consumers).
+      Drift risk was really just the version, now handled by `update-docs` syncing the dev
+      README's `**Current version:**` line. No consolidation needed.
 - [ ] Add `prepublishOnly` modeled on Unirend (audit + build + type-check + lint + test;
       **skip spellcheck** per Kevin).
 - [x] Rename `build-lib.js` → `scripts/build-lib.ts`, run via bun. ✅ `git mv` into a new

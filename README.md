@@ -1,4 +1,4 @@
-# Form Context React Zod
+# Form Context React Zod v2.0.0
 
 [![npm version](https://badge.fury.io/js/form-context-react-zod.svg)](https://badge.fury.io/js/form-context-react-zod)
 

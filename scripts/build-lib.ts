@@ -111,12 +111,9 @@ async function build() {
         'FORM-API.md',
         'ZOD-HELPERS.md',
       ],
-      // NOTE: peer flip (react ^19 / zod ^4) lands with the check-deps step.
-      peerDependencies: {
-        react: '^18.0.0',
-        'react-dom': '^18.0.0',
-        zod: '^3.0.0',
-      },
+      // Peers come from root package.json (validated by check-deps). zod stays
+      // ^3 until the Zod 4 migration (Track 2) flips it there.
+      peerDependencies: rootPkg.peerDependencies,
       dependencies: {},
     };
 
