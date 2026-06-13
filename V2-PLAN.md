@@ -57,8 +57,15 @@ exports throughout.
 - [x] Add ESLint plugins for the lighter-but-a11y config: `eslint-plugin-jsx-a11y` `^6.10.2`,
       `eslint-plugin-react` `^7.37.5` (keep react-hooks). Skip unicorn/check-file/naming.
       ✅ DONE — cherry-pick style (no `flat.recommended`), so `no-unescaped-entities` stays off.
-- [ ] **Switch test runner to `bun test`**: remove vitest/@vitest/coverage-v8/jsdom; migrate
-      `*.test.ts(x)` + `vitest.setup.ts`; pick a DOM (happy-dom or bun's) for component tests.
+- [x] **Switch test runner to `bun test`.** ✅ DONE — 66 tests pass.
+      - DOM via `@happy-dom/global-registrator` (`happydom.ts` preload); jest-dom matchers via
+        `expect.extend` in `testSetup.ts`; both wired through `bunfig.toml` `[test].preload`.
+      - `vitest`→`bun:test`, `vi.`→`jest.` (incl. a multiline `vi\n.spyOn`).
+      - Rewrote the `advanceTimers` helper: bun has no `advanceTimersToNextTimerAsync`, so it
+        loops `jest.runAllTimers()` + microtask flush inside async `act()`. `useFakeTimers()` has
+        no `shouldAdvanceTime` option in bun (dropped it; tests still green).
+      - Removed `vitest`/`@vitest/coverage-v8`/`jsdom` + `vitest.config.ts`/`vitest.setup.ts`;
+        added `@types/bun` for `bun:test` typings. Scripts → `bun test` (+ `test:coverage`).
 - [ ] Set published **React peer to `^19`** in build-lib's generated manifest (the *published*
       peer, not the dev deps — those are done). Lands with the build-lib refactor + `check-deps`.
 - [ ] **Single source of truth for version + metadata.** Make the *root* `package.json` the

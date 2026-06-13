@@ -1,5 +1,5 @@
 import React from 'react';
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, jest, beforeEach, afterEach } from 'bun:test';
 import { render, screen, fireEvent, act } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import { z } from 'zod';
@@ -7,18 +7,18 @@ import { FormProvider, FormContext } from './form-context';
 import { ValidationError } from './zod-helpers';
 import { serializePath } from './utils';
 
-// Helper function to advance timers and settle promises
+// Helper function to advance timers and settle promises.
+// bun:test has no advanceTimersToNextTimerAsync, so we drain pending timers and
+// flush the microtask queue a few times to let chained async work settle
+// (debounced validation -> promise -> a newly scheduled timer).
 const advanceTimers = async () => {
-  // Run all immediate timers
-  act(() => {
-    vi.runAllTimers();
+  await act(async () => {
+    for (let i = 0; i < 5; i++) {
+      jest.runAllTimers();
+      // let promise callbacks queued by the timer callbacks run before re-draining
+      await Promise.resolve();
+    }
   });
-
-  // Wait for promises to resolve
-  await vi.advanceTimersToNextTimerAsync();
-
-  // Final tick to ensure everything is processed
-  await Promise.resolve();
 };
 
 // Custom hook to access form context for testing
@@ -66,7 +66,7 @@ interface FormHelpers {
 
 function TestForm({
   initialValues = {},
-  onSubmit = vi.fn(),
+  onSubmit = jest.fn(),
   schema = z.object({}),
   validateOnMount = false,
   validateOnChange = true,
@@ -141,12 +141,12 @@ function SubmitButton() {
 
 describe('FormProvider', () => {
   beforeEach(() => {
-    vi.useFakeTimers({ shouldAdvanceTime: true });
+    jest.useFakeTimers();
   });
 
   afterEach(() => {
-    vi.restoreAllMocks();
-    vi.useRealTimers();
+    jest.restoreAllMocks();
+    jest.useRealTimers();
   });
 
   it('initializes with correct initial values', () => {
@@ -256,7 +256,7 @@ describe('FormProvider', () => {
 
   it('calls onSubmit with current values and helpers', async () => {
     const initialValues = { name: 'John', email: 'john@example.com' };
-    const onSubmit = vi.fn();
+    const onSubmit = jest.fn();
 
     render(
       <TestForm initialValues={initialValues} onSubmit={onSubmit}>
@@ -673,7 +673,7 @@ describe('FormProvider', () => {
     const initialValues = { username: 'testuser', password: 'password' };
 
     // Mock onSubmit that sets a server error
-    const onSubmit = vi.fn(async (values, helpers) => {
+    const onSubmit = jest.fn(async (values, helpers) => {
       helpers.setServerError(['username'], 'Username already taken');
     });
 
@@ -1351,7 +1351,7 @@ describe('FormProvider', () => {
 
   it('tests that client submission errors are automatically cleared on submit', async () => {
     const initialValues = { username: 'testuser' };
-    const onSubmit = vi.fn();
+    const onSubmit = jest.fn();
 
     const TestComponent = () => {
       const form = useFormContext();
@@ -1815,7 +1815,7 @@ describe('FormProvider', () => {
     const errorMessage = 'Test submission error';
 
     // Create an onSubmit handler that throws an error
-    const onSubmit = vi.fn().mockImplementation(() => {
+    const onSubmit = jest.fn().mockImplementation(() => {
       throw new Error(errorMessage);
     });
 
@@ -1880,7 +1880,7 @@ describe('FormProvider', () => {
     const errorMessage = 'Async submission error';
 
     // Create an onSubmit handler that returns a rejected promise
-    const onSubmit = vi.fn().mockImplementation(() => {
+    const onSubmit = jest.fn().mockImplementation(() => {
       return Promise.reject(new Error(errorMessage));
     });
 
@@ -2212,7 +2212,7 @@ describe('FormProvider', () => {
     };
 
     // Mock onSubmit function that sets server errors
-    const onSubmit = vi.fn(async (values, helpers) => {
+    const onSubmit = jest.fn(async (values, helpers) => {
       // Simulate server validation with multiple errors
       helpers.setServerErrors([
         { path: ['username'], message: 'Username already exists' },
@@ -2432,7 +2432,7 @@ describe('FormProvider', () => {
 
     let submissionCount = 0;
 
-    const onSubmit = vi.fn().mockImplementation(() => {
+    const onSubmit = jest.fn().mockImplementation(() => {
       submissionCount++;
       if (submissionCount === 1) {
         return firstSubmissionPromise;
@@ -2594,8 +2594,8 @@ describe('FormProvider', () => {
       resolveSubmission = resolve;
     });
 
-    const onSubmit = vi.fn().mockImplementation(() => submissionPromise);
-    const consoleWarnSpy = vi
+    const onSubmit = jest.fn().mockImplementation(() => submissionPromise);
+    const consoleWarnSpy = jest
       .spyOn(console, 'warn')
       .mockImplementation(() => {});
 
@@ -2683,8 +2683,8 @@ describe('FormProvider', () => {
       resolveSubmission = resolve;
     });
 
-    const onSubmit = vi.fn().mockImplementation(() => submissionPromise);
-    const consoleWarnSpy = vi
+    const onSubmit = jest.fn().mockImplementation(() => submissionPromise);
+    const consoleWarnSpy = jest
       .spyOn(console, 'warn')
       .mockImplementation(() => {});
 
@@ -2919,7 +2919,7 @@ describe('FormProvider', () => {
     });
 
     // Create a controlled onSubmit handler
-    const onSubmit = vi.fn().mockImplementation(async (values, helpers) => {
+    const onSubmit = jest.fn().mockImplementation(async (values, helpers) => {
       // Simulate server validation errors
       helpers.setServerErrors([
         { path: ['username'], message: 'Username already exists' },
@@ -3116,7 +3116,7 @@ describe('FormProvider', () => {
 
   it('works correctly without a schema', async () => {
     const initialValues = { name: 'John', email: 'john@example.com' };
-    const onSubmit = vi.fn();
+    const onSubmit = jest.fn();
 
     const TestComponent = () => {
       const form = useFormContext();
