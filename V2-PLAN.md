@@ -172,18 +172,19 @@ Apply the same so the core is DOM-free and RN-friendly; debug tooling is opt-in.
 `react/*` rules) instead of `react.configs.flat.recommended`, so that rule never turns on.
 Remaining 13 findings:
 
-- [ ] **`react-hooks/refs` (6) — investigate, don't blind-fix.** react-hooks 7's new rule
-      flags reading `*Ref.current` during render in the context value
-      ([form-context.tsx ~1339](src/lib/form-context.tsx#L1339), ~1410). This is the deliberate
-      ref+reducer hybrid (commit "a bit of both refs and reducer to avoid race condition").
-      Open question: are we genuinely constrained by the architecture, or can the context value
-      derive these from reducer state instead? Worth a real look — may be per-line disables with
-      a rationale comment, or a small refactor. Don't churn the race-condition design blindly.
-- [ ] **`react-hooks/set-state-in-effect` (2) — scan.** Find the `setState`-in-effect spots and
-      decide if they're legit (sync-from-prop) or a re-render smell.
-- [ ] **`jsx-a11y/label-has-associated-control` (2) — fix.** Real a11y wins (the point of
-      adding the plugin) — associate `<label>`s with their controls.
-- [ ] `react-refresh/only-export-components` (3) — deferred to Track 3 (code splitting).
+- [x] **`react-hooks/refs` (6) — clean refactor.** ✅ The rule was right: the `contextValue`
+      memo (reactive output) was reading refs. Fix = read **reactive state** there, keep refs for
+      the synchronous submit/validation paths. `canSubmit` → reactive `canSubmit` state (+dep);
+      `isValid` → `errors.length === 0 && (lastValidated !== null || !schema)` (a schema-less form
+      is vacuously valid). Demo `ServerExample` read `formRef.current` in render → use `form`.
+      Caught a real regression in review (schema-less isValid stuck false) — fixed + new test.
+- [x] **`react-hooks/set-state-in-effect` (2).** ✅ FormState: derive `timeAgo` during render from
+      a `now` tick (no setState-in-effect). Test helper: justified disable (intentionally remembers
+      last non-null submission ID across clears).
+- [x] **`jsx-a11y/label-has-associated-control` (2).** ✅ The two were group captions misusing
+      `<label>`; converted to `<p>` (demo files).
+- [ ] `react-refresh/only-export-components` (3) — deferred to Track 3 (code splitting). Warnings,
+      don't block the prepublishOnly gate.
 
 ## 5. Code review / scan
 

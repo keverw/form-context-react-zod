@@ -1346,8 +1346,11 @@ export function FormProvider<T extends Record<string | number, unknown>>({
       setFieldTouched,
       errors,
       isSubmitting,
-      isValid: mountedRef.current && errors.length === 0,
-      canSubmit: canSubmitRef.current, // Use the ref value directly
+      // Valid when there are no errors AND either validation has run (lastValidated
+      // is set) or there's no schema to validate against (a schema-less form is
+      // vacuously valid). Uses reactive state, not refs, so consumers stay in sync.
+      isValid: errors.length === 0 && (lastValidated !== null || !schema),
+      canSubmit, // reactive state; the ref stays for the synchronous submit logic
       lastValidated,
       currentSubmissionID: state.currentSubmissionID, // Use state for reactivity
       submit,
@@ -1381,7 +1384,9 @@ export function FormProvider<T extends Record<string | number, unknown>>({
       setFieldTouched,
       errors,
       isSubmitting,
+      canSubmit,
       lastValidated,
+      schema,
       state.currentSubmissionID, // Use state for reactivity in dependency array
       submit,
       reset,

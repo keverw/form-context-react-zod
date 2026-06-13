@@ -121,7 +121,7 @@ function UsernameAvailability({ username }: UsernameAvailabilityProps) {
   }, [username]); // Only depend on username changes
 
   // Don't show anything if the field is empty or invalid
-  const usernameErrors = formRef.current.getError(['username']);
+  const usernameErrors = form.getError(['username']);
   if (!username || usernameErrors.length > 0) return null;
 
   return (

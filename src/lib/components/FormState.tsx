@@ -133,7 +133,7 @@ export function FormState({
   const clientSubmissionErrors = form.errors.filter(
     (e) => e.source === 'client-form-handler'
   );
-  const [timeAgo, setTimeAgo] = useState<string>('Never');
+  const [now, setNow] = useState<number>(() => Date.now());
   const [internalMode, setInternalMode] = useState<'light' | 'dark'>(mode);
   const effectiveMode = showToggle ? internalMode : mode;
 
@@ -185,38 +185,24 @@ export function FormState({
           null: '#9ca3af',
         };
 
-  // Update the time ago string every second
+  // Tick once a second so the relative "time ago" string below re-renders.
   useEffect(() => {
-    if (!form.lastValidated) {
-      setTimeAgo('Never');
-      return;
-    }
+    if (!form.lastValidated) return;
 
-    const updateTimeAgo = () => {
-      const now = Date.now();
-      // Add null check to handle the case when lastValidated is null
-      const lastValidatedTime = form.lastValidated || 0;
-      const diff = now - lastValidatedTime;
-
-      if (diff < 1000) {
-        setTimeAgo('Just now');
-      } else if (diff < 60000) {
-        setTimeAgo(`${Math.floor(diff / 1000)}s ago`);
-      } else if (diff < 3600000) {
-        setTimeAgo(`${Math.floor(diff / 60000)}m ago`);
-      } else {
-        setTimeAgo(`${Math.floor(diff / 3600000)}h ago`);
-      }
-    };
-
-    // Update immediately
-    updateTimeAgo();
-
-    // Then update every second
-    const interval = setInterval(updateTimeAgo, 1000);
-
+    const interval = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(interval);
   }, [form.lastValidated]);
+
+  // Derived during render (avoids setState-in-effect).
+  const timeAgo = ((): string => {
+    if (!form.lastValidated) return 'Never';
+
+    const diff = now - form.lastValidated;
+    if (diff < 1000) return 'Just now';
+    if (diff < 60000) return `${Math.floor(diff / 1000)}s ago`;
+    if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
+    return `${Math.floor(diff / 3600000)}h ago`;
+  })();
 
   return (
     <div

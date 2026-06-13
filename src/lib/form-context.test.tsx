@@ -2452,6 +2452,7 @@ describe('FormProvider', () => {
       // Track current submission ID for testing
       React.useEffect(() => {
         if (form.currentSubmissionID) {
+          // eslint-disable-next-line react-hooks/set-state-in-effect -- test helper: intentionally remembers the last non-null submission ID across clears
           setLastSubmissionId(form.currentSubmissionID);
         }
       }, [form.currentSubmissionID]);
@@ -3241,5 +3242,40 @@ describe('FormProvider', () => {
 
     // Errors persist even after validation without a schema
     expect(screen.queryByTestId('name-error')).toBeInTheDocument();
+  });
+
+  it('reports isValid=true for a genuinely schema-less form with no errors', async () => {
+    // Regression guard: a form rendered without a `schema` prop never sets
+    // `lastValidated`, so gating isValid solely on `lastValidated !== null` would
+    // leave it stuck false. A schema-less form is vacuously valid when error-free.
+    function ValidProbe() {
+      const form = useFormContext();
+      return (
+        <div>
+          <div data-testid="is-valid">{form.isValid.toString()}</div>
+          <button
+            data-testid="set-error"
+            onClick={() =>
+              form.setErrors([{ path: ['name'], message: 'bad' }])
+            }
+          />
+        </div>
+      );
+    }
+
+    render(
+      // No `schema` prop at all.
+      <FormProvider initialValues={{ name: 'a' }} onSubmit={jest.fn()}>
+        <ValidProbe />
+      </FormProvider>
+    );
+
+    await advanceTimers();
+    expect(screen.getByTestId('is-valid').textContent).toBe('true');
+
+    // A manually-set error flips it to invalid.
+    fireEvent.click(screen.getByTestId('set-error'));
+    await advanceTimers();
+    expect(screen.getByTestId('is-valid').textContent).toBe('false');
   });
 });

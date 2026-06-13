@@ -70,9 +70,7 @@ function ErrorDemoForm() {
         />
 
         <div>
-          <label className="block mb-2 font-medium text-gray-700">
-            Error Mode
-          </label>
+          <p className="block mb-2 font-medium text-gray-700">Error Mode</p>
           <div className="space-y-2">
             <div className="flex items-center">
               <input
