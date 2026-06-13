@@ -13,6 +13,13 @@ dist-ssr
 dist_module
 *.local
 
+# This project uses Bun — ignore npm/yarn/pnpm lockfiles to avoid confusion.
+# bun.lock (JSON format) is preferred and should be committed.
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+bun.lockb
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
