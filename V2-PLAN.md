@@ -33,8 +33,13 @@ exports throughout.
 - [x] `bun audit` + `bun outdated` reviewed. **All audit vulns are dev/transitive only**
       (eslint→ajv, testing-library→lodash, tsup/tailwind/vite/vitest→minimatch/brace-expansion,
       vite). None affect the shipped lib (zero runtime deps, zod peer only).
-- [ ] **Bump deps to Unirend-pinned versions** (table below). Then bump the repo-specific
+- [x] **Bump deps to Unirend-pinned versions** (table below). Then bump the repo-specific
       ones Unirend doesn't have (tailwind, postcss, autoprefixer, lucide) to current latest.
+      ✅ DONE for dev/source deps. Held back on purpose: zod at `3.25.76` (Track 2 takes it to
+      4; bumped off 3.24 only because react-hooks 7 needs the `zod/v4` subpath), tailwind at 3.x
+      (v4 is its own migration), vitest/jsdom/testing-library untouched (removed in bun-test step).
+      NOTE: this is the **dev/source** side. The **published peer deps** (`react ^19`, `zod ^4`)
+      live in build-lib's generated manifest and flip during the build-lib refactor + `check-deps`.
 
       | Package | Now | Target (Unirend-pinned) |
       |---|---|---|
@@ -49,11 +54,13 @@ exports throughout.
       | eslint-plugin-react-hooks | 5.1-rc | `^7.1.1` |
       | eslint-plugin-react-refresh | 0.4 | `^0.5.2` |
 
-- [ ] Add ESLint plugins for the lighter-but-a11y config: `eslint-plugin-jsx-a11y` `^6.10.2`,
+- [x] Add ESLint plugins for the lighter-but-a11y config: `eslint-plugin-jsx-a11y` `^6.10.2`,
       `eslint-plugin-react` `^7.37.5` (keep react-hooks). Skip unicorn/check-file/naming.
+      ✅ DONE — cherry-pick style (no `flat.recommended`), so `no-unescaped-entities` stays off.
 - [ ] **Switch test runner to `bun test`**: remove vitest/@vitest/coverage-v8/jsdom; migrate
       `*.test.ts(x)` + `vitest.setup.ts`; pick a DOM (happy-dom or bun's) for component tests.
-- [ ] Set published **React peer to `^19`**; bump `react`/`react-dom`/`@types/*` to 19.
+- [ ] Set published **React peer to `^19`** in build-lib's generated manifest (the *published*
+      peer, not the dev deps — those are done). Lands with the build-lib refactor + `check-deps`.
 - [ ] **Single source of truth for version + metadata.** Make the *root* `package.json` the
       real manifest (name, version, author, bugs, homepage, repository). `build-lib` reads the
       root version **and peerDependencies** instead of the hard-coded `1.2.0` / inline peers.
@@ -94,8 +101,37 @@ Apply the same so the core is DOM-free and RN-friendly; debug tooling is opt-in.
       - `./devtools/native` — React Native debug component equivalent (see track 5).
 - [ ] Update tsup config for multiple entries; update generated `package.json` `exports`/`files`.
 - [ ] Move `FormState` out of the root `index.ts` barrel into the `devtools` entry.
+- [ ] ⚠️ **Singleton concern: `FormContext` must be ONE instance across entries.** If
+      `./devtools` bundles its own copy of the `createContext()` call, `FormState`'s
+      `useContext` returns `null` even though the app rendered `FormProvider` from `.`.
+      Fix the Unirend way ([its tsup.config.ts](https://github.com/keverw/unirend/blob/master/tsup.config.ts)):
+      put the context in its **own entry** and mark it **external** so every other entry
+      imports the shared instance instead of inlining a copy (Unirend uses an esbuild
+      `onResolve` plugin to redirect `./context` imports to the shared subpath). The same
+      applies to the type side — a duplicated context type breaks nominal identity.
+- [ ] `react-refresh/only-export-components` (3 warnings) — re-evaluate / resolve here, since
+      splitting components out of barrels into dedicated entries naturally addresses it.
 
-## 4. Code review / scan
+## 4. Lint findings to triage (surfaced by the eslint 9.39 + react-hooks 7 + jsx-a11y upgrade)
+
+`react/no-unescaped-entities` is **disabled** — we use Unirend's cherry-pick style (a few
+`react/*` rules) instead of `react.configs.flat.recommended`, so that rule never turns on.
+Remaining 13 findings:
+
+- [ ] **`react-hooks/refs` (6) — investigate, don't blind-fix.** react-hooks 7's new rule
+      flags reading `*Ref.current` during render in the context value
+      ([form-context.tsx ~1339](src/lib/form-context.tsx#L1339), ~1410). This is the deliberate
+      ref+reducer hybrid (commit "a bit of both refs and reducer to avoid race condition").
+      Open question: are we genuinely constrained by the architecture, or can the context value
+      derive these from reducer state instead? Worth a real look — may be per-line disables with
+      a rationale comment, or a small refactor. Don't churn the race-condition design blindly.
+- [ ] **`react-hooks/set-state-in-effect` (2) — scan.** Find the `setState`-in-effect spots and
+      decide if they're legit (sync-from-prop) or a re-render smell.
+- [ ] **`jsx-a11y/label-has-associated-control` (2) — fix.** Real a11y wins (the point of
+      adding the plugin) — associate `<label>`s with their controls.
+- [ ] `react-refresh/only-export-components` (3) — deferred to Track 3 (code splitting).
+
+## 5. Code review / scan
 
 Done before Cursor had review tooling — re-run now.
 
