@@ -1,7 +1,8 @@
-// Build script for form-context-react-zod library
-import fs from 'fs';
-import path from 'path';
-import { execSync } from 'child_process';
+// Build script for form-context-react-zod library.
+// Run from the repo root via `bun run scripts/build-lib.ts` (paths are cwd-relative).
+import fs from 'node:fs';
+import path from 'node:path';
+import { execSync } from 'node:child_process';
 
 // Single source of truth: read metadata from the root package.json so the
 // published manifest, generated README, etc. all stay in sync with one place.
@@ -45,7 +46,7 @@ async function build() {
       // Use tsup with config file for JSX support
       console.log('Running tsup with config file...');
       execSync(
-        'npx tsup --config tsup.config.ts --out-dir dist_module --tsconfig tsconfig.lib.json',
+        'bunx tsup --config tsup.config.ts --out-dir dist_module --tsconfig tsconfig.lib.json',
         {
           stdio: 'inherit',
         }
@@ -211,7 +212,7 @@ This project is not affiliated with, endorsed by, or sponsored by React or Zod. 
       '✅ Library build complete! Your package is ready in the dist_module directory.'
     );
     console.log('To publish:');
-    console.log('1. Run npm run publish:lib');
+    console.log('1. Run bun run publish:lib');
     console.log('   OR');
     console.log('2. cd dist_module && npm publish');
   } catch (error) {

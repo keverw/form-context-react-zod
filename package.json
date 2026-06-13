@@ -24,8 +24,8 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "build:lib": "node build-lib.js",
-    "publish:lib": "npm run build:lib && cd dist_module && npm publish",
+    "build:lib": "bun run scripts/build-lib.ts",
+    "publish:lib": "bun run build:lib && cd dist_module && npm publish",
     "lint": "eslint .",
     "preview": "vite preview",
     "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,css,scss,md,html}\"",

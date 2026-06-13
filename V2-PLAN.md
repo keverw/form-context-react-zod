@@ -83,7 +83,11 @@ exports throughout.
       separate and diverge. Consolidate: one source, generated/synced — not two hand-maintained copies.
 - [ ] Add `prepublishOnly` modeled on Unirend (audit + build + type-check + lint + test;
       **skip spellcheck** per Kevin).
-- [ ] Rename `build-lib.js` → `build-lib.ts`, run via bun (we're on bun for tooling now).
+- [x] Rename `build-lib.js` → `scripts/build-lib.ts`, run via bun. ✅ `git mv` into a new
+      `scripts/` folder; `node:` imports; internal `npx tsup` → `bunx tsup`; scripts now
+      `build:lib: bun run scripts/build-lib.ts` and `publish:lib: bun run build:lib && …`.
+      Verified `bun run build:lib` builds + emits the manifest. (Future `sync-version`/
+      `check-deps`/`update-docs` live here too.)
 - [ ] Published manifest (build-lib.js `PACKAGE_CONFIG`): add `author`, `bugs`, `homepage`
       (currently `author: ''`, no bugs/homepage).
 
