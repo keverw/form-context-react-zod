@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { FormProvider, FormHelpers } from '../../lib/form-context';
+import { FormProvider, FormSubmitHandler } from '../../lib/form-context';
 import FormInput from '../FormInput';
 import { RootErrors, SubmitButton } from './shared';
 import { FormState } from '../../lib/components/FormState';
@@ -52,9 +52,9 @@ function NestedForm() {
 export default function NestedExample() {
   const toast = useToast();
 
-  const onSubmit = async (
-    values: z.infer<typeof nestedSchema>,
-    helpers: FormHelpers
+  const onSubmit: FormSubmitHandler<z.infer<typeof nestedSchema>> = async (
+    values,
+    helpers
   ) => {
     try {
       const errors = await simulateServer(values);

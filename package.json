@@ -27,13 +27,15 @@
     "check-deps": "bun run scripts/check-deps.ts",
     "update-docs": "bun run scripts/update-docs.ts",
     "build:lib": "bun run check-deps && bun run update-docs && bun run scripts/build-lib.ts",
-    "publish:lib": "bun run build:lib && cd dist_module && npm publish",
     "lint": "eslint .",
+    "type-check": "tsc --noEmit",
     "preview": "vite preview",
     "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,css,scss,md,html}\"",
     "test": "bun test",
     "test:watch": "bun test --watch",
     "test:coverage": "bun test --coverage",
+    "prepublishOnly": "bun audit --prod && bun run type-check && bun run lint && bun test && bun run build:lib",
+    "publish:lib": "bun run prepublishOnly && cd dist_module && bun publish",
     "predeploy": "npm run build",
     "deploy": "gh-pages -d dist"
   },
@@ -41,7 +43,6 @@
     "lucide-react": "^1.18.0",
     "react": "19.2.7",
     "react-dom": "19.2.7",
-    "tsup": "8.5.1",
     "zod": "3.25.76"
   },
   "peerDependencies": {
@@ -71,6 +72,7 @@
     "prettier": "3.8.4",
     "semver": "^7.8.4",
     "tailwindcss": "^3.4.1",
+    "tsup": "8.5.1",
     "typescript": "5.9.3",
     "typescript-eslint": "8.61.0",
     "vite": "8.0.16"

@@ -97,9 +97,19 @@ export interface FormContextValue<T> {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export const FormContext = createContext<FormContextValue<any> | null>(null);
 
+/**
+ * Handler for FormProvider's `onSubmit`. Declare the value type once and both
+ * `values` and `helpers` are inferred from it, e.g.
+ * `const onSubmit: FormSubmitHandler<z.infer<typeof schema>> = (values, helpers) => {...}`.
+ */
+export type FormSubmitHandler<T> = (
+  values: T,
+  helpers: FormHelpers<T>
+) => Promise<void> | void;
+
 interface FormProviderProps<T> {
   initialValues: T;
-  onSubmit?: (values: T, helpers: FormHelpers<T>) => Promise<void> | void;
+  onSubmit?: FormSubmitHandler<T>;
   schema?: z.ZodType<T>;
   validateOnMount?: boolean;
   validateOnChange?: boolean;

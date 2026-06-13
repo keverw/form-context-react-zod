@@ -91,15 +91,41 @@ exports throughout.
       README as **separate documents** (different audiences — contributors vs npm consumers).
       Drift risk was really just the version, now handled by `update-docs` syncing the dev
       README's `**Current version:**` line. No consolidation needed.
-- [ ] Add `prepublishOnly` modeled on Unirend (audit + build + type-check + lint + test;
-      **skip spellcheck** per Kevin).
+- [x] Add `prepublishOnly` + `type-check`. ✅
+      - `type-check`: `tsc --noEmit`. **Consolidated the Vite-starter split tsconfig** into one
+        root `tsconfig.json` (merged `tsconfig.app.json` in, repointed `tsconfig.lib.json`'s
+        `extends`, dropped the project references) so a bare `tsc --noEmit` checks `src` — no more
+        `-p`, matching the other repos. `tsconfig.node.json` stays for the Vite config.
+      - Fixed the latent type errors this surfaced: added `src/matchers.d.ts` to type jest-dom
+        matchers under `bun:test`; `_`-prefixed unused params; cast one intentionally-mutated test
+        object. Also added a public **`FormSubmitHandler<T>`** type (`onSubmit` handler) so the
+        value type is declared once instead of repeating `z.infer<…>` for both `values` and
+        `helpers`; converted the 4 demos and documented it in `FORM-API.md`.
+      - `publish:lib` uses `bun publish` (was `npm publish`) — staying on bun. The root stays
+        `private` so it can't be published directly; we publish the generated `dist_module`.
+      - `prepublishOnly`: `bun audit --prod && type-check && lint && test && build:lib`
+        (skips spellcheck per Kevin). Moved `tsup` dependencies→devDependencies so `audit --prod`
+        is clean (it's a build tool; was dragging in transitive advisories).
+      - `publish:lib` now runs `prepublishOnly` first. NOTE: since we publish from `dist_module`
+        (which has no scripts), the npm `prepublishOnly` lifecycle hook won't auto-fire — we
+        invoke it explicitly via `publish:lib`.
+      - ⚠️ Currently `prepublishOnly` **blocks at `lint`** on the 10 outstanding Track 4 errors
+        (react-hooks/refs, jsx-a11y, set-state-in-effect). That's the gate working as intended —
+        it goes green once Track 4 is resolved. audit + type-check already pass.
 - [x] Rename `build-lib.js` → `scripts/build-lib.ts`, run via bun. ✅ `git mv` into a new
       `scripts/` folder; `node:` imports; internal `npx tsup` → `bunx tsup`; scripts now
       `build:lib: bun run scripts/build-lib.ts` and `publish:lib: bun run build:lib && …`.
       Verified `bun run build:lib` builds + emits the manifest. (Future `sync-version`/
       `check-deps`/`update-docs` live here too.)
-- [ ] Published manifest (build-lib.js `PACKAGE_CONFIG`): add `author`, `bugs`, `homepage`
-      (currently `author: ''`, no bugs/homepage).
+- [x] Published manifest: add `author`, `bugs`, `homepage`. ✅ Done as part of the
+      source-of-truth refactor — `build-lib` reads them from root and emits them; verified in
+      `dist_module/package.json`.
+- [ ] **Tailwind 3 → 4 (demo-only hygiene).** Only the demo app uses Tailwind; the shipped lib
+      has zero CSS deps, so this is isolated and low-stakes. It IS a real migration though:
+      Tailwind 4 is a new engine with CSS-first config (drops `tailwind.config.js` + the
+      `tailwindcss`/`autoprefixer` PostCSS plugins in favor of `@tailwindcss/postcss` or the
+      `@tailwindcss/vite` plugin, and `@import "tailwindcss"` in CSS). Do as its own pass; verify
+      the demo renders the same.
 
 ## 2. Zod 4 upgrade (the headline / major-version reason)
 
@@ -113,6 +139,10 @@ exports throughout.
 - [ ] Verify `z.ZodType<T>` still types correctly under v4.
 - [ ] Update demo examples using deprecated `z.string().email()` → `z.email()`.
 - [ ] **README note**: v2 requires Zod 4; one-line migration note for Zod 3 users.
+- [ ] **Update the docs to match the v4 changes.** `ZOD-HELPERS.md` (and `FORM-API.md` where
+      relevant) are separate hand-maintained docs that ship in the published package — any API,
+      type, or example changes from the Zod 4 upgrade must be reflected there so code and docs
+      stay consistent (e.g. `error.issues`, `z.email()`, any signature/behavior changes).
 
 ## 3. Code splitting (Unirend-style multi-entry exports)
 

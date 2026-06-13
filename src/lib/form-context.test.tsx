@@ -673,7 +673,7 @@ describe('FormProvider', () => {
     const initialValues = { username: 'testuser', password: 'password' };
 
     // Mock onSubmit that sets a server error
-    const onSubmit = jest.fn(async (values, helpers) => {
+    const onSubmit = jest.fn(async (_values, helpers) => {
       helpers.setServerError(['username'], 'Username already taken');
     });
 
@@ -2212,7 +2212,7 @@ describe('FormProvider', () => {
     };
 
     // Mock onSubmit function that sets server errors
-    const onSubmit = jest.fn(async (values, helpers) => {
+    const onSubmit = jest.fn(async (_values, helpers) => {
       // Simulate server validation with multiple errors
       helpers.setServerErrors([
         { path: ['username'], message: 'Username already exists' },
@@ -2919,7 +2919,7 @@ describe('FormProvider', () => {
     });
 
     // Create a controlled onSubmit handler
-    const onSubmit = jest.fn().mockImplementation(async (values, helpers) => {
+    const onSubmit = jest.fn().mockImplementation(async (_values, helpers) => {
       // Simulate server validation errors
       helpers.setServerErrors([
         { path: ['username'], message: 'Username already exists' },

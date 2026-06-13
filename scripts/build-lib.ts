@@ -211,7 +211,7 @@ This project is not affiliated with, endorsed by, or sponsored by React or Zod. 
     console.log('To publish:');
     console.log('1. Run bun run publish:lib');
     console.log('   OR');
-    console.log('2. cd dist_module && npm publish');
+    console.log('2. cd dist_module && bun publish');
   } catch (error) {
     console.error('❌ Build failed:', error);
     process.exit(1);

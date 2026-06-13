@@ -13,7 +13,7 @@ The FormProvider manages the form state and provides context for all form hooks.
 ```tsx
 interface FormProviderProps<T> {
   initialValues: T;
-  onSubmit?: (values: T, helpers: FormHelpers) => Promise<void> | void;
+  onSubmit?: FormSubmitHandler<T>; // (values: T, helpers: FormHelpers<T>) => Promise<void> | void
   schema?: z.ZodType<T>;
   validateOnMount?: boolean; // Whether to run validation immediately
   validateOnChange?: boolean; // Whether to run validation on every change
@@ -72,6 +72,23 @@ Error operations:
 Touch state operations:
 
 - `setFieldTouched(path, value?)`: Mark field as touched/untouched
+
+### FormSubmitHandler
+
+`onSubmit` is typed as `FormSubmitHandler<T>`. Declare the value type once and both
+`values` and `helpers` are inferred from it:
+
+```tsx
+export type FormSubmitHandler<T> = (
+  values: T,
+  helpers: FormHelpers<T>
+) => Promise<void> | void;
+
+// Usage — the value type is written only once:
+const onSubmit: FormSubmitHandler<z.infer<typeof schema>> = async (values, helpers) => {
+  // `values` and `helpers` are fully typed
+};
+```
 
 ### FormHelpers Interface
 

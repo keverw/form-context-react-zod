@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { z } from 'zod';
-import { FormProvider, FormHelpers } from '../../lib/form-context';
+import { FormProvider, FormSubmitHandler } from '../../lib/form-context';
 import { useFormContext } from '../../lib/hooks/useFormContext';
 import FormInput from '../FormInput';
 import { RootErrors, SubmitButton } from './shared';
@@ -164,7 +164,10 @@ export default function ClientSubmissionErrorExample() {
   const [errorScenario, setErrorScenario] = useState<ErrorScenario>('client');
 
   // This handles form submission
-  const handleSubmit = async (_values: FormValues, helpers: FormHelpers) => {
+  const handleSubmit: FormSubmitHandler<FormValues> = async (
+    _values,
+    helpers
+  ) => {
     console.log('errorScenario', errorScenario);
     setSubmissionResult('Processing...');
 

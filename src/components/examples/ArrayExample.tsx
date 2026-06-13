@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { FormProvider, FormHelpers } from '../../lib/form-context';
+import { FormProvider, FormSubmitHandler } from '../../lib/form-context';
 import FormInput, { FormCheckbox } from '../FormInput';
 import { RootErrors, SubmitButton, FormNotice } from './shared';
 import { FormState } from '../../lib/components/FormState';
@@ -197,9 +197,9 @@ function ArrayForm() {
 export default function ArrayExample() {
   const toast = useToast();
 
-  const onSubmit = async (
-    values: z.infer<typeof todoSchema>,
-    helpers: FormHelpers
+  const onSubmit: FormSubmitHandler<z.infer<typeof todoSchema>> = async (
+    values,
+    helpers
   ) => {
     try {
       const errors = await simulateServer(values);

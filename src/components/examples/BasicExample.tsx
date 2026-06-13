@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { FormProvider, FormHelpers } from '../../lib/form-context';
+import { FormProvider, FormSubmitHandler } from '../../lib/form-context';
 import FormInput from '../FormInput';
 import { RootErrors, SubmitButton } from './shared';
 import { FormState } from '../../lib/components/FormState';
@@ -47,9 +47,9 @@ function BasicForm() {
 export default function BasicExample() {
   const toast = useToast();
 
-  const onSubmit = async (
-    values: z.infer<typeof basicSchema>,
-    helpers: FormHelpers
+  const onSubmit: FormSubmitHandler<z.infer<typeof basicSchema>> = async (
+    values,
+    helpers
   ) => {
     try {
       const errors = await simulateServer(values);

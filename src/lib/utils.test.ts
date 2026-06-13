@@ -246,7 +246,7 @@ describe('utils', () => {
       setValueAtPath(primitiveObj, ['value', 'nested'], 'test');
 
       // The primitive gets replaced with an object too
-      expect(primitiveObj).toEqual({
+      expect(primitiveObj as Record<string, unknown>).toEqual({
         value: {
           nested: 'test',
         },
