@@ -1,9 +1,26 @@
 {
-  "name": "vite-react-typescript-starter",
+  "name": "form-context-react-zod",
   "private": true,
-  "version": "0.0.0",
+  "version": "2.0.0",
+  "description": "React form context with Zod validation helpers",
   "type": "module",
-  "homepage": "https://github.com/keverw/form-context-react-zod",
+  "author": "Kevin Whitman (https://github.com/keverw)",
+  "license": "MIT",
+  "homepage": "https://github.com/keverw/form-context-react-zod#readme",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/keverw/form-context-react-zod"
+  },
+  "bugs": {
+    "url": "https://github.com/keverw/form-context-react-zod/issues"
+  },
+  "keywords": [
+    "react",
+    "form",
+    "zod",
+    "validation",
+    "context"
+  ],
   "scripts": {
     "dev": "vite",
     "build": "vite build",
@@ -18,7 +35,6 @@
     "predeploy": "npm run build",
     "deploy": "gh-pages -d dist"
   },
-  "license": "MIT",
   "dependencies": {
     "lucide-react": "^1.18.0",
     "react": "19.2.7",

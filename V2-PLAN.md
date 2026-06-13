@@ -68,10 +68,13 @@ exports throughout.
         added `@types/bun` for `bun:test` typings. Scripts → `bun test` (+ `test:coverage`).
 - [ ] Set published **React peer to `^19`** in build-lib's generated manifest (the *published*
       peer, not the dev deps — those are done). Lands with the build-lib refactor + `check-deps`.
-- [ ] **Single source of truth for version + metadata.** Make the *root* `package.json` the
-      real manifest (name, version, author, bugs, homepage, repository). `build-lib` reads the
-      root version **and peerDependencies** instead of the hard-coded `1.2.0` / inline peers.
-      Today root is still `vite-react-typescript-starter` / `0.0.0` / `private`.
+- [x] **Single source of truth for version + metadata.** ✅ Root `package.json` is now the real
+      manifest: name `form-context-react-zod`, version `2.0.0`, description, author, license,
+      homepage, repository, bugs, keywords (kept `private: true` so root itself can't be
+      published). `build-lib.js` reads all of these from root (no more hard-coded `1.2.0` /
+      inline metadata). Verified: generated `dist_module/package.json` carries them through.
+      REMAINING: `build-lib` reading **peerDependencies** from root is still TODO — peers stay
+      hard-coded (`react ^18` / `zod ^3`) until the peer-flip / `check-deps` step.
 - [ ] Port Unirend's scripts:
       - `sync-version` — root `package.json` version → generated `src/version.ts` (`PKG_VERSION`).
       - `update-docs` — `update-readme-version.ts` + markdown-toc-gen (kills README drift).

@@ -3,14 +3,20 @@ import fs from 'fs';
 import path from 'path';
 import { execSync } from 'child_process';
 
-// Package configuration
+// Single source of truth: read metadata from the root package.json so the
+// published manifest, generated README, etc. all stay in sync with one place.
+const rootPkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+
 const PACKAGE_CONFIG = {
-  name: 'form-context-react-zod',
-  version: '1.2.0',
-  description: 'React form context with Zod validation helpers',
-  author: '',
-  license: 'MIT',
-  repository: 'https://github.com/keverw/form-context-react-zod',
+  name: rootPkg.name,
+  version: rootPkg.version,
+  description: rootPkg.description,
+  author: rootPkg.author,
+  license: rootPkg.license,
+  homepage: rootPkg.homepage,
+  repository: rootPkg.repository,
+  bugs: rootPkg.bugs,
+  keywords: rootPkg.keywords,
 };
 
 // Clean dist_module directory
@@ -70,19 +76,31 @@ async function build() {
       // Continue anyway
     }
 
-    // Create package.json for the library
+    // Create package.json for the library (metadata pulled from root package.json)
     console.log('Creating package.json for publishing...');
-    const packageJson = JSON.parse(fs.readFileSync('package.json', 'utf8'));
 
     // Modify package.json for the library
     const libPackageJson = {
       name: PACKAGE_CONFIG.name,
       version: PACKAGE_CONFIG.version,
       description: PACKAGE_CONFIG.description,
+      author: PACKAGE_CONFIG.author,
+      license: PACKAGE_CONFIG.license,
+      homepage: PACKAGE_CONFIG.homepage,
+      repository: PACKAGE_CONFIG.repository,
+      bugs: PACKAGE_CONFIG.bugs,
+      keywords: PACKAGE_CONFIG.keywords,
+      type: 'module',
       main: 'index.cjs',
       module: 'index.js',
       types: 'index.d.ts',
-      type: 'module',
+      exports: {
+        '.': {
+          import: './index.js',
+          require: './index.cjs',
+          types: './index.d.ts',
+        },
+      },
       files: [
         'index.js',
         'index.cjs',
@@ -92,23 +110,13 @@ async function build() {
         'FORM-API.md',
         'ZOD-HELPERS.md',
       ],
-      keywords: ['react', 'form', 'zod', 'validation', 'context'],
-      author: packageJson.author || '',
-      license: PACKAGE_CONFIG.license,
+      // NOTE: peer flip (react ^19 / zod ^4) lands with the check-deps step.
       peerDependencies: {
         react: '^18.0.0',
         'react-dom': '^18.0.0',
         zod: '^3.0.0',
       },
       dependencies: {},
-      repository: PACKAGE_CONFIG.repository,
-      exports: {
-        '.': {
-          import: './index.js',
-          require: './index.cjs',
-          types: './index.d.ts',
-        },
-      },
     };
 
     fs.writeFileSync(
