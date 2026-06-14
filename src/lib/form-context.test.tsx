@@ -4,6 +4,7 @@ import { render, screen, fireEvent, act } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import { z } from 'zod';
 import { FormProvider, FormContext } from './form-context';
+import { useField } from './hooks/useField';
 import { ValidationError } from './zod-helpers';
 import { serializePath } from './utils';
 
@@ -3242,6 +3243,68 @@ describe('FormProvider', () => {
 
     // Errors persist even after validation without a schema
     expect(screen.queryByTestId('name-error')).toBeInTheDocument();
+  });
+
+  // A field built on the real useField hook (which wires onBlur -> validateOnBlur),
+  // unlike TestField which reads the context directly.
+  function BlurField() {
+    const field = useField(['name']);
+    return (
+      <div>
+        <input
+          data-testid="name"
+          value={(field.value as string) ?? ''}
+          onChange={(e) => field.props.onChange(e.target.value)}
+          onBlur={field.props.onBlur}
+        />
+        {field.error && (
+          <span data-testid="name-error">{field.error as string}</span>
+        )}
+      </div>
+    );
+  }
+
+  it('validateOnBlur (default on): blurring an empty required field surfaces its error', async () => {
+    const schema = z.object({ name: z.string().min(1, 'Name is required') });
+
+    render(
+      <FormProvider initialValues={{ name: '' }} schema={schema} onSubmit={jest.fn()}>
+        <BlurField />
+      </FormProvider>
+    );
+
+    await advanceTimers();
+    // No interaction yet -> no error shown.
+    expect(screen.queryByTestId('name-error')).not.toBeInTheDocument();
+
+    // Blur without typing -> validateOnBlur runs validation; required error appears.
+    fireEvent.blur(screen.getByTestId('name'));
+    await advanceTimers();
+
+    expect(screen.getByTestId('name-error')).toBeInTheDocument();
+    expect(screen.getByTestId('name-error').textContent).toBe('Name is required');
+  });
+
+  it('validateOnBlur={false}: blurring an empty required field does NOT surface its error', async () => {
+    const schema = z.object({ name: z.string().min(1, 'Name is required') });
+
+    render(
+      <FormProvider
+        initialValues={{ name: '' }}
+        schema={schema}
+        onSubmit={jest.fn()}
+        validateOnBlur={false}
+      >
+        <BlurField />
+      </FormProvider>
+    );
+
+    await advanceTimers();
+    fireEvent.blur(screen.getByTestId('name'));
+    await advanceTimers();
+
+    // Touched but not validated, so no error is shown.
+    expect(screen.queryByTestId('name-error')).not.toBeInTheDocument();
   });
 
   it('reports isValid=true for a genuinely schema-less form with no errors', async () => {

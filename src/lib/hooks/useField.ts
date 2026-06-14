@@ -27,6 +27,18 @@ export function useField(path: (string | number)[]) {
     }
   }, [form, isTouched, path]);
 
+  // Blur handler: mark the field touched and, when validateOnBlur is enabled,
+  // run validation so leaving a field invalid (e.g. a required field left empty)
+  // surfaces its error immediately — instead of the field silently staying empty
+  // while the submit button is disabled. Kept separate from setTouched so typing
+  // (which already validates via validateOnChange) doesn't validate twice.
+  const handleBlur = useCallback(() => {
+    setTouched();
+    if (form.validateOnBlur) {
+      form.validate();
+    }
+  }, [form, setTouched]);
+
   return {
     value,
     setValue: (newValue: unknown) => {
@@ -38,7 +50,7 @@ export function useField(path: (string | number)[]) {
       value,
       onChange: (newValue: unknown) => form.setValue(path, newValue),
       errorText: error,
-      onBlur: setTouched,
+      onBlur: handleBlur,
     },
   };
 }

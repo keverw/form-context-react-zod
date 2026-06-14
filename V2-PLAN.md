@@ -233,6 +233,16 @@ Scanned the lib: **no hydration hazards found.**
       identical `initialValues` on server and client.
 - [ ] (Optional) Add an SSR render test (`renderToString`) to lock it in.
 
+## 9. Features (emerged while dogfooding the demo)
+
+- [x] **`validateOnBlur` (default true).** ✅ Found while playing with the demo: focusing a
+      required field and leaving it empty did nothing — touched but never validated, so no error
+      showed and the submit button sat disabled with no explanation ("broken button" feeling).
+      Now leaving a field runs validation so its error surfaces. New `validateOnBlur` prop
+      (default on; set `false` to opt out), wired in `useField`'s blur handler (kept separate from
+      `setTouched` so typing doesn't double-validate via `validateOnChange`). Tests + FORM-API.md
+      updated. (Submit button stays disabled by design — the blur errors now guide the user.)
+
 ## 8. Release
 
 - [ ] Bump root `package.json` to `2.0.0` (single source of truth; everything syncs from it).

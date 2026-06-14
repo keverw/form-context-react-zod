@@ -17,6 +17,8 @@ interface FormProviderProps<T> {
   schema?: z.ZodType<T>;
   validateOnMount?: boolean; // Whether to run validation immediately
   validateOnChange?: boolean; // Whether to run validation on every change
+  validateOnBlur?: boolean; // Whether leaving a field (blur) runs validation. Default: true
+
   useFormTag?: boolean; // Whether to wrap children in a <form> HTML tag
   formProps?: React.FormHTMLAttributes<HTMLFormElement>; // HTML attributes for the form element
   children: React.ReactNode | React.ReactNode[]; // Accepts a single child or multiple children

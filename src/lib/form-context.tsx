@@ -56,6 +56,8 @@ export interface FormContextValue<T> {
   isValid: boolean;
   canSubmit: boolean;
   lastValidated: number | null;
+  /** Whether leaving a field (blur) runs validation. Mirrors the FormProvider prop. */
+  validateOnBlur: boolean;
   currentSubmissionID: string | null;
   submit: () => Promise<void>;
   reset: (force?: boolean) => boolean;
@@ -113,6 +115,12 @@ interface FormProviderProps<T> {
   schema?: z.ZodType<T>;
   validateOnMount?: boolean;
   validateOnChange?: boolean;
+  /**
+   * Whether leaving a field (blur) runs validation, surfacing errors for a field
+   * the user interacted with but left invalid (e.g. a required field left empty).
+   * Defaults to true.
+   */
+  validateOnBlur?: boolean;
   /**
    * Whether to wrap the form in a <form> HTML tag
    */
@@ -176,6 +184,7 @@ export function FormProvider<T extends Record<string | number, unknown>>({
   schema,
   validateOnMount = false,
   validateOnChange = true,
+  validateOnBlur = true,
   useFormTag = false,
   formProps = {},
   children,
@@ -1352,6 +1361,7 @@ export function FormProvider<T extends Record<string | number, unknown>>({
       isValid: errors.length === 0 && (lastValidated !== null || !schema),
       canSubmit, // reactive state; the ref stays for the synchronous submit logic
       lastValidated,
+      validateOnBlur,
       currentSubmissionID: state.currentSubmissionID, // Use state for reactivity
       submit,
       reset,
@@ -1386,6 +1396,7 @@ export function FormProvider<T extends Record<string | number, unknown>>({
       isSubmitting,
       canSubmit,
       lastValidated,
+      validateOnBlur,
       schema,
       state.currentSubmissionID, // Use state for reactivity in dependency array
       submit,
