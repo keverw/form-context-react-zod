@@ -89,10 +89,12 @@ describe('deleteField', () => {
       const form = useFormContext();
       const e0 = useField(['items', 0, 'name']);
       const e1 = useField(['items', 1, 'name']);
+      const e2 = useField(['items', 2, 'name']);
       return (
         <div>
           <div data-testid="e0">{(e0.error as string) ?? ''}</div>
           <div data-testid="e1">{(e1.error as string) ?? ''}</div>
+          <div data-testid="e2">{(e2.error as string) ?? ''}</div>
           <button
             data-testid="seed"
             onClick={() =>
@@ -123,13 +125,16 @@ describe('deleteField', () => {
     );
     fireEvent.click(screen.getByTestId('seed'));
     expect(screen.getByTestId('e1').textContent).toBe('E1');
+    expect(screen.getByTestId('e2').textContent).toBe('E2');
 
     fireEvent.click(screen.getByTestId('del0'));
-    // Deleting an array item clears existing errors under that array (a schema,
-    // if present, regenerates them via re-validation). Without a schema here,
-    // they simply drop.
-    expect(screen.getByTestId('e0').textContent).toBe('');
-    expect(screen.getByTestId('e1').textContent).toBe('');
+    // Deleting index 0 re-indexes the errors on the surviving items: the error on
+    // the removed item drops, and errors on later items shift down one index (the
+    // same remap reindexArray uses), so E1 (was index 1) -> index 0 and E2 (was
+    // index 2) -> index 1.
+    expect(screen.getByTestId('e0').textContent).toBe('E1');
+    expect(screen.getByTestId('e1').textContent).toBe('E2');
+    expect(screen.getByTestId('e2').textContent).toBe('');
   });
 
   it('re-validates and surfaces a new error after deleting a required field', () => {

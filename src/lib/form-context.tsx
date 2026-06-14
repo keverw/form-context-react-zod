@@ -20,6 +20,16 @@ export interface FormHelpers<T> {
     message: string | string[] | null
   ) => void;
   /**
+   * Sets (or clears) a manual/client error at one path. Same shape as
+   * `setServerError`. Setting one from inside `onSubmit` marks the attempt as
+   * failed (`submitSucceeded` stays `false`), the same as setting a server or
+   * client-submission error. Pass `[]` as the path for a form-level error.
+   */
+  setError: (
+    path: (string | number)[],
+    message: string | string[] | null
+  ) => void;
+  /**
    * Sets client submission errors (network failures, auth issues, etc.) at the form root level.
    * These are separate from field validation errors and server errors, and represent
    * issues preventing the entire form submission from completing.
@@ -108,6 +118,17 @@ export interface FormContextValue<T> {
   hasField: (path: (string | number)[]) => boolean;
   setServerErrors: (errors: ValidationError[]) => void;
   setServerError: (
+    path: (string | number)[],
+    message: string | string[] | null
+  ) => void;
+  /**
+   * Sets (or clears) a manual/client error at one path. Same shape as
+   * `setServerError` — a string or string[] sets the message(s), `null` clears.
+   * The error is tagged `source: 'manual'` and behaves like a server error: it
+   * survives re-validation, displays regardless of touched, and clears when the
+   * field is edited or on submit/reset. For client-owned checks Zod can't express.
+   */
+  setError: (
     path: (string | number)[],
     message: string | string[] | null
   ) => void;
@@ -255,6 +276,45 @@ function formReducer<T extends Record<string | number, unknown>>(
     default:
       return state;
   }
+}
+
+// Remap a single path that lives under `arrayPath` according to `indexMap` (old
+// item index -> new index, or null to drop the item). Returns the rewritten path,
+// `null` to drop, or the SAME reference when the path is unaffected (outside the
+// array, a non-numeric index, or an unchanged index). Shared by reindexArray and
+// deleteField so array reorders/removals re-index metadata identically.
+function remapPathUnderArray(
+  p: (string | number)[],
+  arrayPath: (string | number)[],
+  indexMap: (oldIndex: number) => number | null
+): (string | number)[] | null {
+  const underArray =
+    p.length > arrayPath.length &&
+    arrayPath.every((val, idx) => p[idx] === val);
+  if (!underArray) return p;
+  const oldIndex = Number(p[arrayPath.length]);
+  if (Number.isNaN(oldIndex)) return p;
+  const newIndex = indexMap(oldIndex);
+  if (newIndex === null) return null;
+  return newIndex === oldIndex
+    ? p
+    : [...arrayPath, newIndex, ...p.slice(arrayPath.length + 1)];
+}
+
+// Re-index a list of errors under `arrayPath` via `indexMap`, dropping any whose
+// item was removed. Errors outside the array are returned unchanged (same ref).
+function remapErrorsUnderArray(
+  errs: ValidationError[],
+  arrayPath: (string | number)[],
+  indexMap: (oldIndex: number) => number | null
+): ValidationError[] {
+  const out: ValidationError[] = [];
+  for (const e of errs) {
+    const np = remapPathUnderArray(e.path, arrayPath, indexMap);
+    if (np === null) continue;
+    out.push(np === e.path ? e : { ...e, path: np });
+  }
+  return out;
 }
 
 export function FormProvider<T extends Record<string | number, unknown>>({
@@ -483,11 +543,25 @@ export function FormProvider<T extends Record<string | number, unknown>>({
       // Update touched state to mark this path
       touchedRef.current = markPathAsTouched(touchedRef.current, path);
 
-      // Filter out errors for this path immediately in the ref
+      // Filter out errors at this path AND anything under it: assigning a value
+      // replaces the whole subtree, so a stale error on a child field (any source)
+      // no longer applies. For a leaf path this is just the field itself; for an
+      // object/array path it also clears descendants (re-validation below re-adds
+      // the path's own error, and child errors resurface as those fields validate).
+      const atOrUnderPath = (errorPath: (string | number)[]) =>
+        errorPath.length >= path.length &&
+        path.every((val, idx) => errorPath[idx] === val);
       errorsRef.current = errorsRef.current.filter(
-        (error) =>
-          error.path.length !== path.length ||
-          !error.path.every((val, idx) => path[idx] === val)
+        (error) => !atOrUnderPath(error.path)
+      );
+      
+      // Keep the server-error baseline in sync too (it's a separate canonical
+      // store). Otherwise a later setServerError()/setServerErrors() rebuilds the
+      // combined errors from a stale baseline and resurrects a server error we just
+      // cleared here. (Manual errors need no equivalent — they live only in
+      // errorsRef, already handled above.)
+      serverErrorsRef.current = serverErrorsRef.current.filter(
+        (error) => !atOrUnderPath(error.path)
       );
 
       // Create a validation result if needed
@@ -612,11 +686,12 @@ export function FormProvider<T extends Record<string | number, unknown>>({
       }
       const result = validateForm();
       if (!result.valid && result.errors) {
-        // Update errors ref first
-        const serverErrors = errorsRef.current.filter(
-          (e) => e.source === 'server'
+        // Update errors ref first. Validation owns only the Zod ('client') errors;
+        // server- and manual-sourced errors are preserved across re-validation.
+        const preservedErrors = errorsRef.current.filter(
+          (e) => e.source === 'server' || e.source === 'manual'
         );
-        const newErrors = [...serverErrors, ...(result.errors || [])];
+        const newErrors = [...preservedErrors, ...(result.errors || [])];
         errorsRef.current = newErrors;
 
         // Then update state
@@ -665,10 +740,13 @@ export function FormProvider<T extends Record<string | number, unknown>>({
     const result = validateForm();
     const validationErrors = result.valid ? [] : result.errors || [];
 
-    // Preserve any server errors (e.g. seeded via initialServerErrors) — mount
-    // validation only owns the client/validation errors, not server ones.
-    const serverErrors = errorsRef.current.filter((e) => e.source === 'server');
-    const newErrors = [...serverErrors, ...validationErrors];
+    // Preserve any server- or manual-sourced errors (e.g. seeded via
+    // initialServerErrors) — mount validation only owns the client/validation
+    // errors, not server/manual ones.
+    const preservedErrors = errorsRef.current.filter(
+      (e) => e.source === 'server' || e.source === 'manual'
+    );
+    const newErrors = [...preservedErrors, ...validationErrors];
 
     // Update errors ref
     errorsRef.current = newErrors;
@@ -752,26 +830,14 @@ export function FormProvider<T extends Record<string | number, unknown>>({
     (path: (string | number)[]) => {
       if (!hasField(path)) return;
 
-      // Determine the appropriate empty value based on the current value type
-      const currentValue = getValue(path);
-      const emptyValue = getEmptyValue(currentValue);
-
-      // Update the ref first for immediate access
-      const newValues = cloneAlongPath(valuesRef.current, path);
-      setValueAtPath(
-        newValues as Record<string | number, unknown>,
-        path,
-        emptyValue
-      );
-      valuesRef.current = newValues;
-
-      // Then update state
-      dispatch({
-        type: 'UPDATE_STATE',
-        updates: { values: valuesRef.current },
-      });
+      // Clearing is just assigning the field its type-appropriate empty value, so
+      // delegate to setValue. That keeps the behavior consistent: the field's
+      // errors (whole subtree, all sources) are cleared, the path is marked
+      // touched, and validation re-runs — instead of leaving stale errors behind.
+      const emptyValue = getEmptyValue(getValue(path));
+      setValue(path, emptyValue);
     },
-    [dispatch, getValue, hasField]
+    [getValue, hasField, setValue]
   );
 
   // Helper function to handle array item deletion
@@ -806,106 +872,76 @@ export function FormProvider<T extends Record<string | number, unknown>>({
         setValueAtPath(newValues, parentPath, newItems);
         valuesRef.current = newValues;
 
-        // Create a new touched state with the deleted item removed
-        const newTouched = { ...touchedRef.current };
+        // Index map for the removal: the removed item drops (null) and later items
+        // shift down one. Shared by the touched and error re-index below — the same
+        // remap reindexArray uses for move/swap/insert — so a delete shifts metadata
+        // down rather than wiping it.
+        const indexMap = (j: number): number | null =>
+          j === arrayIndex ? null : j > arrayIndex ? j - 1 : j;
 
-        // Remove touched states for the deleted item and its children
-        // and adjust indices for items after the deleted one
-        for (const key of Object.keys(newTouched)) {
+        // Re-index touched: rebuild the map with re-indexed keys (drop the dropped),
+        // exactly as reindexArray does.
+        const newTouched: Record<string, boolean> = {};
+        for (const [key, val] of Object.entries(touchedRef.current)) {
+          if (!val) continue;
+          let keyPath: (string | number)[];
           try {
-            // Try to parse the key as a JSON path
-            const keyPath = JSON.parse(key);
-
-            // Check if this key is related to the array we're modifying
-            if (
-              keyPath.length > parentPath.length &&
-              parentPath.every((val, idx) => val === keyPath[idx])
-            ) {
-              const itemIndex = Number(keyPath[parentPath.length]);
-
-              // If this is for the deleted item or its children, remove it
-              if (!isNaN(itemIndex) && itemIndex === arrayIndex) {
-                delete newTouched[key];
-              }
-              // If this is for an item after the deleted one, adjust its index
-              else if (!isNaN(itemIndex) && itemIndex > arrayIndex) {
-                const newPathArray = [
-                  ...keyPath.slice(0, parentPath.length),
-                  itemIndex - 1,
-                  ...keyPath.slice(parentPath.length + 1),
-                ];
-                const newKey = serializePath(newPathArray);
-                newTouched[newKey] = newTouched[key];
-                delete newTouched[key];
-              }
-            }
+            keyPath = deserializePath(key);
           } catch {
-            // If key isn't valid JSON, it's not a path we created with serializePath
-            // so we can safely ignore it
+            newTouched[key] = val; // not a path we created; leave it
+            continue;
           }
+          const np = remapPathUnderArray(keyPath, parentPath, indexMap);
+          if (np === null) continue;
+          newTouched[serializePath(np)] = true;
         }
-
-        // Update touchedRef immediately
         touchedRef.current = newTouched;
 
-        // Remove every error under the deleted array. When a schema is present,
-        // the re-validation below regenerates them at the correct indices.
-        // (A per-item reindex map used to live here but was dead code — this
-        // filter already strips everything it would have operated on.)
-        const newErrors = errorsRef.current.filter(
-          (error) =>
-            error.path.length < parentPath.length ||
-            !error.path
-              .slice(0, parentPath.length)
-              .every((val, idx) => parentPath[idx] === val)
+        // Re-index errors under the array instead of wiping them: the removed
+        // item's errors drop and errors on items after it shift down one index.
+        // This keeps server/manual errors (and any validation errors) attached to
+        // their surviving items rather than being lost on a delete.
+        const newErrors = remapErrorsUnderArray(
+          errorsRef.current,
+          parentPath,
+          indexMap
         );
-
-        // Update errorsRef immediately
         errorsRef.current = newErrors;
 
-        // Keep serverErrorsRef in sync — drop server errors under the deleted array
-        // too. Otherwise a later setServerError()/setServerErrors() rebuilds combined
-        // errors from this stale baseline and resurrects errors for the removed item
-        // (or now-shifted indices).
-        serverErrorsRef.current = serverErrorsRef.current.filter(
-          (error) =>
-            error.path.length < parentPath.length ||
-            !error.path
-              .slice(0, parentPath.length)
-              .every((val, idx) => parentPath[idx] === val)
+        // Keep serverErrorsRef (its own baseline) in sync so a later
+        // setServerError()/setServerErrors() rebuilds from correctly-indexed
+        // server errors instead of resurrecting stale ones.
+        serverErrorsRef.current = remapErrorsUnderArray(
+          serverErrorsRef.current,
+          parentPath,
+          indexMap
         );
 
-        // Validate the new array after deletion
+        // Refresh the array-level validation error (e.g. z.array().min) — the
+        // array path's own Zod error can't be remapped from item metadata, so drop
+        // the stale one and re-add a fresh one from the new value. Server/manual
+        // errors at the array path are left as-is.
         let finalErrors = newErrors;
         let newCanSubmit = canSubmit;
 
         if (validateOnChange && schema) {
           const result = validate(schema, newValues);
-
-          // Update canSubmit based on validation result
           newCanSubmit = result.valid;
 
-          if (!result.valid && result.errors) {
-            // Only add new validation errors for the array path
-            const arrayErrors = result.errors.filter(
-              (error) =>
-                error.path.length >= parentPath.length &&
-                error.path
-                  .slice(0, parentPath.length)
-                  .every((val, idx) => parentPath[idx] === val)
-            );
-
-            // Merge with existing errors, avoiding duplicates
-            const existingPaths = newErrors.map((e) => serializePath(e.path));
-            const newArrayErrors = arrayErrors.filter(
-              (e) => !existingPaths.includes(serializePath(e.path))
-            );
-
-            finalErrors = [...newErrors, ...newArrayErrors];
-
-            // Update errorsRef again if we have new validation errors
-            errorsRef.current = finalErrors;
-          }
+          const atArrayPath = (p: (string | number)[]) =>
+            p.length === parentPath.length &&
+            parentPath.every((val, idx) => p[idx] === val);
+          const withoutStaleArrayLevel = newErrors.filter(
+            (e) =>
+              e.source === 'server' ||
+              e.source === 'manual' ||
+              !atArrayPath(e.path)
+          );
+          const freshArrayLevel = result.valid
+            ? []
+            : (result.errors ?? []).filter((e) => atArrayPath(e.path));
+          finalErrors = [...withoutStaleArrayLevel, ...freshArrayLevel];
+          errorsRef.current = finalErrors;
         }
 
         // Dispatch a single update with all changes
@@ -1088,25 +1124,6 @@ export function FormProvider<T extends Record<string | number, unknown>>({
       );
       valuesRef.current = newValues;
 
-      // Remap a single path under arrayPath: returns the rewritten path, null to
-      // drop, or the same reference when it's unaffected (outside the array, a
-      // non-numeric index, or an unchanged index).
-      const remapPath = (
-        p: (string | number)[]
-      ): (string | number)[] | null => {
-        const underArray =
-          p.length > arrayPath.length &&
-          arrayPath.every((val, idx) => p[idx] === val);
-        if (!underArray) return p;
-        const oldIndex = Number(p[arrayPath.length]);
-        if (Number.isNaN(oldIndex)) return p;
-        const newIndex = indexMap(oldIndex);
-        if (newIndex === null) return null;
-        return newIndex === oldIndex
-          ? p
-          : [...arrayPath, newIndex, ...p.slice(arrayPath.length + 1)];
-      };
-
       // 2. Touched — rebuild the map with re-indexed keys (drop the dropped).
       const remappedTouched: Record<string, boolean> = {};
       for (const [key, val] of Object.entries(touchedRef.current)) {
@@ -1118,7 +1135,7 @@ export function FormProvider<T extends Record<string | number, unknown>>({
           remappedTouched[key] = val; // not a path we created; leave it
           continue;
         }
-        const np = remapPath(keyPath);
+        const np = remapPathUnderArray(keyPath, arrayPath, indexMap);
         if (np === null) continue;
         remappedTouched[serializePath(np)] = true;
       }
@@ -1131,24 +1148,24 @@ export function FormProvider<T extends Record<string | number, unknown>>({
 
       // 3. Errors — re-index both the combined list and the server-only baseline
       // so a later setServerError can't rebuild stale (pre-reorder) indices.
-      const remapErrorList = (errs: ValidationError[]) => {
-        const out: ValidationError[] = [];
-        for (const e of errs) {
-          const np = remapPath(e.path);
-          if (np === null) continue;
-          out.push(np === e.path ? e : { ...e, path: np });
-        }
-        return out;
-      };
-      errorsRef.current = remapErrorList(errorsRef.current);
-      serverErrorsRef.current = remapErrorList(serverErrorsRef.current);
+      errorsRef.current = remapErrorsUnderArray(
+        errorsRef.current,
+        arrayPath,
+        indexMap
+      );
+      serverErrorsRef.current = remapErrorsUnderArray(
+        serverErrorsRef.current,
+        arrayPath,
+        indexMap
+      );
 
       // 4. Re-validate (when validating on change). Reindexing only moves the
       // item-level metadata; it can't refresh an error attached to the array path
       // ITSELF — e.g. `z.array(...).min(1)` produces an error at `['items']`, and
       // inserting an item should clear it. Mirror setValue(arrayPath, …): drop the
       // stale validation error(s) at exactly arrayPath, then re-add fresh ones (if
-      // still invalid) from the new value. Server errors at arrayPath are left as-is.
+      // still invalid) from the new value. Server- and manual-sourced errors at
+      // arrayPath are left as-is (only Zod 'client' errors are refreshed here).
       let newCanSubmit = canSubmitRef.current;
       if (validateOnChange && schema) {
         const result = validate(schema, newValues);
@@ -1160,7 +1177,10 @@ export function FormProvider<T extends Record<string | number, unknown>>({
           arrayPath.every((val, idx) => p[idx] === val);
 
         const withoutStaleArrayLevel = errorsRef.current.filter(
-          (e) => e.source === 'server' || !atArrayPath(e.path)
+          (e) =>
+            e.source === 'server' ||
+            e.source === 'manual' ||
+            !atArrayPath(e.path)
         );
         const freshArrayLevel = result.valid
           ? []
@@ -1505,6 +1525,42 @@ export function FormProvider<T extends Record<string | number, unknown>>({
     [dispatch]
   );
 
+  // Set (or clear) a manual/client error at a single path. Mirrors setServerError's
+  // shape (string | string[] sets, null clears), but tags the error `source: 'manual'`
+  // so it behaves like a server error — it survives re-validation, shows regardless of
+  // touched, and clears when the user edits that field (setValue drops errors by path)
+  // or on submit/reset. Use it for client-owned checks Zod can't express (e.g. async
+  // "passwords don't match" surfaced client-side without going through the server).
+  const setError = useCallback(
+    (path: (string | number)[], message: string | string[] | null) => {
+      // Drop any existing manual errors at this exact path. Other sources (Zod
+      // 'client', 'server') at the path are left alone — they're owned elsewhere.
+      const filtered = errorsRef.current.filter(
+        (e) =>
+          !(
+            e.source === 'manual' &&
+            e.path.length === path.length &&
+            e.path.every((val, idx) => path[idx] === val)
+          )
+      );
+
+      let newErrors = filtered;
+      if (message !== null) {
+        const messages = Array.isArray(message) ? message : [message];
+        const pathErrors = messages.map((msg) => ({
+          path,
+          message: msg,
+          source: 'manual' as const,
+        }));
+        newErrors = [...filtered, ...pathErrors];
+      }
+
+      errorsRef.current = newErrors;
+      dispatch({ type: 'UPDATE_STATE', updates: { errors: newErrors } });
+    },
+    [dispatch]
+  );
+
   const submit = useCallback(async () => {
     if (!onSubmit) return;
 
@@ -1514,10 +1570,13 @@ export function FormProvider<T extends Record<string | number, unknown>>({
       return;
     }
 
-    // Clear any server errors and client submission errors before starting a new submission
-    // Update refs first for immediate access
+    // Clear server, manual, and client submission errors before starting a new
+    // submission — a fresh attempt re-derives them. Update refs first for immediate access.
     errorsRef.current = errorsRef.current.filter(
-      (e) => e.source !== 'server' && e.source !== 'client-form-handler'
+      (e) =>
+        e.source !== 'server' &&
+        e.source !== 'manual' &&
+        e.source !== 'client-form-handler'
     );
     serverErrorsRef.current = []; // Clear server errors ref
     clientSubmissionErrorRef.current = []; // Clear client submission error ref
@@ -1583,6 +1642,14 @@ export function FormProvider<T extends Record<string | number, unknown>>({
               setServerError(path, message);
             }
           },
+          setError: (
+            path: (string | number)[],
+            message: string | string[] | null
+          ) => {
+            if (isCurrentSubmission(submissionId) && mountedRef.current) {
+              setError(path, message);
+            }
+          },
           setValue: <V = unknown,>(path: (string | number)[], value: V) => {
             if (isCurrentSubmission(submissionId) && mountedRef.current) {
               setValue(path, value);
@@ -1643,22 +1710,25 @@ export function FormProvider<T extends Record<string | number, unknown>>({
         await onSubmit(values, helpers);
 
         // The attempt succeeded if it's still the current submission and the
-        // handler set no submission errors. serverErrorsRef/clientSubmissionErrorRef
-        // were emptied at the start of submit(), so any non-empty value here means
-        // the handler reported a failure (e.g. setServerError / setClientSubmissionError).
+        // handler set no errors. server/manual/client-submission errors were all
+        // emptied at the start of submit(), so any present here means the handler
+        // reported a failure (setServerError / setError / setClientSubmissionError).
         if (isCurrentSubmission(submissionId) && mountedRef.current) {
           didSucceed =
             serverErrorsRef.current.length === 0 &&
-            clientSubmissionErrorRef.current.length === 0;
+            clientSubmissionErrorRef.current.length === 0 &&
+            !errorsRef.current.some((e) => e.source === 'manual');
         }
       } else if (result.errors) {
         // Only set errors if this is still the current submission
         if (isCurrentSubmission(submissionId) && mountedRef.current) {
-          // Use our improved setErrors implementation
-          const serverErrors = errorsRef.current.filter(
-            (e) => e.source === 'server'
+          // Preserve server/manual errors and add the fresh Zod errors (same merge
+          // rule as validateFunction). Manual errors are cleared at submit start, so
+          // this is defensive — it keeps the merge consistent across all sites.
+          const preservedErrors = errorsRef.current.filter(
+            (e) => e.source === 'server' || e.source === 'manual'
           );
-          const newErrors = [...serverErrors, ...(result.errors || [])];
+          const newErrors = [...preservedErrors, ...(result.errors || [])];
 
           // Update ref first
           errorsRef.current = newErrors;
@@ -1717,6 +1787,7 @@ export function FormProvider<T extends Record<string | number, unknown>>({
     setClientSubmissionError,
     setServerErrors,
     setServerError,
+    setError,
     dispatch,
   ]);
 
@@ -1762,6 +1833,7 @@ export function FormProvider<T extends Record<string | number, unknown>>({
       },
       setServerErrors,
       setServerError,
+      setError,
       setClientSubmissionError,
       clearClientSubmissionError,
       getClientSubmissionError,
@@ -1800,6 +1872,7 @@ export function FormProvider<T extends Record<string | number, unknown>>({
       setErrors,
       setServerErrors,
       setServerError,
+      setError,
       setClientSubmissionError,
       clearClientSubmissionError,
       getClientSubmissionError,

@@ -823,6 +823,67 @@ describe('useArrayField reindex refreshes array-level validation errors', () => 
   });
 });
 
+// A manual error set ON THE ARRAY PATH itself must behave like a server error:
+// it should survive a reindex (insert/remove/move), not get wiped by the array-
+// level validation refresh.
+const noConstraintSchema = z.object({
+  items: z.array(z.object({ name: z.string() })),
+});
+
+function ManualArrErrList() {
+  const { items, insert } = useArrayField(['items']);
+  const form = useFormContext();
+  return (
+    <div>
+      <div data-testid="arr-err">
+        {form.getError(['items'])[0]?.message ?? ''}
+      </div>
+      <div data-testid="arr-src">
+        {form.getError(['items'])[0]?.source ?? ''}
+      </div>
+      <div data-testid="count">{items.length}</div>
+      <button
+        data-testid="set-manual"
+        onClick={() => form.setError(['items'], 'pick at least one favorite')}
+      >
+        set
+      </button>
+      <button data-testid="insert" onClick={() => insert(0, { name: 'x' })}>
+        insert
+      </button>
+    </div>
+  );
+}
+
+describe('useArrayField reindex preserves a manual array-level error', () => {
+  it('keeps a setError() on the array path through an insert', () => {
+    render(
+      <FormProvider
+        initialValues={{ items: [{ name: 'a' }] }}
+        schema={noConstraintSchema}
+        onSubmit={jest.fn()}
+      >
+        <ManualArrErrList />
+      </FormProvider>
+    );
+
+    fireEvent.click(screen.getByTestId('set-manual'));
+    expect(screen.getByTestId('arr-err').textContent).toBe(
+      'pick at least one favorite'
+    );
+    expect(screen.getByTestId('arr-src').textContent).toBe('manual');
+
+    // Insert triggers a reindex + array-level revalidation. The manual error is
+    // not a Zod 'client' error, so it must survive (like a server error would).
+    fireEvent.click(screen.getByTestId('insert'));
+    expect(screen.getByTestId('count').textContent).toBe('2');
+    expect(screen.getByTestId('arr-err').textContent).toBe(
+      'pick at least one favorite'
+    );
+    expect(screen.getByTestId('arr-src').textContent).toBe('manual');
+  });
+});
+
 describe('useArrayField reorder keeps the server-error baseline in sync', () => {
   it('does not resurrect a pre-reorder server error on a later setServerError', () => {
     render(
@@ -850,6 +911,74 @@ describe('useArrayField reorder keeps the server-error baseline in sync', () => 
     expect(screen.getByTestId('other').textContent).toBe('EX');
     expect(screen.getByTestId('err-0').textContent).toBe('E1');
     expect(screen.getByTestId('err-1').textContent).toBe('');
+  });
+});
+
+// remove() routes through form.deleteField, which (like the reorder ops) must
+// re-index the errors on surviving items rather than wiping them.
+function RemoveList() {
+  const { items, remove } = useArrayField(['items']);
+  const form = useFormContext();
+  return (
+    <div>
+      {items.map((_, i) => (
+        <ItemError key={i} index={i} />
+      ))}
+      <div data-testid="other">
+        {form.getError(['other'])[0]?.message ?? ''}
+      </div>
+      <button
+        data-testid="seed"
+        onClick={() =>
+          form.setServerErrors([
+            { path: ['items', 1, 'name'], message: 'E1', source: 'server' },
+            { path: ['items', 2, 'name'], message: 'E2', source: 'server' },
+          ])
+        }
+      >
+        seed
+      </button>
+      <button data-testid="remove0" onClick={() => remove(0)}>
+        remove 0
+      </button>
+      <button
+        data-testid="bump"
+        onClick={() => form.setServerError(['other'], 'EX')}
+      >
+        bump other
+      </button>
+    </div>
+  );
+}
+
+describe('useArrayField remove re-indexes errors on surviving items', () => {
+  it('shifts later items’ errors down instead of dropping them', () => {
+    render(
+      <FormProvider
+        initialValues={{
+          items: [{ name: 'a' }, { name: 'b' }, { name: 'c' }],
+          other: 'x',
+        }}
+        onSubmit={jest.fn()}
+      >
+        <RemoveList />
+      </FormProvider>
+    );
+    fireEvent.click(screen.getByTestId('seed'));
+    expect(screen.getByTestId('err-1').textContent).toBe('E1');
+    expect(screen.getByTestId('err-2').textContent).toBe('E2');
+
+    // Remove index 0: E1 (was 1) -> 0, E2 (was 2) -> 1.
+    fireEvent.click(screen.getByTestId('remove0'));
+    expect(screen.getByTestId('err-0').textContent).toBe('E1');
+    expect(screen.getByTestId('err-1').textContent).toBe('E2');
+
+    // The server-error baseline was re-indexed too: an unrelated setServerError
+    // rebuilds combined errors without resurrecting the pre-remove indices.
+    fireEvent.click(screen.getByTestId('bump'));
+    expect(screen.getByTestId('other').textContent).toBe('EX');
+    expect(screen.getByTestId('err-0').textContent).toBe('E1');
+    expect(screen.getByTestId('err-1').textContent).toBe('E2');
   });
 });
 

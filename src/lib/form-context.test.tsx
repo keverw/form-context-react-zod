@@ -787,6 +787,154 @@ describe('FormProvider', () => {
     expect(screen.getByTestId('tags-length').textContent).toBe('0');
   });
 
+  it('clearValue clears errors at the path (server/manual included)', async () => {
+    const TestComponent = () => {
+      const form = useFormContext();
+      return (
+        <div>
+          <span data-testid="val">
+            {String(form.getValue(['name']) ?? '')}
+          </span>
+          <span data-testid="err">
+            {form.getError(['name'])[0]?.message ?? 'none'}
+          </span>
+          <button
+            data-testid="set-err"
+            onClick={() => form.setError(['name'], 'manual problem')}
+          >
+            set error
+          </button>
+          <button
+            data-testid="clear"
+            onClick={() => form.clearValue(['name'])}
+          >
+            clear
+          </button>
+        </div>
+      );
+    };
+
+    render(
+      <TestForm initialValues={{ name: 'John' }}>
+        <TestComponent />
+      </TestForm>
+    );
+
+    fireEvent.click(screen.getByTestId('set-err'));
+    await advanceTimers();
+    expect(screen.getByTestId('err').textContent).toBe('manual problem');
+
+    // Clearing the value also clears its error (previously the error lingered).
+    fireEvent.click(screen.getByTestId('clear'));
+    await advanceTimers();
+    expect(screen.getByTestId('val').textContent).toBe('');
+    expect(screen.getByTestId('err').textContent).toBe('none');
+  });
+
+  it('setValue does not resurrect a cleared server error on a later setServerError', async () => {
+    // Regression: setValue cleared a descendant server error from errorsRef but left
+    // it in serverErrorsRef, so a later unrelated setServerError() rebuilt the
+    // combined errors from the stale baseline and brought the cleared error back.
+    const TestComponent = () => {
+      const form = useFormContext();
+      return (
+        <div>
+          <span data-testid="child-err">
+            {form.getError(['profile', 'email'])[0]?.message ?? 'none'}
+          </span>
+          <span data-testid="other-err">
+            {form.getError(['other'])[0]?.message ?? 'none'}
+          </span>
+          <button
+            data-testid="seed"
+            onClick={() => form.setServerError(['profile', 'email'], 'taken')}
+          >
+            seed
+          </button>
+          <button
+            data-testid="replace"
+            onClick={() =>
+              form.setValue(['profile'], { email: 'fresh@example.com' })
+            }
+          >
+            replace parent
+          </button>
+          <button
+            data-testid="bump"
+            onClick={() => form.setServerError(['other'], 'EX')}
+          >
+            bump other
+          </button>
+        </div>
+      );
+    };
+
+    render(
+      <TestForm initialValues={{ profile: { email: 'a@b.com' }, other: 'x' }}>
+        <TestComponent />
+      </TestForm>
+    );
+
+    fireEvent.click(screen.getByTestId('seed'));
+    await advanceTimers();
+    expect(screen.getByTestId('child-err').textContent).toBe('taken');
+
+    // Replace the parent: the child server error clears from both errorsRef and the
+    // serverErrorsRef baseline.
+    fireEvent.click(screen.getByTestId('replace'));
+    await advanceTimers();
+    expect(screen.getByTestId('child-err').textContent).toBe('none');
+
+    // An unrelated setServerError rebuilds combined errors — the cleared child
+    // error must NOT come back.
+    fireEvent.click(screen.getByTestId('bump'));
+    await advanceTimers();
+    expect(screen.getByTestId('other-err').textContent).toBe('EX');
+    expect(screen.getByTestId('child-err').textContent).toBe('none');
+  });
+
+  it('setValue on a parent object clears stale child errors', async () => {
+    const TestComponent = () => {
+      const form = useFormContext();
+      return (
+        <div>
+          <span data-testid="child-err">
+            {form.getError(['profile', 'email'])[0]?.message ?? 'none'}
+          </span>
+          <button
+            data-testid="set-err"
+            onClick={() => form.setError(['profile', 'email'], 'taken')}
+          >
+            set error
+          </button>
+          <button
+            data-testid="replace"
+            onClick={() =>
+              form.setValue(['profile'], { email: 'fresh@example.com' })
+            }
+          >
+            replace parent
+          </button>
+        </div>
+      );
+    };
+
+    render(
+      <TestForm initialValues={{ profile: { email: 'a@b.com' } }}>
+        <TestComponent />
+      </TestForm>
+    );
+
+    fireEvent.click(screen.getByTestId('set-err'));
+    await advanceTimers();
+    expect(screen.getByTestId('child-err').textContent).toBe('taken');
+
+    // Replacing the whole parent object clears the now-stale child-field error.
+    fireEvent.click(screen.getByTestId('replace'));
+    await advanceTimers();
+    expect(screen.getByTestId('child-err').textContent).toBe('none');
+  });
+
   it('tests setErrors function for setting validation errors', async () => {
     const initialValues = {
       username: 'testuser',
@@ -1908,6 +2056,46 @@ describe('FormProvider', () => {
     expect(screen.getByTestId('count').textContent).toBe('1');
   });
 
+  it('a handler that sets a manual error via helpers.setError is not a success', async () => {
+    // onSubmit resolves cleanly but flags a field with a client-side check —
+    // setting a manual error counts as a failed attempt, same as a server error.
+    const onSubmit = jest.fn(async (_values, helpers) => {
+      helpers.setError(['name'], 'That name is reserved');
+    });
+
+    const ErrorView = () => {
+      const form = useFormContext();
+      const errs = form.getError(['name']);
+      return (
+        <div>
+          <span data-testid="name-error">{errs[0]?.message ?? 'none'}</span>
+          <span data-testid="name-source">{errs[0]?.source ?? 'none'}</span>
+        </div>
+      );
+    };
+
+    render(
+      <TestForm initialValues={{ name: 'John' }} onSubmit={onSubmit}>
+        <SubmitStatus />
+        <ErrorView />
+      </TestForm>
+    );
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('submit-button'));
+    });
+    await advanceTimers();
+
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId('attempted').textContent).toBe('attempted');
+    expect(screen.getByTestId('succeeded').textContent).toBe('not-succeeded');
+    // The manual error set by the handler persisted past submit.
+    expect(screen.getByTestId('name-error').textContent).toBe(
+      'That name is reserved'
+    );
+    expect(screen.getByTestId('name-source').textContent).toBe('manual');
+  });
+
   it('a handler that throws is an attempt but not a success', async () => {
     const onSubmit = jest.fn(() => {
       throw new Error('boom');
@@ -1928,6 +2116,190 @@ describe('FormProvider', () => {
     expect(screen.getByTestId('attempted').textContent).toBe('attempted');
     expect(screen.getByTestId('succeeded').textContent).toBe('not-succeeded');
     expect(screen.getByTestId('count').textContent).toBe('1');
+  });
+
+  it('setError sets a manual error that survives validation and clears on edit', async () => {
+    const schema = z.object({
+      username: z.string().min(3, 'Username must be at least 3 characters'),
+    });
+
+    const TestComponent = () => {
+      const form = useFormContext();
+      const errs = form.getError(['username']);
+      return (
+        <div>
+          <span data-testid="msg">{errs[0]?.message ?? 'none'}</span>
+          <span data-testid="source">{errs[0]?.source ?? 'none'}</span>
+          <input
+            data-testid="input"
+            onChange={(e) => form.setValue(['username'], e.target.value)}
+          />
+          <button
+            data-testid="set"
+            onClick={() => form.setError(['username'], 'Already taken')}
+          >
+            Set
+          </button>
+          <button
+            data-testid="clear"
+            onClick={() => form.setError(['username'], null)}
+          >
+            Clear
+          </button>
+          <button data-testid="validate" onClick={() => form.validate(true)}>
+            Validate
+          </button>
+        </div>
+      );
+    };
+
+    render(
+      <TestForm schema={schema} initialValues={{ username: 'abcd' }}>
+        <TestComponent />
+      </TestForm>
+    );
+
+    // Set a manual error — tagged source 'manual'.
+    fireEvent.click(screen.getByTestId('set'));
+    await advanceTimers();
+    expect(screen.getByTestId('msg').textContent).toBe('Already taken');
+    expect(screen.getByTestId('source').textContent).toBe('manual');
+
+    // It survives a full re-validation (username 'abcd' is schema-valid, so Zod
+    // adds nothing, and the merge preserves the manual error).
+    fireEvent.click(screen.getByTestId('validate'));
+    await advanceTimers();
+    expect(screen.getByTestId('msg').textContent).toBe('Already taken');
+    expect(screen.getByTestId('source').textContent).toBe('manual');
+
+    // Editing the field clears it (setValue drops errors at the path).
+    fireEvent.change(screen.getByTestId('input'), {
+      target: { value: 'abcde' },
+    });
+    await advanceTimers();
+    expect(screen.getByTestId('msg').textContent).toBe('none');
+
+    // Set again, then clear explicitly with null.
+    fireEvent.click(screen.getByTestId('set'));
+    await advanceTimers();
+    expect(screen.getByTestId('msg').textContent).toBe('Already taken');
+    fireEvent.click(screen.getByTestId('clear'));
+    await advanceTimers();
+    expect(screen.getByTestId('msg').textContent).toBe('none');
+  });
+
+  it('setError accepts multiple messages and is cleared by reset', async () => {
+    const TestComponent = () => {
+      const form = useFormContext();
+      const errs = form.getError(['code']);
+      return (
+        <div>
+          <span data-testid="count">{errs.length}</span>
+          <span data-testid="first">{errs[0]?.message ?? 'none'}</span>
+          <button
+            data-testid="set"
+            onClick={() => form.setError(['code'], ['Too short', 'Already used'])}
+          >
+            Set
+          </button>
+          <button data-testid="reset" onClick={() => form.reset()}>
+            Reset
+          </button>
+        </div>
+      );
+    };
+
+    render(
+      <TestForm initialValues={{ code: 'x' }}>
+        <TestComponent />
+      </TestForm>
+    );
+
+    fireEvent.click(screen.getByTestId('set'));
+    await advanceTimers();
+    expect(screen.getByTestId('count').textContent).toBe('2');
+    expect(screen.getByTestId('first').textContent).toBe('Too short');
+
+    fireEvent.click(screen.getByTestId('reset'));
+    await advanceTimers();
+    expect(screen.getByTestId('count').textContent).toBe('0');
+  });
+
+  it('setError supports a form-level error at the root path', async () => {
+    const TestComponent = () => {
+      const form = useFormContext();
+      const rootErrors = form.getError([]);
+      return (
+        <div>
+          <span data-testid="root-count">{rootErrors.length}</span>
+          <span data-testid="root-msg">{rootErrors[0]?.message ?? 'none'}</span>
+          <button
+            data-testid="set-root"
+            onClick={() => form.setError([], 'This form has a problem')}
+          >
+            Set root
+          </button>
+          <button
+            data-testid="clear-root"
+            onClick={() => form.setError([], null)}
+          >
+            Clear root
+          </button>
+        </div>
+      );
+    };
+
+    render(
+      <TestForm initialValues={{ name: 'x' }}>
+        <TestComponent />
+      </TestForm>
+    );
+
+    fireEvent.click(screen.getByTestId('set-root'));
+    await advanceTimers();
+    expect(screen.getByTestId('root-count').textContent).toBe('1');
+    expect(screen.getByTestId('root-msg').textContent).toBe(
+      'This form has a problem'
+    );
+
+    fireEvent.click(screen.getByTestId('clear-root'));
+    await advanceTimers();
+    expect(screen.getByTestId('root-count').textContent).toBe('0');
+  });
+
+  it('useField surfaces a manual error even when the field is untouched', async () => {
+    const FieldView = ({ name }: { name: string }) => {
+      const field = useField([name]);
+      return <span data-testid={`error-${name}`}>{field.error ?? 'none'}</span>;
+    };
+    const Controls = () => {
+      const form = useFormContext();
+      return (
+        <button
+          data-testid="set"
+          onClick={() => form.setError(['nickname'], 'That one is reserved')}
+        >
+          Set
+        </button>
+      );
+    };
+
+    render(
+      <TestForm initialValues={{ nickname: 'ada' }}>
+        <FieldView name="nickname" />
+        <Controls />
+      </TestForm>
+    );
+
+    // Untouched field shows nothing yet.
+    expect(screen.getByTestId('error-nickname').textContent).toBe('none');
+
+    // A manual error shows immediately, without the field being touched.
+    fireEvent.click(screen.getByTestId('set'));
+    await advanceTimers();
+    expect(screen.getByTestId('error-nickname').textContent).toBe(
+      'That one is reserved'
+    );
   });
 
   it('tests validate function with and without force parameter', async () => {

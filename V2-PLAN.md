@@ -190,13 +190,40 @@ rough.
       already-cleared `serverErrorsRef`/`clientSubmissionErrorRef` being empty after the handler, so
       it captures handlers that report failure without throwing. FORM-API docs + 4 tests (clean
       submit lifecycle + count + reset; failed validation; handler-reported error; thrown handler).
-- [ ] **`setError(path, message)` for manual/client errors.** We have `setServerError` (server
-      source) + `setErrors` (replace-all). Add a targeted setter for a **client/manual** error at
-      one path (`source: 'client'`), mirroring `setServerError`'s shape (string | string[] | null,
-      where null clears). Decide ownership: a manual client error at a path should survive
-      re-validation the way server errors do, OR be documented as cleared on next validate —
-      **resolve this when implementing** (the overlap with Zod-owned validation errors is the only
-      non-trivial bit).
+- [x] **`setError(path, message)` for manual/client errors.** Targeted setter mirroring
+      `setServerError`'s shape (string | string[] | null, null clears). **Decision resolved:** a
+      manual error **survives re-validation, like server errors** — but since Zod validation errors
+      are already `source: 'client'`, a `'client'`-tagged manual error would be wiped by the next
+      validate. So manual errors get a **distinct `source: 'manual'`**, preserved alongside `'server'`
+      in every validate-merge (`validateFunction`, `performInitialValidation`). They behave exactly
+      parallel to server errors (survive validate, show regardless of touched via `useField`, clear on
+      field edit / submit start / reset, follow the field through array reindex/delete via the
+      existing `errorsRef` remap) — just a different label, and lighter plumbing (no parallel
+      canonical ref). Does not gate `canSubmit` (schema-only). Also exposed on the `onSubmit` helpers,
+      where setting one marks the attempt failed (`submitSucceeded` stays `false`, same as
+      `setServerError`/`setClientSubmissionError`). Supports a root path (`setError([], msg)`) as a
+      field-style form-level error — distinct channel from `setClientSubmissionError` (`'manual'` in the
+      main error list vs `'client-form-handler'` in its own store). Added `'manual'` to the
+      `ValidationError` source union; FORM-API "Error sources" table + form-level-channels note + 6 tests.
+      Audit follow-ups (same change): fixed the array-level revalidation refresh in `reindexArray` +
+      `deleteField` to preserve `manual` (not just `server`); the submit validation-fail merge now
+      preserves `server`/`manual` consistently; `FormState` debug component got a dedicated "Manual
+      Errors" section. Also made **`deleteField` (array item) re-index errors instead of wiping** —
+      previously a remove dropped every error under the array and only Zod ones regenerated, losing
+      `server`/`manual` errors on surviving (shifted) items; now it shares `reindexArray`'s remap
+      (extracted to module-level `remapPathUnderArray`/`remapErrorsUnderArray`) so `useArrayField.remove`
+      and direct `form.deleteField` shift later items' metadata down like the reorder ops. +2 tests
+      (bisected), updated 1 existing test that encoded the old wipe behavior.
+      Consistency pass (same change): unified `deleteField`'s array-item **touched** re-index to use the
+      shared `remapPathUnderArray` (was a hand-rolled JSON-parse loop, now matches the error remap);
+      **`setValue` now clears errors on the whole subtree** (path + descendants, all sources) not just the
+      exact path, so replacing an object/array value drops stale child-field errors; **`clearValue` now
+      delegates to `setValue`** so it clears errors + marks touched + re-validates instead of leaving stale
+      errors behind. +2 bisected tests (clearValue clears errors; setValue clears stale child errors).
+      Codex P2 fix: `setValue` now also syncs the `serverErrorsRef` baseline when clearing (path +
+      descendants) — previously it cleared `errorsRef` only, so a later `setServerError` rebuilt from the
+      stale baseline and resurrected a cleared server error (pre-existing for the exact path, widened by
+      the cascade). Manual errors need no equivalent (no parallel baseline). +1 bisected test.
 - [ ] **`validateField(path)` (manual per-field validate / "trigger").** `validate()` runs the
       whole Zod schema (no isolated field check). Implement as `setFieldTouched(path, true)` +
       `validateFunction()`: since error display gates on `touched`, only that field surfaces. ~15

@@ -42,7 +42,7 @@ describe('FormState (debug panel)', () => {
     expect(checkbox.checked).toBe(true); // switched to dark
   });
 
-  it('renders varied value types and all three error sections', () => {
+  it('renders varied value types and all four error sections', () => {
     const schema = z.object({
       str: z.string().min(10, 'str too short'),
       num: z.number(),
@@ -62,6 +62,7 @@ describe('FormState (debug panel)', () => {
             form.setServerErrors([
               { path: ['num'], message: 'server boom', source: 'server' },
             ]);
+            form.setError(['bool'], 'manual boom'); // manual error
             form.setClientSubmissionError('client boom');
           }}
         >
@@ -98,6 +99,7 @@ describe('FormState (debug panel)', () => {
     expect(screen.getByText('str too short')).toBeInTheDocument(); // validation
     expect(screen.getByText('client boom')).toBeInTheDocument(); // client submission
     expect(screen.getByText('server boom')).toBeInTheDocument(); // server
+    expect(screen.getByText('manual boom')).toBeInTheDocument(); // manual
   });
 
   it('renders the String() fallback for non-standard value types (e.g. bigint)', () => {

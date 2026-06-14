@@ -80,13 +80,13 @@ The `useFormTag` prop allows wrapping the form content in a native HTML `<form>`
 Value operations:
 
 - `getValue(path)`: Get value at specific path
-- `setValue(path, value)`: Set value at specific path
+- `setValue(path, value)`: Set value at specific path. Marks the path touched, clears existing errors at that path **and any descendant paths** (all sources — assigning a value replaces the whole subtree), and re-validates when `validateOnChange` is on.
 - `getValue<K extends keyof T>([key]: [K]): T[K]`: Get value at a top-level key with type safety.
 - `getValue(path: (string|number)[]): unknown`: Get value at any specific path.
 - `setValue<K extends keyof T>([key]: [K], value: T[K])`: Set value at a top-level key with type safety.
 - `setValue(path: (string|number)[], value: V)`: Set value at any specific path
-- `clearValue(path)`: Reset field to empty value based on its type
-- `deleteField(path)`: Remove field at path (handles arrays properly)
+- `clearValue(path)`: Reset field to an empty value based on its type. A thin wrapper over `setValue(path, <empty>)`, so it has the same side effects — marks touched, clears the field's errors (whole subtree, all sources), and re-validates.
+- `deleteField(path)`: Remove field at path. For an array item, later items' metadata (touched + errors, all sources) re-indexes down to follow them, instead of being wiped.
 - `reindexArray(arrayPath, newItems, indexMap)`: Low-level primitive that replaces an array and atomically re-indexes its item metadata (touched, validation + server errors) via `indexMap` (old index → new index, or `null` to drop). Prefer the [`useArrayField`](#usearrayfield) helpers, which wrap it.
 - `hasField(path)`: Check if field exists
 - `getValuePaths(path?: (string|number)[]): (string|number)[][]`: Get all value paths under given path
@@ -99,6 +99,29 @@ Error operations:
 - `setErrors(errors)`: Set all errors (replaces existing errors)
 - `setServerErrors(errors)`: Replace all server errors with new ones
 - `setServerError(path, message)`: Set server error(s) for a specific path
+- `setError(path, message)`: Set (or clear, with `null`) a **manual/client** error at one path — same `string | string[] | null` shape as `setServerError`. The error is tagged `source: 'manual'` and behaves exactly like a server error (see [Error sources](#error-sources) below): it survives re-validation, shows regardless of `touched`, and clears when the field is edited or on submit/reset. Use it for client-owned checks Zod can't express (an async "username taken" surfaced client-side, a cross-field rule you'd rather run imperatively, etc.). Also available on the `onSubmit` helpers; pass `[]` as the path for a form-level error.
+
+#### Error sources
+
+Every `ValidationError` carries a `source` that controls its lifecycle:
+
+| `source`               | Set by                        | Survives re-validation? | Shown when untouched? | Cleared by                                  |
+| ---------------------- | ----------------------------- | ----------------------- | --------------------- | ------------------------------------------- |
+| `client`               | Zod schema validation         | No — recomputed each validate | No              | recomputed every validate; edit clears path |
+| `server`               | `setServerError(s)`           | Yes                     | Yes                   | editing the field, submit start, reset      |
+| `manual`               | `setError`                    | Yes                     | Yes                   | editing the field, submit start, reset      |
+| `client-form-handler`  | `setClientSubmissionError`    | n/a (form-level)        | n/a                   | submit start, `clearClientSubmissionError`  |
+
+`manual` is deliberately parallel to `server` — same rules, a different label so you can tell a server-reported error from a client-set one and own each channel independently. The only difference is plumbing: `server` errors also live in an internal canonical store (used by `setServerErrors` replace-all), whereas `manual` errors live only in the main error list. Like server errors, a `manual` error does **not** gate `canSubmit` (which is schema-only). But setting one from inside `onSubmit` **does** mark the attempt as failed — `submitSucceeded` stays `false`, the same as `setServerError`/`setClientSubmissionError` — so a client-side check that rejects a submit reads correctly.
+
+##### Form-level errors: `setError([])` vs `setClientSubmissionError`
+
+Both put an error at the form/root level, but they're **separate channels, not two names for the same thing** — different `source`, different storage, different retrieval:
+
+- `setError([], msg)` → a `source: 'manual'` error at path `[]`, read back via `getError([])` (alongside any root validation errors). It's a _field-style_ error that happens to live at the root, and it persists like other field errors.
+- `setClientSubmissionError(msg)` → a `source: 'client-form-handler'` error in a dedicated store, read back via `getClientSubmissionError()`. It's purpose-built for "the submission itself failed" (network/auth), kept apart from field/validation errors and cleared by `clearClientSubmissionError()`.
+
+Reach for `setClientSubmissionError` for submit-failure banners; use `setError([])` when you want a root-level error that sits in the same list as your field errors.
 
 Touch state operations:
 
@@ -137,6 +160,10 @@ export interface FormHelpers<T> {
   setErrors: (errors: ValidationError[]) => void;
   setServerErrors: (errors: ValidationError[]) => void;
   setServerError: (
+    path: (string | number)[],
+    message: string | string[] | null
+  ) => void;
+  setError: (
     path: (string | number)[],
     message: string | string[] | null
   ) => void;
@@ -440,7 +467,7 @@ the array so they follow their items:
 - `add(item)`: append an item to the end.
 - `prepend(item)`: insert an item at the front (`insert(0, item)`).
 - `insert(index, item)`: insert at `index` (clamped to `[0, length]`); items at/after it shift up.
-- `remove(index)`: remove the item at `index`.
+- `remove(index)`: remove the item at `index`; later items shift down to fill the gap, and their errors/touched markers shift with them (the removed item's are dropped).
 - `move(from, to)`: reorder one item; intermediate items shift to fill the gap.
 - `swap(a, b)`: exchange two items; their errors/touched follow them.
 - `replace(newItems)`: replace the whole array. Per-index errors/touched no longer
@@ -457,7 +484,7 @@ const todos = useArrayField(['todos']);
 todos.add({ text: '', completed: false }); // append
 todos.prepend({ text: '', completed: false }); // front
 todos.insert(2, { text: '', completed: false }); // at index 2
-todos.remove(0); // remove
+todos.remove(0); // remove (later items' errors shift down)
 todos.move(0, 1); // reorder (errors follow)
 todos.swap(0, 2); // exchange (errors follow)
 todos.update(1, { text: 'done', completed: true }); // replace one
@@ -467,8 +494,11 @@ todos.replace([{ text: 'fresh', completed: false }]); // replace all
 > How re-indexing works: `move`/`swap`/`insert`/`replace` delegate to the context's
 > `reindexArray` primitive, which updates the values and re-indexes the item
 > metadata — touched markers, validation errors, **and** the internal server-error
-> baseline — in a single atomic update. Because server errors aren't touch-gated,
-> they aren't cleared by a reorder; they move with their item. A later
+> baseline — in a single atomic update. `remove` goes through `deleteField`, which
+> shares the same remap, so a removal shifts later items' metadata down by one
+> rather than wiping it (a direct `form.deleteField([...path, i])` behaves the same).
+> Because server/manual errors aren't touch-gated, they aren't cleared by a
+> reorder/removal; they move with their item. A later
 > `setServerError`/`setServerErrors` therefore rebuilds from the correct
 > (re-indexed) baseline.
 

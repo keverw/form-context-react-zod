@@ -9,11 +9,12 @@ export function useField(path: (string | number)[]) {
   const isTouched = form.touched[pathKey];
   const errors = form.getError(path);
 
-  // Get all applicable errors - show server errors regardless of touched state
+  // Get all applicable errors - show server/manual errors regardless of touched state
   const fieldErrors = errors
     .filter((err) => {
-      // Always show server errors, show validation errors only when touched
-      return err.source === 'server' || isTouched;
+      // Always show server- and manual-set errors; show Zod validation errors
+      // only once the field is touched.
+      return err.source === 'server' || err.source === 'manual' || isTouched;
     })
     .map((err) => err.message);
 

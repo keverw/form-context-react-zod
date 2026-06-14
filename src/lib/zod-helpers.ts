@@ -3,7 +3,12 @@ import { ZodError, z } from 'zod';
 export interface ValidationError {
   path: (string | number)[];
   message: string;
-  source?: 'client' | 'server' | 'client-form-handler';
+  // 'client'  — produced by Zod schema validation (recomputed every validate)
+  // 'server'  — set via setServerError(s); survives validation, clears on edit/submit/reset
+  // 'manual'  — set via setError; a client-owned error that behaves like 'server'
+  //             (survives validation) but is semantically dev-set, not server-reported
+  // 'client-form-handler' — form-level submission error (setClientSubmissionError)
+  source?: 'client' | 'server' | 'client-form-handler' | 'manual';
 }
 
 /**

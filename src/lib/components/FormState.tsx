@@ -127,9 +127,13 @@ export function FormState({
 }: FormStateProps) {
   const form = useFormContext();
   const validationErrors = form.errors.filter(
-    (e) => e.source !== 'server' && e.source !== 'client-form-handler'
+    (e) =>
+      e.source !== 'server' &&
+      e.source !== 'manual' &&
+      e.source !== 'client-form-handler'
   );
   const serverErrors = form.errors.filter((e) => e.source === 'server');
+  const manualErrors = form.errors.filter((e) => e.source === 'manual');
   const clientSubmissionErrors = form.errors.filter(
     (e) => e.source === 'client-form-handler'
   );
@@ -385,6 +389,26 @@ export function FormState({
               ))
             ) : (
               <span style={{ color: palette.subtext }}>No server errors</span>
+            )}
+          </Section>
+
+          <Section title="Manual Errors" palette={palette}>
+            {manualErrors.length > 0 ? (
+              manualErrors.map((error, i) => (
+                <div key={i} style={{ marginBottom: '0.25rem' }}>
+                  <span style={{ color: palette.subtext }}>
+                    {error.path.length > 0
+                      ? JSON.parse(serializePath(error.path)).join(' → ')
+                      : '(root)'}
+                    :{' '}
+                  </span>
+                  <span style={{ color: palette.serverError }}>
+                    {error.message}
+                  </span>
+                </div>
+              ))
+            ) : (
+              <span style={{ color: palette.subtext }}>No manual errors</span>
             )}
           </Section>
         </div>
