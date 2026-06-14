@@ -12,16 +12,18 @@ The FormProvider manages the form state and provides context for all form hooks.
 
 ```tsx
 interface FormProviderProps<T> {
-  initialValues: T;
-  onSubmit?: FormSubmitHandler<T>; // (values: T, helpers: FormHelpers<T>) => Promise<void> | void
-  schema?: z.ZodType<T>;
-  validateOnMount?: boolean; // Whether to run validation immediately
-  validateOnChange?: boolean; // Whether to run validation on every change
+  initialValues: T; // Required. Starting form values.
+  initialServerErrors?: ValidationError[]; // Server errors to seed at mount (normalized to source: 'server'). Use path [] for a root error. Touch-independent. Cleared by reset(). Default: []
+  onSubmit?: FormSubmitHandler<T>; // (values: T, helpers: FormHelpers<T>) => Promise<void> | void. Default: undefined (no-op on submit)
+  schema?: z.ZodType<T>; // Zod schema used for validation. Default: undefined (no validation)
+  validateOnMount?: boolean; // Validate on mount; by default touches only populated fields (errors for loaded/prefilled data show; empty fields stay quiet). Default: false
+  touchAllOnMount?: boolean; // With validateOnMount, mark ALL fields touched to reveal every error on load. Default: false
+  validateOnChange?: boolean; // Whether to run validation on every change. Default: true
   validateOnBlur?: boolean; // Whether leaving a field (blur) runs validation. Default: true
 
-  useFormTag?: boolean; // Whether to wrap children in a <form> HTML tag
-  formProps?: React.FormHTMLAttributes<HTMLFormElement>; // HTML attributes for the form element
-  children: React.ReactNode | React.ReactNode[]; // Accepts a single child or multiple children
+  useFormTag?: boolean; // Whether to wrap children in a <form> HTML tag. Default: false
+  formProps?: React.FormHTMLAttributes<HTMLFormElement>; // HTML attributes for the form element. Default: undefined
+  children: React.ReactNode | React.ReactNode[]; // Required. Accepts a single child or multiple children.
 }
 ```
 
@@ -44,9 +46,30 @@ State getters:
 - Form operations:
 
   - `submit()`: Trigger form submission
-  - `reset(force?: boolean): boolean`: Reset form to initial values, returns true if successful.
-  - `resetWithValues(newValues, force?)`: Reset form with new values
+  - `reset(force?: boolean): boolean`: Reset the form back to the original `initialValues` prop.
+    Returns `true` if it ran.
+  - `resetWithValues(newValues, force?): boolean`: Same as `reset`, but resets to a
+    caller-supplied set of values instead of `initialValues`.
   - `validate(force?: boolean)`: Manually trigger form validation
+
+**`reset` vs `resetWithValues`** — they're the same operation with a different target. Both clear
+touched state, validation errors, and server errors, and set `canSubmit=false` /
+`lastValidated=null`. `reset()` restores the original `initialValues` (fixed at mount);
+`resetWithValues(x)` adopts `x` instead — use it to accept the server's canonical record after a
+save, or to load a different record into the same form. Note: `resetWithValues` does **not** move
+the `reset()` baseline — a later `reset()` still returns to the original `initialValues`.
+
+**Resetting mid-submit** — while a submission is in flight (`isSubmitting === true`, e.g. inside
+`onSubmit`), both `reset()` and `resetWithValues()` **no-op**: they log a warning and return
+`false`. Pass `force: true` to reset anyway — this **invalidates the in-flight submission** first,
+then resets. "Invalidates" means the bookkeeping only: it flips `isSubmitting` off and clears the
+current submission ID, so any `helpers.*` writes from the now-stale `onSubmit` become no-ops (they're
+all guarded by `isCurrentSubmission`). It does **not** abort your network request — there's no
+`AbortSignal` passed to `onSubmit`. If you need to actually stop the fetch, bring your own
+`AbortController`: capture `helpers.currentSubmissionID` at the top of `onSubmit`, and after each
+`await` check `helpers.isCurrentSubmission(id)` to detect that you were superseded (then `abort()` /
+bail). To re-baseline after a successful save without invalidating anything, call reset **after**
+`submit()` resolves (when `isSubmitting` is already back to `false`).
 
 The `useFormTag` prop allows wrapping the form content in a native HTML `<form>` tag with automatic `preventDefault` handling on submit events. When enabled, you can use standard HTML submit buttons instead of manually calling `form.submit()`.
 
@@ -74,6 +97,12 @@ Error operations:
 Touch state operations:
 
 - `setFieldTouched(path, value?)`: Mark field as touched/untouched
+- `handleBlur(path)`: Blur handler for a field — marks it touched **and**, when
+  `validateOnBlur` is enabled, runs validation so leaving a field invalid surfaces
+  its error. `useField` wires this into its `props.onBlur` automatically. If you
+  wire fields manually from the context, call `form.handleBlur(path)` on blur
+  (instead of just `setFieldTouched`) so `validateOnBlur` works — and gate your
+  error display on `touched` so only fields the user has interacted with show errors.
 
 ### FormSubmitHandler
 
@@ -144,6 +173,37 @@ form.setServerError(
 // Clear server errors for a specific field
 form.setServerError(['username'], null);
 ```
+
+**Seeding server errors at mount (`initialServerErrors`)**
+
+When you render a form for a record the server has already flagged (e.g. SSR
+hydrating a "pending review" account), you can seed server errors declaratively
+instead of calling the API from an effect:
+
+```tsx
+<FormProvider
+  initialValues={record}
+  initialServerErrors={[
+    { path: [], message: 'This account is pending review.' }, // root/form-level
+    { path: ['username'], message: 'Username already taken' },
+    { path: ['email'], message: 'Email domain not allowed' },
+  ]}
+  schema={schema}
+  onSubmit={onSubmit}
+>
+  …
+</FormProvider>
+```
+
+- Entries are normalized to `source: 'server'`, so you can omit `source`.
+- A `path` of `[]` is a root (form-level) error — render it with `RootErrors` /
+  `getError([])`.
+- These render **immediately and regardless of touched state** (unlike Zod
+  validation errors, which gate on `touched`).
+- Later `setServerError(s)` calls merge from this seeded baseline: updating one
+  path leaves the others intact.
+- `reset()` / `resetWithValues()` **clear** server errors (clean slate) and do
+  **not** restore the seeds. Re-seeding only happens on a fresh mount.
 
 ### Error Types in the Form System
 
@@ -656,23 +716,38 @@ For operations like username availability checks, careful handling of race condi
 Example Implementation:
 
 ```tsx
+// This is the "async validation, done app-side" pattern: the library core stays
+// synchronous (Zod), and you run the async check yourself and feed the result back.
+// Here the status lives in local state; you can ALSO surface it in the form via
+// `form.setServerError(['username'], taken ? 'Taken' : null)` — server errors are
+// touch-independent feedback, so they show immediately. Note this does NOT block
+// submission: submit() is gated only by Zod schema validity, and it CLEARS server
+// errors at the start of each attempt. To actually prevent submitting an unavailable
+// username, disable your submit button while the check is pending/failed (or while
+// `form.getError(['username'])` is non-empty), or re-run the check inside `onSubmit`.
 function UsernameAvailability({ username }: { username: string }) {
-  const [checking, setChecking] = useState(false);
-  const [available, setAvailable] = useState<boolean | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const timeoutRef = useRef<number>();
+  const [checking, setChecking] = useState(false); // request in flight (show spinner)
+  const [available, setAvailable] = useState<boolean | null>(null); // null = unknown yet
+  const [error, setError] = useState<string | null>(null); // network/server failure (not "taken")
+  const timeoutRef = useRef<number>(); // debounce timer handle
+  // Tracks the LATEST username so async callbacks can tell if they're stale (race guard).
   const currentUsernameRef = useRef(username);
   const form = useFormContext();
 
   useEffect(() => {
+    // Runs on every keystroke. Record the latest value and clear any prior result.
     currentUsernameRef.current = username;
     setAvailable(null);
     setError(null);
 
+    // Debounce: cancel the previous pending check so we only hit the network once
+    // the user pauses typing (see the 500ms timeout below).
     if (timeoutRef.current) {
       clearTimeout(timeoutRef.current);
     }
 
+    // Don't bother checking an empty value or one Zod already rejects — let the
+    // schema's own error show first. (getError gates the network call on validity.)
     const errors = form.getError(['username']);
     if (!username || errors.length > 0) {
       setChecking(false);
@@ -682,20 +757,30 @@ function UsernameAvailability({ username }: { username: string }) {
     setChecking(true);
     timeoutRef.current = window.setTimeout(async () => {
       try {
-        // Pre-request check
+        // Pre-request guard: the value may have changed (or gone invalid) during the
+        // 500ms debounce window — if so, skip the request entirely.
         if (!isValid(username) || currentUsernameRef.current !== username) {
           return;
         }
 
+        // This ignores a stale response but doesn't actually abort the request.
+        // To truly cancel the in-flight call, create an `AbortController` in the
+        // effect, pass `controller.signal` here, and `controller.abort()` in the
+        // cleanup below (catch the resulting `AbortError` and ignore it). Purely
+        // user-side — no framework change needed.
         await checkAvailability(username);
 
-        // Post-request check
+        // Post-request guard (the important race fix): by the time the request
+        // resolves the user may have typed more. Only apply the result if this is
+        // STILL the current value — otherwise we'd show a stale "available" answer.
         if (currentUsernameRef.current === username && isValid(username)) {
           setAvailable(true);
         }
       } catch (error) {
+        // Same staleness guard on the error path.
         if (currentUsernameRef.current === username) {
-          // Check if it's an availability error vs network/server error
+          // Distinguish a real "username taken" rejection from a transient
+          // network/server failure — only the former means "not available".
           if (error.type === 'taken') {
             setAvailable(false);
           } else {
@@ -707,6 +792,8 @@ function UsernameAvailability({ username }: { username: string }) {
       }
     }, 500);
 
+    // Cleanup: if username changes (or the component unmounts) before the timer
+    // fires, cancel it so we never run a check for a value that's already gone.
     return () => {
       if (timeoutRef.current) {
         clearTimeout(timeoutRef.current);
@@ -714,6 +801,7 @@ function UsernameAvailability({ username }: { username: string }) {
     };
   }, [username]);
 
+  // Nothing to show until there's a schema-valid value to check.
   if (!username || !isValid(username)) return null;
 
   return (

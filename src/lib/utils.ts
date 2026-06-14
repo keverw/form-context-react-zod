@@ -193,6 +193,21 @@ export function getEmptyValue(value: unknown): unknown {
   }
 }
 
+/**
+ * Whether a value counts as "empty" for a field — equal to what getEmptyValue
+ * would produce for its type (empty string, 0, false, [], {}). Used to decide
+ * which fields to mark touched on mount (by default only populated ones).
+ */
+export function isEmptyValue(value: unknown): boolean {
+  if (value === undefined || value === null) return true;
+  if (typeof value === 'string') return value === '';
+  if (typeof value === 'number') return value === 0;
+  if (typeof value === 'boolean') return value === false;
+  if (Array.isArray(value)) return value.length === 0;
+  if (typeof value === 'object') return Object.keys(value).length === 0;
+  return false;
+}
+
 // Helper function to generate a identifier for the current submission
 export function generateID(): string {
   return Date.now().toString(36) + Math.random().toString(36).substring(2);

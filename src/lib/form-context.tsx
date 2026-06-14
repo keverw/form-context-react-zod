@@ -1,4 +1,4 @@
-import React, { createContext, useCallback, useReducer } from 'react';
+import React, { createContext, useCallback, useMemo, useReducer } from 'react';
 import { z } from 'zod';
 import { validate, ValidationError } from './zod-helpers';
 import {
@@ -8,6 +8,7 @@ import {
   serializePath,
   cloneAlongPath,
   generateID,
+  isEmptyValue,
 } from './utils';
 
 export interface FormHelpers<T> {
@@ -51,6 +52,9 @@ export interface FormContextValue<T> {
   touched: Record<string, boolean>;
   errors: ValidationError[];
   setFieldTouched: (path: (string | number)[], value?: boolean) => void;
+  /** Mark a field touched and run validation when validateOnBlur is enabled.
+   *  useField wires this to onBlur; raw-context fields should call it too. */
+  handleBlur: (path: (string | number)[]) => void;
   setErrors: (errors: ValidationError[]) => void;
   isSubmitting: boolean;
   isValid: boolean;
@@ -111,9 +115,25 @@ export type FormSubmitHandler<T> = (
 
 interface FormProviderProps<T> {
   initialValues: T;
+  /**
+   * Server errors to seed at mount, before any submission. Each entry is
+   * normalized to `source: 'server'`, so you can omit `source`. Use a path of
+   * `[]` for a form-level (root) error. Unlike Zod validation errors, server
+   * errors render regardless of whether the field is touched. Note that
+   * `reset()`/`resetWithValues()` clear server errors (a clean slate) and do
+   * not restore these.
+   */
+  initialServerErrors?: ValidationError[];
   onSubmit?: FormSubmitHandler<T>;
   schema?: z.ZodType<T>;
   validateOnMount?: boolean;
+  /**
+   * When `validateOnMount` runs, whether to mark ALL fields touched (revealing
+   * every error on load) instead of only the populated ones. Defaults to false:
+   * a prefilled form shows errors for the data it loaded, while empty fields the
+   * user hasn't reached stay quiet.
+   */
+  touchAllOnMount?: boolean;
   validateOnChange?: boolean;
   /**
    * Whether leaving a field (blur) runs validation, surfacing errors for a field
@@ -180,20 +200,36 @@ function formReducer<T extends Record<string | number, unknown>>(
 
 export function FormProvider<T extends Record<string | number, unknown>>({
   initialValues,
+  initialServerErrors = [],
   onSubmit,
   schema,
   validateOnMount = false,
+  touchAllOnMount = false,
   validateOnChange = true,
   validateOnBlur = true,
   useFormTag = false,
   formProps = {},
   children,
 }: FormProviderProps<T>) {
+  // Normalize seeded server errors. We tag them `source: 'server'` so callers
+  // can omit it, mirroring setServerErrors. Only the first render's value is
+  // ever used (reducer + ref initializers below), so an unstable prop identity
+  // on later renders is harmless — seeding is a mount-only concern (use the
+  // setServerError(s) API to change them after).
+  const normalizedInitialServerErrors = useMemo<ValidationError[]>(
+    () =>
+      initialServerErrors.map((error) => ({
+        ...error,
+        source: 'server' as const,
+      })),
+    [initialServerErrors]
+  );
+
   // Use useReducer instead of multiple useState calls
   const [state, dispatch] = useReducer(formReducer<T>, {
     values: initialValues,
     touched: {},
-    errors: [],
+    errors: normalizedInitialServerErrors,
     isSubmitting: false,
     lastValidated: null,
     canSubmit: false,
@@ -242,11 +278,17 @@ export function FormProvider<T extends Record<string | number, unknown>>({
   // Keep track of client submission error messages for real-time access
   const clientSubmissionErrorRef = React.useRef<string[]>([]);
 
-  // Keep all errors in a ref for immediate access/updates, syncing with state for UI
-  const errorsRef = React.useRef<ValidationError[]>([]);
+  // Keep all errors in a ref for immediate access/updates, syncing with state for UI.
+  // Seeded with any initialServerErrors so they're available before first render's effects.
+  const errorsRef = React.useRef<ValidationError[]>(
+    normalizedInitialServerErrors
+  );
 
-  // Keep track of server errors separately to prevent race conditions
-  const serverErrorsRef = React.useRef<ValidationError[]>([]);
+  // Keep track of server errors separately to prevent race conditions.
+  // Seeded so the first setServerError(s) call merges from the right baseline.
+  const serverErrorsRef = React.useRef<ValidationError[]>(
+    normalizedInitialServerErrors
+  );
 
   // Initialize refs with current state values
   React.useEffect(() => {
@@ -257,21 +299,42 @@ export function FormProvider<T extends Record<string | number, unknown>>({
     isSubmittingRef.current = isSubmitting;
   }, [errors, values, touched, canSubmit, isSubmitting]);
 
+  // Walks the values tree under `basePath` and returns a flat list of paths to
+  // every node (every field, including nested objects/arrays). e.g. for
+  // { a: { b: 1 }, list: [{ x: 2 }] } it returns:
+  //   ['a'], ['a','b'], ['list'], ['list', 0], ['list', 0, 'x']
+  // Used by validate(true) (to touch every field) and reset/clear traversals.
   const getValuePaths = useCallback(
     (basePath: (string | number)[] = []) => {
       const paths: (string | number)[][] = [];
 
-      // Recursively gather all paths
       const traverse = (obj: unknown, currentPath: (string | number)[]) => {
+        // Only objects/arrays have children to descend into; primitives are leaves.
         if (obj && typeof obj === 'object') {
+          const isArray = Array.isArray(obj);
+
+          // Object.entries gives us BOTH halves we need at each node:
+          //   key   -> the next path segment (the breadcrumb at this level)
+          //   value -> the subtree to recurse into to find deeper paths
           for (const [key, value] of Object.entries(obj)) {
-            const newPath = [...currentPath, key];
-            paths.push(newPath);
-            traverse(value, newPath);
+            // Object.entries always returns string keys, including array indices
+            // ('0', '1', ...). Restore numeric indices for arrays so these paths
+            // match the number-indexed paths used everywhere else (touched keys,
+            // Zod error paths, getValue). Object keys stay strings — even
+            // numeric-looking ones like { '5': ... } are real string keys.
+            // Without this, e.g. validate(true)'s force-touch builds ['list','0']
+            // while the field looks up ['list', 0] — different serializePath keys,
+            // so the touch silently misses nested array fields.
+            const segment = isArray ? Number(key) : key;
+            const newPath = [...currentPath, segment];
+
+            paths.push(newPath); // record this node's path
+            traverse(value, newPath); // then descend for any deeper paths
           }
         }
       };
 
+      // Start from the subtree at basePath (default: the whole values object).
       traverse(getValueAtPath(values, basePath), basePath);
       return paths;
     },
@@ -470,23 +533,31 @@ export function FormProvider<T extends Record<string | number, unknown>>({
     [getValuePaths, setFieldTouched, validateForm, dispatch]
   );
 
+  // Field blur handler shared by useField and any raw-context consumer. Marks the
+  // field touched and, when validateOnBlur is enabled, runs validation so leaving
+  // a field invalid surfaces its error. Centralizing it here means validateOnBlur
+  // works no matter how a field wires its onBlur (useField or raw context).
+  const handleBlur = useCallback(
+    (path: (string | number)[]) => {
+      setFieldTouched(path, true);
+      if (validateOnBlur) {
+        validateFunction();
+      }
+    },
+    [setFieldTouched, validateOnBlur, validateFunction]
+  );
+
   // Function used for mount validation
   const performInitialValidation = useCallback(() => {
-    // Get all paths for marking as touched
     const allPaths = getValuePaths();
 
-    // Mark all paths as touched in the ref
+    // By default only mark *populated* fields touched: a prefilled form surfaces
+    // errors for the data it loaded, while empty fields the user hasn't reached
+    // stay quiet (errors are gated on touched). touchAllOnMount touches everything.
     const newTouched: Record<string, boolean> = {};
-
-    // Mark all paths as touched
     for (const path of allPaths) {
-      const pathKey = serializePath(path);
-      newTouched[pathKey] = true;
-
-      // Also mark parent paths
-      for (let i = 1; i <= path.length; i++) {
-        const parentPath = path.slice(0, i);
-        newTouched[serializePath(parentPath)] = true;
+      if (touchAllOnMount || !isEmptyValue(getValueAtPath(values, path))) {
+        newTouched[serializePath(path)] = true;
       }
     }
 
@@ -495,7 +566,12 @@ export function FormProvider<T extends Record<string | number, unknown>>({
 
     // Validate form directly
     const result = validateForm();
-    const newErrors = result.valid ? [] : result.errors || [];
+    const validationErrors = result.valid ? [] : result.errors || [];
+
+    // Preserve any server errors (e.g. seeded via initialServerErrors) — mount
+    // validation only owns the client/validation errors, not server ones.
+    const serverErrors = errorsRef.current.filter((e) => e.source === 'server');
+    const newErrors = [...serverErrors, ...validationErrors];
 
     // Update errors ref
     errorsRef.current = newErrors;
@@ -510,7 +586,7 @@ export function FormProvider<T extends Record<string | number, unknown>>({
         canSubmit: result.valid,
       },
     });
-  }, [getValuePaths, validateForm]);
+  }, [getValuePaths, validateForm, values, touchAllOnMount]);
 
   // Combined effect for mount tracking and validation
   React.useEffect(() => {
@@ -675,42 +751,32 @@ export function FormProvider<T extends Record<string | number, unknown>>({
         // Update touchedRef immediately
         touchedRef.current = newTouched;
 
-        // Create a new errors array with the deleted item's errors removed
-        const newErrors = errorsRef.current
-          .filter(
-            (error) =>
-              error.path.length < parentPath.length ||
-              !error.path
-                .slice(0, parentPath.length)
-                .every((val, idx) => parentPath[idx] === val)
-          )
-          .map((error) => {
-            // Adjust indices for errors on items after the deleted one
-            if (
-              error.path.length > parentPath.length &&
-              error.path
-                .slice(0, parentPath.length)
-                .every((val, idx) => parentPath[idx] === val)
-            ) {
-              const errorIndex = Number(error.path[parentPath.length]);
-
-              if (!isNaN(errorIndex) && errorIndex > arrayIndex) {
-                return {
-                  ...error,
-                  path: [
-                    ...parentPath,
-                    errorIndex - 1,
-                    ...error.path.slice(parentPath.length + 1),
-                  ],
-                };
-              }
-            }
-
-            return error;
-          });
+        // Remove every error under the deleted array. When a schema is present,
+        // the re-validation below regenerates them at the correct indices.
+        // (A per-item reindex map used to live here but was dead code — this
+        // filter already strips everything it would have operated on.)
+        const newErrors = errorsRef.current.filter(
+          (error) =>
+            error.path.length < parentPath.length ||
+            !error.path
+              .slice(0, parentPath.length)
+              .every((val, idx) => parentPath[idx] === val)
+        );
 
         // Update errorsRef immediately
         errorsRef.current = newErrors;
+
+        // Keep serverErrorsRef in sync — drop server errors under the deleted array
+        // too. Otherwise a later setServerError()/setServerErrors() rebuilds combined
+        // errors from this stale baseline and resurrects errors for the removed item
+        // (or now-shifted indices).
+        serverErrorsRef.current = serverErrorsRef.current.filter(
+          (error) =>
+            error.path.length < parentPath.length ||
+            !error.path
+              .slice(0, parentPath.length)
+              .every((val, idx) => parentPath[idx] === val)
+        );
 
         // Validate the new array after deletion
         let finalErrors = newErrors;
@@ -832,6 +898,18 @@ export function FormProvider<T extends Record<string | number, unknown>>({
 
         // Update errorsRef immediately
         errorsRef.current = newErrors;
+
+        // Keep serverErrorsRef in sync (see the array branch above): drop server
+        // errors under the deleted path so a later setServerError() can't rebuild
+        // them from a stale baseline.
+        serverErrorsRef.current = serverErrorsRef.current.filter((error) => {
+          if (error.path.length < path.length) {
+            return true;
+          }
+          return !error.path
+            .slice(0, path.length)
+            .every((val, idx) => path[idx] === val);
+        });
 
         // Validate the form after deletion
         let finalErrors = newErrors;
@@ -964,12 +1042,16 @@ export function FormProvider<T extends Record<string | number, unknown>>({
         return false;
       }
 
-      // If we're forcing a reset while submitting, cancel the submission first
+      // If we're forcing a reset while submitting, invalidate the submission first.
+      // Clear the submission ID too (matching reset()) so any stale helpers.* writes
+      // from the in-flight onSubmit no-op via isCurrentSubmission.
       if (isSubmittingRef.current && force) {
         isSubmittingRef.current = false;
-        // currentSubmissionIDRef is not explicitly cleared here, but usually a reset implies a new context
-        // We'll let the general UPDATE_STATE handle isSubmitting, and if a new submission ID is needed, it'll be set by submit().
-        dispatch({ type: 'UPDATE_STATE', updates: { isSubmitting: false } });
+        currentSubmissionIDRef.current = null;
+        dispatch({
+          type: 'UPDATE_STATE',
+          updates: { isSubmitting: false, currentSubmissionID: null },
+        });
       }
 
       // Update refs first - this is critical for immediate access
@@ -1353,6 +1435,7 @@ export function FormProvider<T extends Record<string | number, unknown>>({
       values,
       touched,
       setFieldTouched,
+      handleBlur,
       errors,
       isSubmitting,
       // Valid when there are no errors AND either validation has run (lastValidated
@@ -1392,6 +1475,7 @@ export function FormProvider<T extends Record<string | number, unknown>>({
       values,
       touched,
       setFieldTouched,
+      handleBlur,
       errors,
       isSubmitting,
       canSubmit,

@@ -1,5 +1,14 @@
 import { describe, it, expect } from 'bun:test';
-import { getValueAtPath, setValueAtPath, getEmptyValue } from './utils';
+import {
+  getValueAtPath,
+  setValueAtPath,
+  getEmptyValue,
+  serializePath,
+  deserializePath,
+  cloneAlongPath,
+  generateID,
+  isEmptyValue,
+} from './utils';
 
 describe('utils', () => {
   describe('getValueAtPath', () => {
@@ -361,6 +370,84 @@ describe('utils', () => {
           version: 0,
         },
       });
+    });
+  });
+
+  describe('getValueAtPath (edge cases)', () => {
+    it('reads a numeric key off a non-array object', () => {
+      const obj = { user: { 7: { name: 'Seven' } } } as Record<string, unknown>;
+      expect(getValueAtPath(obj, ['user', 7, 'name'])).toBe('Seven');
+    });
+
+    it('returns undefined for a numeric key missing on a non-array object', () => {
+      const obj = { user: {} } as Record<string, unknown>;
+      expect(getValueAtPath(obj, ['user', 7])).toBeUndefined();
+    });
+  });
+
+  describe('setValueAtPath (edge cases)', () => {
+    it('does nothing for an empty path', () => {
+      const obj = { a: 1 };
+      setValueAtPath(obj, [], 99);
+      expect(obj).toEqual({ a: 1 });
+    });
+  });
+
+  describe('serializePath / deserializePath', () => {
+    it('round-trips a path array', () => {
+      const path = ['user', 0, 'name'];
+      const key = serializePath(path);
+      expect(typeof key).toBe('string');
+      expect(deserializePath(key)).toEqual(path);
+    });
+
+    it('produces distinct keys for ambiguous segments', () => {
+      expect(serializePath(['a.b'])).not.toBe(serializePath(['a', 'b']));
+    });
+  });
+
+  describe('cloneAlongPath', () => {
+    it('returns the same object for an empty path', () => {
+      const obj = { a: 1 };
+      expect(cloneAlongPath(obj, [])).toBe(obj);
+    });
+
+    it('clones references along the path but shares untouched branches', () => {
+      const obj = { a: { x: 1 }, b: { y: 2 } };
+      const result = cloneAlongPath(obj, ['a', 'x']);
+      expect(result).not.toBe(obj); // root cloned
+      expect(result.a).not.toBe(obj.a); // path cloned
+      expect(result.b).toBe(obj.b); // untouched branch shared
+    });
+
+    it('creates an object when a path segment is not traversable', () => {
+      const obj = { a: 5 } as Record<string, unknown>;
+      const result = cloneAlongPath(obj, ['a', 'b']);
+      expect(typeof result.a).toBe('object');
+    });
+  });
+
+  describe('generateID', () => {
+    it('returns a non-empty, reasonably unique string', () => {
+      const a = generateID();
+      const b = generateID();
+      expect(typeof a).toBe('string');
+      expect(a.length).toBeGreaterThan(0);
+      expect(a).not.toBe(b);
+    });
+  });
+
+  describe('isEmptyValue', () => {
+    it('treats type-empty values as empty', () => {
+      for (const v of ['', 0, false, [], {}, undefined, null]) {
+        expect(isEmptyValue(v)).toBe(true);
+      }
+    });
+
+    it('treats populated values as non-empty', () => {
+      for (const v of ['x', 5, true, [1], { a: 1 }]) {
+        expect(isEmptyValue(v)).toBe(false);
+      }
     });
   });
 });

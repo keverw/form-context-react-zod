@@ -1,8 +1,10 @@
 import { z } from 'zod';
-import { FormProvider, FormContext } from '../../lib/form-context';
+import { FormProvider } from '../../lib/form-context';
 import FormInput from '../FormInput';
 import { FormState } from '../../lib/components/FormState';
-import { useContext, useCallback } from 'react';
+import { useField } from '../../lib/hooks/useField';
+import { useFormContext } from '../../lib/hooks/useFormContext';
+import { useCallback } from 'react';
 
 // Define a schema for our form
 const schema = z.object({
@@ -15,13 +17,12 @@ const schema = z.object({
 // Define the form values type based on the schema
 type FormValues = z.infer<typeof schema>;
 
-// First component that will use the form context
+// Each section is its own component that taps the SAME shared form context via
+// useField — which handles value/error wiring (errors only show once a field is
+// touched) and the validate-on-blur behavior for us.
 function PersonalInfoSection() {
-  const form = useContext(FormContext);
-
-  if (!form) {
-    throw new Error('PersonalInfoSection must be used within a FormProvider');
-  }
+  const firstName = useField(['firstName']);
+  const lastName = useField(['lastName']);
 
   return (
     <div className="mb-8 p-4 border border-blue-200 rounded-lg bg-blue-50">
@@ -31,22 +32,13 @@ function PersonalInfoSection() {
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <FormInput
+          {...firstName.props}
           label="First Name"
-          value={form.getValue(['firstName'])}
-          onChange={(value) => form.setValue(['firstName'], value)}
-          onBlur={() => form.setFieldTouched(['firstName'], true)}
-          errorText={form.getError(['firstName'])[0]?.message}
-          touched={!!form.touched['firstName']}
           placeholder="Enter your first name"
         />
-
         <FormInput
+          {...lastName.props}
           label="Last Name"
-          value={form.getValue(['lastName'])}
-          onChange={(value) => form.setValue(['lastName'], value)}
-          onBlur={() => form.setFieldTouched(['lastName'], true)}
-          errorText={form.getError(['lastName'])[0]?.message}
-          touched={!!form.touched['lastName']}
           placeholder="Enter your last name"
         />
       </div>
@@ -54,13 +46,11 @@ function PersonalInfoSection() {
   );
 }
 
-// Second component that will use the same form context
+// Second component that uses the same shared form context
 function ContactInfoSection() {
-  const form = useContext(FormContext);
-
-  if (!form) {
-    throw new Error('ContactInfoSection must be used within a FormProvider');
-  }
+  const form = useFormContext();
+  const email = useField(['email']);
+  const age = useField(['age']);
 
   return (
     <div className="mb-8 p-4 border border-green-200 rounded-lg bg-green-50">
@@ -70,23 +60,18 @@ function ContactInfoSection() {
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <FormInput
+          {...email.props}
           label="Email"
-          value={form.getValue(['email'])}
-          onChange={(value) => form.setValue(['email'], value)}
-          onBlur={() => form.setFieldTouched(['email'], true)}
-          errorText={form.getError(['email'])[0]?.message}
-          touched={!!form.touched['email']}
           placeholder="Enter your email"
           type="email"
         />
-
         <FormInput
-          label="Age"
-          value={form.getValue(['age'])}
+          value={age.value}
+          errorText={age.error}
+          onBlur={age.props.onBlur}
+          // `age` is a number field, so convert the input string before storing.
           onChange={(value) => form.setValue(['age'], Number(value))}
-          onBlur={() => form.setFieldTouched(['age'], true)}
-          errorText={form.getError(['age'])[0]?.message}
-          touched={!!form.touched['age']}
+          label="Age"
           placeholder="Enter your age"
           type="number"
         />
@@ -97,11 +82,7 @@ function ContactInfoSection() {
 
 // Component for the submit button
 function SubmitButton() {
-  const form = useContext(FormContext);
-
-  if (!form) {
-    throw new Error('SubmitButton must be used within a FormProvider');
-  }
+  const form = useFormContext();
 
   const handleSubmit = useCallback(() => {
     form.submit();

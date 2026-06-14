@@ -134,12 +134,89 @@ exports throughout.
       unchanged, so no signature edits needed.)
 - ✅ All green under Zod 4: type-check, lint, 69 tests, build:lib, prepublishOnly.
 
-## 3. Code splitting (Unirend-style multi-entry exports)
+## 3. API additions (baked into 2.0)
+
+Gaps spotted comparing to React Hook Form / Formik / TanStack Form. All additive (no breaking
+changes). **Doing these before React Native** — they touch the core hooks, so it's cleaner to
+stabilize the API before splitting entries / adding platform bindings. Implementation notes are
+rough.
+
+**Confirmed for 2.0:**
+
+- [ ] **`useArrayField` helper parity.** Today: `items, add, remove, move`. Add the RHF
+      `useFieldArray` set: **`insert(i, item)`, `prepend(item)`, `swap(a, b)`, `replace(newArray)`,
+      `update(i, item)`**. The wrinkle is errors/touched **re-indexing** — `move` already does this
+      (see its `adjustErrorPaths` + touched-remap block), so factor that out and reuse for
+      `insert`/`swap`. `prepend` = `insert(0, …)`. `replace` clears errors/touched under the array
+      path and lets re-validation regenerate. `update(i, item)` = `setValue([...path, i], item)`.
+      Each needs a reindex test (we learned `move`'s reindex was subtle).
+- [ ] **`getFieldState(path)` convenience.** Returns `{ error, isTouched, invalid }` for one field
+      in a single call (RHF parity). Pure wrapper over existing `getError(path)` + `touched` lookup.
+      Tiny.
+- [ ] **Submit-attempt flags.** Two reducer booleans, framed as an _attempt_ so a failed submit
+      doesn't read weirdly: **`submitAttempted`** (true once the user has tried to submit at all,
+      pass or fail — RHF calls this `isSubmitted`, but "attempted" is clearer) and
+      **`submitSucceeded`** (true only if the most recent attempt finished without throwing /
+      without the handler setting submission errors; RHF's `isSubmitSuccessful`). Decide whether to
+      keep the RHF names as aliases for familiarity. Both **cleared by `reset()` /
+      `resetWithValues()`** (same as touched/errors/lastValidated). Tiny. Fold **`submitCount`** in
+      here too (running count of attempts; same reducer-state + reset-to-0 treatment) — it pairs
+      naturally with `submitAttempted`.
+- [ ] **`setError(path, message)` for manual/client errors.** We have `setServerError` (server
+      source) + `setErrors` (replace-all). Add a targeted setter for a **client/manual** error at
+      one path (`source: 'client'`), mirroring `setServerError`'s shape (string | string[] | null,
+      where null clears). Decide ownership: a manual client error at a path should survive
+      re-validation the way server errors do, OR be documented as cleared on next validate —
+      **resolve this when implementing** (the overlap with Zod-owned validation errors is the only
+      non-trivial bit).
+- [ ] **`validateField(path)` (manual per-field validate / "trigger").** `validate()` runs the
+      whole Zod schema (no isolated field check). Implement as `setFieldTouched(path, true)` +
+      `validateFunction()`: since error display gates on `touched`, only that field surfaces. ~15
+      lines + test.
+- [ ] **`AbortSignal` on the `onSubmit` helpers.** Today `reset(force)` only _invalidates_ a
+      submission (flips `isSubmitting`, clears the submission ID so `helpers.*` writes no-op via
+      `isCurrentSubmission`) — it does **not** abort the user's network call, and there's no signal
+      handed to `onSubmit`. Add **`helpers.signal`** (an `AbortSignal`) that fires when the
+      submission is superseded / force-reset / the provider unmounts, so users can just pass it to
+      `fetch(url, { signal })` and get real cancellation instead of manually polling
+      `isCurrentSubmission`. We already track the submission lifecycle that'd drive it — wire an
+      `AbortController` per submit, `abort()` it on invalidate/unmount. Update the "Resetting
+      mid-submit" docs once it lands.
+- [ ] **`isDirty` + `dirtyFields`.** Derived from a **baseline** kept in a ref (starts =
+      `initialValues`): `isDirty` = `!deepEqual(values, baseline)`, `dirtyFields` = the per-field
+      diff. Enables "disable Save until changed." For "mark clean after a save," add a dedicated
+      **`markPristine(path?, value?)`** (a.k.a. `commitValues`) that **only moves the baseline** —
+      it never mutates form values/errors/touched and never force-flips the flag. `isDirty` is
+      _always derived_ by comparing current values to the baseline, so `markPristine` just changes
+      what we compare against and lets the comparison decide. Two knobs: - **`path`** (optional) scopes the baseline update to a single field/subtree; omit for the
+      whole form. - **`value`** (optional) sets the baseline to an _explicit_ saved value rather than the
+      current form value. This matters: a save often returns server-normalized data (trimmed
+      strings, coerced numbers, server-filled fields), so baselining to **what actually
+      persisted** is the correct comparison target. Defaults to the current value at `path`.
+
+      Key consequence (this is the desired behavior): if the user kept typing past what was saved,
+      the current value **won't match** the new baseline, so the field **stays dirty** — exactly
+      right, there are real unsaved edits. This is the fundamental split from `reset`: `reset`
+      **mutates values** to a target (forces a state), `markPristine` **mutates the baseline** and
+      derives dirtiness from it. (RHF's nearest equivalent is `reset(values, { keepDirty: false })`,
+      but it conflates the two; a focused baseline-only method reads cleaner.) So the dirty baseline
+      can drift from the `reset()` baseline (`initialValues`) — intended: `reset()` = "back to
+      load", `markPristine()` = "this is the new saved-clean reference."
+
+- [ ] **`setFocus(path)` / `focusFirstError()`.** Needs a field-ref registry: `useField` spreads
+      props but doesn't register the input centrally (RHF focuses via `register()`'s captured ref).
+      Add a context `Map<serializedPath, { focus(): void }>` that `useField` populates, then walk
+      error paths and `.focus()` the first match. **Pairs with the React Native track:** type the
+      registry to `{ focus(): void }` (NOT `HTMLElement`) since RN `TextInput` refs expose
+      `.focus()`, and have `useField` **expose a `ref`** for the consumer to attach
+      (`<TextInput ref={field.ref} />`). Do it alongside RN field-wiring, not as a web-only add.
+
+## 4. Code splitting (Unirend-style multi-entry exports)
 
 Unirend uses conditional exports with separate entries, each emitting types/import/require.
 Apply the same so the core is DOM-free and RN-friendly; debug tooling is opt-in.
 
-- [ ] Define entry points: - `.` — core (`FormProvider`, hooks, zod-helpers) — **no DOM imports**. - `./devtools` — web `FormState` debug component (DOM). - `./devtools/native` — React Native debug component equivalent (see track 5).
+- [ ] Define entry points: - `.` — core (`FormProvider`, hooks, zod-helpers) — **no DOM imports**. - `./devtools` — web `FormState` debug component (DOM). - `./devtools/native` — React Native debug component equivalent (see the React Native track).
 - [ ] Update tsup config for multiple entries; update generated `package.json` `exports`/`files`.
 - [ ] Move `FormState` out of the root `index.ts` barrel into the `devtools` entry.
 - [ ] ⚠️ **Singleton concern: `FormContext` must be ONE instance across entries.** If
@@ -153,7 +230,7 @@ Apply the same so the core is DOM-free and RN-friendly; debug tooling is opt-in.
 - [ ] `react-refresh/only-export-components` (3 warnings) — re-evaluate / resolve here, since
       splitting components out of barrels into dedicated entries naturally addresses it.
 
-## 4. Lint findings to triage (surfaced by the eslint 9.39 + react-hooks 7 + jsx-a11y upgrade)
+## 5. Lint findings to triage (surfaced by the eslint 9.39 + react-hooks 7 + jsx-a11y upgrade)
 
 `react/no-unescaped-entities` is **disabled** — we use Unirend's cherry-pick style (a few
 `react/*` rules) instead of `react.configs.flat.recommended`, so that rule never turns on.
@@ -170,10 +247,10 @@ Remaining 13 findings:
       last non-null submission ID across clears).
 - [x] **`jsx-a11y/label-has-associated-control` (2).** ✅ The two were group captions misusing
       `<label>`; converted to `<p>` (demo files).
-- [ ] `react-refresh/only-export-components` (3) — deferred to Track 3 (code splitting). Warnings,
+- [ ] `react-refresh/only-export-components` (3) — deferred to the code-splitting track. Warnings,
       don't block the prepublishOnly gate.
 
-## 5. Code review / scan
+## 6. Code review / scan
 
 Done before Cursor had review tooling — re-run now.
 
@@ -182,7 +259,7 @@ Done before Cursor had review tooling — re-run now.
       riskiest area for race conditions).
 - [ ] Lint clean (`bun run lint`) and typecheck under the new Zod.
 
-## 5. React Native support
+## 7. React Native support
 
 Feasible — field binding is via hooks (render-agnostic). Only DOM hard-deps:
 
@@ -192,24 +269,48 @@ Feasible — field binding is via hooks (render-agnostic). Only DOM hard-deps:
 
 - [ ] Confirm `FormProvider` works with no `<form>` wrapper.
 - [ ] Build a **React Native debug component** (the RN equivalent of `FormState`),
-      shipped under `./devtools/native` (track 3).
+      shipped under `./devtools/native` (the code-splitting track).
 - [ ] **Ship an Expo example.** For local dev, have users clone the repo and run a command
       that links the package locally (`bun link` / local file path) into the Expo app —
       no need to publish to test.
 - [ ] Decide `react-native` export condition if RN needs a distinct core build.
 
-## 6. Test coverage
+## 8. Test coverage
 
-Currently only 3 test files (`utils.test.ts`, `zod-helpers.test.ts`, `form-context.test.tsx`).
-`form-context.tsx` is large and undertested.
+- [x] Audit coverage. Found the hooks (`useArrayField`, and pre-validateOnBlur `useField`) and
+      `FormState` had **zero** direct tests — they weren't even imported by the suite.
+- [x] **Add hook tests.** ✅ `useField` → 100%, `useFormContext` (incl. the outside-provider
+      throw) → 100%, `useArrayField` (items/add/remove/move + the move() error-reindexing) → 73%.
+- [x] **Add `FormState` smoke test.** ✅ sections render, values shown, dark-mode toggle works
+      (0% → 85%).
+- [x] **Fixed a latent test-isolation bug:** `@testing-library/react`'s auto-cleanup never
+      registered under `bun:test` (it looks for a global `afterEach`), so renders leaked across
+      tests. Wired `afterEach(cleanup)` in `testSetup.ts` — hardens the whole suite.
+- [x] **Coverage push (round 2).** Added `utils` (serialize/deserialize/cloneAlongPath/generateID + edge cases), `useArrayField` move() touched-reindexing, FormState value-type + all three
+      error sections, and an onSubmit-`helpers` surface test (covers the big 1203–1276 block).
+- [x] Submission flow (ID lifecycle, race/queueing, error sources, root messages) — already well
+      covered by the existing `form-context.test.tsx`; the new helpers test adds the in-submit
+      `helpers` surface on top.
+- [x] **🐛 Bug found + fixed via the coverage push:** `getValuePaths` built array-item paths from
+      `Object.entries`, which **stringifies indices** (`['items', '1', 'name']`) — but the rest of
+      the lib uses **number** indices (`['items', 1, 'name']`), and `serializePath` makes those
+      distinct keys. So `validate(true)`'s force-touch (and `getValueAtPath`) silently missed nested
+      array fields — the original "validate(true) doesn't reach nested paths" suspicion. Fixed by
+      restoring numeric indices when traversing arrays; added a regression test (fails pre-fix).
+- [x] **Coverage push (round 3):** added `deleteField` tests (array-item delete clears under-array
+      errors; field delete re-validates + merges → covered 869–886). **69 → 100 tests**, overall
+      lines **~86% → 98.4%** (funcs ~98%). Per-file: form-context 94% · FormState 99% · useArrayField
+      97% · utils 95% · useField/useFormContext/zod-helpers 100%. `prepublishOnly` green.
+- [x] **🧹 Removed dead code:** `deleteField`'s array-item branch had a reindex `.map` that was
+      **unreachable** — the preceding filter strips every under-array error before the map runs
+      (verified: errors drop, then re-validation regenerates them). It was pure `.filter().map(identity)`,
+      so collapsing to just `.filter()` is a zero-behavior change. form-context lines 94.4% → 96.9%.
+- [x] **🔇 Quieted intentional-error tests:** several tests trigger the lib's own error/warn paths
+      on purpose (onSubmit throw/reject, double-submit, reset-while-submitting) and assert the result.
+      `testSetup.ts` now filters ONLY those known messages from console; everything else still prints.
+- Remaining red is scattered 1–3 line edge guards (stale-submission branches, error-path mismatches) + 2 defensive `utils` lines — diminishing returns. Overall **98% lines / ~96% funcs**, 100 tests.
 
-- [ ] Audit current coverage report (`bun run test` already runs `--coverage`).
-- [ ] Add tests for hooks: `useField`, `useArrayField`, `useFormContext` (none today).
-- [ ] Add tests for submission flow: submission ID lifecycle, race/queueing path,
-      server vs client error sources, root messages.
-- [ ] Add `FormState` smoke test.
-
-## 7. Hydration safety ✅ (verified — doc task only)
+## 9. Hydration safety ✅ (verified — doc task only)
 
 Scanned the lib: **no hydration hazards found.**
 
@@ -222,7 +323,7 @@ Scanned the lib: **no hydration hazards found.**
       identical `initialValues` on server and client.
 - [ ] (Optional) Add an SSR render test (`renderToString`) to lock it in.
 
-## 9. Features (emerged while dogfooding the demo)
+## 10. Features (emerged while dogfooding the demo)
 
 - [x] **`validateOnBlur` (default true).** ✅ Found while playing with the demo: focusing a
       required field and leaving it empty did nothing — touched but never validated, so no error
@@ -231,10 +332,27 @@ Scanned the lib: **no hydration hazards found.**
       (default on; set `false` to opt out), wired in `useField`'s blur handler (kept separate from
       `setTouched` so typing doesn't double-validate via `validateOnChange`). Tests + FORM-API.md
       updated. (Submit button stays disabled by design — the blur errors now guide the user.)
+- [x] **`form.handleBlur(path)` context method.** ✅ validateOnBlur lived only in `useField`, so
+      raw-context fields (the MultipleChildren demo) missed it. Centralized blur (touch + validate-
+      if-enabled) as a context method; `useField` uses it; raw-context fields call `form.handleBlur`.
+      Converted MultipleChildren to `useField` (it also wasn't gating errors on touched, so blur
+      revealed _all_ errors). Tests + FORM-API.md updated.
+- [x] **`validateOnMount` now touches only populated fields** (+ `touchAllOnMount` opt-in). ✅
+      Previously it marked _every_ field touched, so an empty form with validateOnMount flashed all
+      errors on load. Now it validates (so `canSubmit` is correct) but only touches fields that have
+      values — prefilled/loaded data shows its errors; empty fields stay quiet until touched. Set
+      `touchAllOnMount` to restore the old reveal-everything behavior. Added `isEmptyValue` util.
+      Tests + FORM-API.md updated.
+- [x] **`initialServerErrors` prop.** ✅ Server errors could previously only be set via the API
+      (`setServerErrors`/`setServerError`, or `onSubmit` helpers). Added a declarative prop to seed
+      them at mount — useful for SSR hydrating a record the server already flagged. Normalized to
+      `source: 'server'`, touch-independent, merges as the baseline for later API calls, cleared by
+      `reset()`. Seeds reducer state + `errorsRef` + `serverErrorsRef`. Prefilled demo gained a 4th
+      sub-tab ("Server errors at mount") with a root + two field errors. Tests + FORM-API.md updated.
 
-## 8. Release
+## 11. Release
 
 - [ ] Bump root `package.json` to `2.0.0` (single source of truth; everything syncs from it).
-- [ ] CHANGELOG / release notes covering the Zod 4 break.
+- [ ] CHANGELOG / release notes covering the Zod 4 break + the new APIs (§3).
 - [ ] `bun run build:lib` and verify `dist_module/`.
 - [ ] Publish.

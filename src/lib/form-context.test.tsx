@@ -3055,44 +3055,30 @@ describe('FormProvider', () => {
       'errors=2'
     );
 
-    // Change username to fix one error
+    // Editing a field clears ITS OWN server error (the standard pattern — the
+    // user fixed that field, so its server complaint no longer applies). Other
+    // fields' server errors persist until they're edited or the form resubmits.
     fireEvent.click(screen.getByTestId('fix-username'));
 
     await advanceTimers();
 
-    // Username error should be gone, and it appears the password error is also gone
-    // This suggests that modifying any field might clear all server errors
+    // Username error is gone; the unrelated password server error remains.
     expect(screen.queryByTestId('username-error')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('password-error')).not.toBeInTheDocument();
+    expect(screen.getByTestId('password-error')).toBeInTheDocument();
+    expect(screen.getByTestId('password-error').textContent).toBe(
+      'Password too weak'
+    );
 
-    // Form should still have validation state from after the username change
     expect(screen.getByTestId('validation-state').textContent).toContain(
       'after-username-change'
     );
-    expect(screen.getByTestId('validation-state').textContent).toContain(
-      'isValid=false'
-    );
 
-    // Submit again to get server errors back
-    await act(async () => {
-      fireEvent.click(screen.getByTestId('submit'));
-    });
-
-    await advanceTimers();
-
-    // Record state after second submission
-    fireEvent.click(screen.getByTestId('record-after-submit'));
-
-    // Server errors should be present again
-    expect(screen.getByTestId('username-error')).toBeInTheDocument();
-    expect(screen.getByTestId('password-error')).toBeInTheDocument();
-
-    // Fix password
+    // Now edit password too — that clears the last remaining server error.
     fireEvent.click(screen.getByTestId('fix-password'));
 
     await advanceTimers();
 
-    // Both field errors should be gone now
+    // Both field errors are now gone (each cleared by editing its own field).
     expect(screen.queryByTestId('username-error')).not.toBeInTheDocument();
     expect(screen.queryByTestId('password-error')).not.toBeInTheDocument();
 
@@ -3101,7 +3087,7 @@ describe('FormProvider', () => {
 
     await advanceTimers();
 
-    // Form should now be valid
+    // Form should now be valid with no errors left.
     expect(screen.getByTestId('validation-state').textContent).toContain(
       'after-validate-true'
     );
@@ -3112,8 +3098,8 @@ describe('FormProvider', () => {
       'errors=0'
     );
 
-    // Verify onSubmit was called twice (once initially, once for second submission)
-    expect(onSubmit).toHaveBeenCalledTimes(2);
+    // onSubmit was called once (the initial submission that produced the errors).
+    expect(onSubmit).toHaveBeenCalledTimes(1);
   });
 
   it('works correctly without a schema', async () => {
