@@ -6,6 +6,7 @@ import {
   setValueAtPath,
   getEmptyValue,
   serializePath,
+  deserializePath,
   cloneAlongPath,
   generateID,
   isEmptyValue,
@@ -71,6 +72,17 @@ export interface FormContextValue<T> {
   setValue: <V = unknown>(path: (string | number)[], value: V) => void;
   clearValue: (path: (string | number)[]) => void;
   deleteField: (path: (string | number)[]) => void;
+  /**
+   * Low-level primitive used by `useArrayField`'s reorder ops. Replaces the array
+   * at `arrayPath` with `newItems` and re-indexes the item metadata (touched,
+   * validation + server errors) via `indexMap` (old index -> new index, or null
+   * to drop) in a single atomic update. Prefer the `useArrayField` helpers.
+   */
+  reindexArray: (
+    arrayPath: (string | number)[],
+    newItems: unknown[],
+    indexMap: (oldIndex: number) => number | null
+  ) => void;
   getValuePaths: (path?: (string | number)[]) => (string | number)[][];
   getError: (path: (string | number)[]) => ValidationError[];
   getErrorPaths: (path?: (string | number)[]) => (string | number)[][];
@@ -960,6 +972,122 @@ export function FormProvider<T extends Record<string | number, unknown>>({
     [canSubmit, validateOnChange, schema]
   );
 
+  // Atomically reshape an array field and re-index the metadata attached to its
+  // items. `newItems` is the replacement array; `indexMap` maps each OLD item
+  // index to its new index (or null to drop). Used by useArrayField's reorder
+  // ops (move/swap/insert/replace) so that values, touched, validation errors AND
+  // the server-error baseline all stay in sync in a single dispatch — unlike
+  // doing it from the hook via the public API, which can't reach serverErrorsRef.
+  const reindexArray = useCallback(
+    (
+      arrayPath: (string | number)[],
+      newItems: unknown[],
+      indexMap: (oldIndex: number) => number | null
+    ) => {
+      // 1. Values — set the new array at arrayPath.
+      const newValues = cloneAlongPath(valuesRef.current, arrayPath);
+      setValueAtPath(
+        newValues as Record<string | number, unknown>,
+        arrayPath,
+        newItems
+      );
+      valuesRef.current = newValues;
+
+      // Remap a single path under arrayPath: returns the rewritten path, null to
+      // drop, or the same reference when it's unaffected (outside the array, a
+      // non-numeric index, or an unchanged index).
+      const remapPath = (
+        p: (string | number)[]
+      ): (string | number)[] | null => {
+        const underArray =
+          p.length > arrayPath.length &&
+          arrayPath.every((val, idx) => p[idx] === val);
+        if (!underArray) return p;
+        const oldIndex = Number(p[arrayPath.length]);
+        if (Number.isNaN(oldIndex)) return p;
+        const newIndex = indexMap(oldIndex);
+        if (newIndex === null) return null;
+        return newIndex === oldIndex
+          ? p
+          : [...arrayPath, newIndex, ...p.slice(arrayPath.length + 1)];
+      };
+
+      // 2. Touched — rebuild the map with re-indexed keys (drop the dropped).
+      const remappedTouched: Record<string, boolean> = {};
+      for (const [key, val] of Object.entries(touchedRef.current)) {
+        if (!val) continue;
+        let keyPath: (string | number)[];
+        try {
+          keyPath = deserializePath(key);
+        } catch {
+          remappedTouched[key] = val; // not a path we created; leave it
+          continue;
+        }
+        const np = remapPath(keyPath);
+        if (np === null) continue;
+        remappedTouched[serializePath(np)] = true;
+      }
+      // Mark the array path (and its parents) touched, matching setValue — which
+      // is what add() and the other value mutations do. Changing the array is a
+      // user interaction, so touched-gated array-level validation/UI (e.g. a
+      // z.array().min error) stays consistent across add/insert/move/swap/replace.
+      const newTouched = markPathAsTouched(remappedTouched, arrayPath);
+      touchedRef.current = newTouched;
+
+      // 3. Errors — re-index both the combined list and the server-only baseline
+      // so a later setServerError can't rebuild stale (pre-reorder) indices.
+      const remapErrorList = (errs: ValidationError[]) => {
+        const out: ValidationError[] = [];
+        for (const e of errs) {
+          const np = remapPath(e.path);
+          if (np === null) continue;
+          out.push(np === e.path ? e : { ...e, path: np });
+        }
+        return out;
+      };
+      errorsRef.current = remapErrorList(errorsRef.current);
+      serverErrorsRef.current = remapErrorList(serverErrorsRef.current);
+
+      // 4. Re-validate (when validating on change). Reindexing only moves the
+      // item-level metadata; it can't refresh an error attached to the array path
+      // ITSELF — e.g. `z.array(...).min(1)` produces an error at `['items']`, and
+      // inserting an item should clear it. Mirror setValue(arrayPath, …): drop the
+      // stale validation error(s) at exactly arrayPath, then re-add fresh ones (if
+      // still invalid) from the new value. Server errors at arrayPath are left as-is.
+      let newCanSubmit = canSubmitRef.current;
+      if (validateOnChange && schema) {
+        const result = validate(schema, newValues);
+        newCanSubmit = result.valid;
+        canSubmitRef.current = newCanSubmit;
+
+        const atArrayPath = (p: (string | number)[]) =>
+          p.length === arrayPath.length &&
+          arrayPath.every((val, idx) => p[idx] === val);
+
+        const withoutStaleArrayLevel = errorsRef.current.filter(
+          (e) => e.source === 'server' || !atArrayPath(e.path)
+        );
+        const freshArrayLevel = result.valid
+          ? []
+          : (result.errors ?? []).filter((e) => atArrayPath(e.path));
+        errorsRef.current = [...withoutStaleArrayLevel, ...freshArrayLevel];
+      }
+
+      // 5. Single dispatch.
+      dispatch({
+        type: 'UPDATE_STATE',
+        updates: {
+          values: newValues,
+          touched: newTouched,
+          errors: errorsRef.current,
+          canSubmit: newCanSubmit,
+          ...(validateOnChange && schema ? { lastValidated: Date.now() } : {}),
+        },
+      });
+    },
+    [validateOnChange, schema, dispatch, markPathAsTouched]
+  );
+
   const getError = useCallback(
     (path: (string | number)[]) => {
       return errors.filter(
@@ -1454,6 +1582,7 @@ export function FormProvider<T extends Record<string | number, unknown>>({
       setValue,
       clearValue,
       deleteField,
+      reindexArray,
       getValuePaths,
       getError,
       getErrorPaths,
@@ -1491,6 +1620,7 @@ export function FormProvider<T extends Record<string | number, unknown>>({
       setValue,
       clearValue,
       deleteField,
+      reindexArray,
       getValuePaths,
       getError,
       getErrorPaths,

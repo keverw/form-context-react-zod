@@ -146,13 +146,32 @@ rough.
 
 **Confirmed for 2.0:**
 
-- [ ] **`useArrayField` helper parity.** Today: `items, add, remove, move`. Add the RHF
-      `useFieldArray` set: **`insert(i, item)`, `prepend(item)`, `swap(a, b)`, `replace(newArray)`,
-      `update(i, item)`**. The wrinkle is errors/touched **re-indexing** — `move` already does this
-      (see its `adjustErrorPaths` + touched-remap block), so factor that out and reuse for
-      `insert`/`swap`. `prepend` = `insert(0, …)`. `replace` clears errors/touched under the array
-      path and lets re-validation regenerate. `update(i, item)` = `setValue([...path, i], item)`.
-      Each needs a reindex test (we learned `move`'s reindex was subtle).
+- [x] **`useArrayField` helper parity.** ✅ Added `insert(i, item)`, `prepend(item)`,
+      `swap(a, b)`, `replace(newArray)`, `update(i, item)`. The reorder ops (`move`/`swap`/`insert`/
+      `prepend`/`replace`) just compute the new array + an `indexMap` (old→new|null) and delegate to
+      a new context primitive **`reindexArray`**; `prepend` = `insert(0, …)`; `update` = sugar for
+      `setValue([...path, i], item)`. `reindexArray` atomically re-indexes touched + validation
+      errors + the `serverErrorsRef` baseline in one dispatch and refreshes the array-path-level
+      validation error (e.g. `z.array().min`), so there's no stale-baseline/stale-error edge case —
+      and it fixed `move`'s latent version of the same bug. 8 new tests (insert shift, error follow,
+      prepend, swap+errors, replace drop, update, server-baseline-after-reorder, array-level `.min`
+      refresh). Demo: per-item "insert below" + Prepend/Append/Swap/Replace controls. FORM-API.md
+      updated.
+- [ ] **Stable array item IDs (`useArrayField` → `arrayFieldIds`).** RHF's `field.id`: a stable key
+      per array item so React preserves the right instance (input focus/cursor, uncontrolled state)
+      across reorders — today the demo keys by `index`, so a reorder can shuffle focus. **Name it
+      specifically** (`arrayFieldIds`, a parallel `string[]`) — NOT a bare `id`/`ids`, to avoid
+      confusion with `currentSubmissionID` / submission IDs. **Option A (chosen): hook-local.** Keep a
+      `useRef<string[]>` alongside `items`; every op mutates it the same way (reuse `reindexArray`'s
+      `indexMap` for move/swap/insert/replace; push on add; splice on remove; keep on update).
+      Reconcile by length in render for external mutations (best-effort). Return the parallel array
+      (cleaner than RHF's `{ id, ...item }`, which breaks for primitive items) →
+      `items.map((it, i) => <Row key={arrayFieldIds[i]} … />)`. Array-only — static/nested fields
+      already have stable paths, so they don't need it. **Caveats to document:** ids are
+      hook-instance-local (two `useArrayField` on the same path get different ids), and a direct
+      `setValue`/`deleteField` on the array from elsewhere desyncs identity (counts stay right, but
+      which-id-is-which can't be preserved). Not Option B (an id registry in the context) — too much
+      core machinery against the value/path-as-identity model. ~half a chunk.
 - [ ] **`getFieldState(path)` convenience.** Returns `{ error, isTouched, invalid }` for one field
       in a single call (RHF parity). Pure wrapper over existing `getError(path)` + `touched` lookup.
       Tiny.

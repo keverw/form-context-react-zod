@@ -11,6 +11,10 @@ import {
   Trash2,
   ShieldCheck,
   FileX,
+  CornerDownRight,
+  ArrowDownToLine,
+  ArrowUpToLine,
+  Repeat2,
 } from 'lucide-react';
 import { simulateServer } from './utils';
 import { useFormContext } from '../../lib/hooks/useFormContext';
@@ -23,9 +27,16 @@ interface TodoItemProps {
   total: number;
   onMove: (from: number, to: number) => void;
   onRemove: (index: number) => void;
+  onInsertBelow: (index: number) => void;
 }
 
-function TodoItem({ index, total, onMove, onRemove }: TodoItemProps) {
+function TodoItem({
+  index,
+  total,
+  onMove,
+  onRemove,
+  onInsertBelow,
+}: TodoItemProps) {
   const textField = useField(['todos', index, 'text']);
   const completedField = useField(['todos', index, 'completed']);
 
@@ -70,6 +81,14 @@ function TodoItem({ index, total, onMove, onRemove }: TodoItemProps) {
         )}
         <button
           type="button"
+          onClick={() => onInsertBelow(index)}
+          className="p-2 text-gray-600 hover:text-gray-700 hover:bg-gray-100 rounded"
+          title="Insert below"
+        >
+          <CornerDownRight className="w-4 h-4" />
+        </button>
+        <button
+          type="button"
           onClick={() => onRemove(index)}
           className="p-2 text-red-600 hover:text-red-700 hover:bg-red-50 rounded"
           title="Remove"
@@ -96,7 +115,7 @@ function ArrayForm() {
   const form = useFormContext();
   const toast = useToast();
   const todos = useArrayField(['todos']);
-  const { items, add, remove, move } = todos;
+  const { items, add, remove, move, insert, prepend, swap, replace } = todos;
 
   const deleteIndex = (index: number) => {
     form.deleteField(['todos', index]);
@@ -145,16 +164,27 @@ function ArrayForm() {
             total={items.length}
             onMove={move}
             onRemove={remove}
+            onInsertBelow={(i) => insert(i + 1, { text: '', completed: false })}
           />
         ))}
-        <button
-          type="button"
-          onClick={() => add({ text: '', completed: false })}
-          className="flex items-center justify-center w-full p-2 text-gray-600 border-2 border-dashed rounded-lg hover:text-gray-700 hover:border-gray-400 hover:bg-gray-50"
-        >
-          <Plus className="w-5 h-5 mr-2" />
-          Add Todo
-        </button>
+        <div className="grid grid-cols-2 gap-3">
+          <button
+            type="button"
+            onClick={() => prepend({ text: '', completed: false })}
+            className="flex items-center justify-center p-2 text-gray-600 border-2 border-dashed rounded-lg hover:text-gray-700 hover:border-gray-400 hover:bg-gray-50"
+          >
+            <ArrowUpToLine className="w-5 h-5 mr-2" />
+            Prepend
+          </button>
+          <button
+            type="button"
+            onClick={() => add({ text: '', completed: false })}
+            className="flex items-center justify-center p-2 text-gray-600 border-2 border-dashed rounded-lg hover:text-gray-700 hover:border-gray-400 hover:bg-gray-50"
+          >
+            <ArrowDownToLine className="w-5 h-5 mr-2" />
+            Append
+          </button>
+        </div>
         <div className="grid grid-cols-2 gap-3">
           <button
             type="button"
@@ -177,6 +207,21 @@ function ArrayForm() {
             className="flex items-center px-4 py-2 text-amber-700 bg-amber-50 rounded-lg hover:bg-amber-100"
           >
             <FileX className="w-4 h-4 mr-2" /> Clear Index 0
+          </button>
+          <button
+            type="button"
+            onClick={() => swap(0, 1)}
+            disabled={items.length < 2}
+            className="flex items-center px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 disabled:opacity-50"
+          >
+            <Repeat2 className="w-4 h-4 mr-2" /> Swap 0 &amp; 1
+          </button>
+          <button
+            type="button"
+            onClick={() => replace([{ text: 'Fresh start', completed: false }])}
+            className="flex items-center px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200"
+          >
+            <Plus className="w-4 h-4 mr-2" /> Replace All
           </button>
           <button
             type="button"

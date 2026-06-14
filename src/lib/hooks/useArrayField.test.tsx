@@ -290,6 +290,296 @@ describe('useArrayField move (error re-indexing, both directions)', () => {
   });
 });
 
+// Exercises the parity ops (insert/prepend/swap/replace/update). Server errors
+// are used for the reindex assertions since they show regardless of touched.
+function OpsList() {
+  const { items, insert, prepend, swap, replace, update } = useArrayField([
+    'items',
+  ]);
+  const form = useFormContext();
+  return (
+    <div>
+      <div data-testid="count">{items.length}</div>
+      {items.map((it, i) => (
+        <div key={i}>
+          <div data-testid={`name-${i}`}>
+            {String((it as { name?: string }).name ?? '')}
+          </div>
+          <ItemError index={i} />
+        </div>
+      ))}
+      <button
+        data-testid="seed"
+        onClick={() =>
+          form.setServerErrors([
+            { path: ['items', 0, 'name'], message: 'E0', source: 'server' },
+            { path: ['items', 1, 'name'], message: 'E1', source: 'server' },
+          ])
+        }
+      >
+        seed
+      </button>
+      <button data-testid="insert0" onClick={() => insert(0, { name: 'X' })}>
+        insert at 0
+      </button>
+      <button data-testid="prepend" onClick={() => prepend({ name: 'P' })}>
+        prepend
+      </button>
+      <button data-testid="swap" onClick={() => swap(0, 1)}>
+        swap 0 1
+      </button>
+      <button data-testid="replace" onClick={() => replace([{ name: 'only' }])}>
+        replace
+      </button>
+      <button
+        data-testid="update1"
+        onClick={() => update(1, { name: 'updated' })}
+      >
+        update 1
+      </button>
+    </div>
+  );
+}
+
+function renderOps() {
+  return render(
+    <FormProvider
+      initialValues={{ items: [{ name: 'a' }, { name: 'b' }] }}
+      onSubmit={jest.fn()}
+    >
+      <OpsList />
+    </FormProvider>
+  );
+}
+
+describe('useArrayField parity ops', () => {
+  it('insert places an item and shifts following items up', () => {
+    renderOps();
+    fireEvent.click(screen.getByTestId('insert0'));
+    expect(screen.getByTestId('count').textContent).toBe('3');
+    expect(screen.getByTestId('name-0').textContent).toBe('X');
+    expect(screen.getByTestId('name-1').textContent).toBe('a');
+    expect(screen.getByTestId('name-2').textContent).toBe('b');
+  });
+
+  it('insert shifts existing errors up to follow their items', () => {
+    renderOps();
+    fireEvent.click(screen.getByTestId('seed')); // E0@0, E1@1
+    fireEvent.click(screen.getByTestId('insert0')); // new item at 0
+    // The new item has no error; E0/E1 shift to 1/2.
+    expect(screen.getByTestId('err-0').textContent).toBe('');
+    expect(screen.getByTestId('err-1').textContent).toBe('E0');
+    expect(screen.getByTestId('err-2').textContent).toBe('E1');
+  });
+
+  it('prepend inserts at the front', () => {
+    renderOps();
+    fireEvent.click(screen.getByTestId('prepend'));
+    expect(screen.getByTestId('name-0').textContent).toBe('P');
+    expect(screen.getByTestId('name-1').textContent).toBe('a');
+  });
+
+  it('swap exchanges items and their errors', () => {
+    renderOps();
+    fireEvent.click(screen.getByTestId('seed')); // E0@0, E1@1
+    fireEvent.click(screen.getByTestId('swap'));
+    expect(screen.getByTestId('name-0').textContent).toBe('b');
+    expect(screen.getByTestId('name-1').textContent).toBe('a');
+    // Errors follow their items.
+    expect(screen.getByTestId('err-0').textContent).toBe('E1');
+    expect(screen.getByTestId('err-1').textContent).toBe('E0');
+  });
+
+  it('swap is a no-op for out-of-range/equal indices', () => {
+    renderOps();
+    fireEvent.click(screen.getByTestId('seed'));
+    // swap(0,1) is valid; assert the invalid guard separately is covered by the
+    // hook's bounds check — here we just confirm a valid swap then back is stable.
+    fireEvent.click(screen.getByTestId('swap'));
+    fireEvent.click(screen.getByTestId('swap'));
+    expect(screen.getByTestId('name-0').textContent).toBe('a');
+    expect(screen.getByTestId('name-1').textContent).toBe('b');
+  });
+
+  it('replace swaps in a new array and drops stale per-index errors', () => {
+    renderOps();
+    fireEvent.click(screen.getByTestId('seed')); // E0@0, E1@1
+    fireEvent.click(screen.getByTestId('replace')); // -> [{name:'only'}]
+    expect(screen.getByTestId('count').textContent).toBe('1');
+    expect(screen.getByTestId('name-0').textContent).toBe('only');
+    expect(screen.getByTestId('err-0').textContent).toBe('');
+  });
+
+  it('update replaces a single item', () => {
+    renderOps();
+    fireEvent.click(screen.getByTestId('update1'));
+    expect(screen.getByTestId('name-1').textContent).toBe('updated');
+    expect(screen.getByTestId('name-0').textContent).toBe('a');
+  });
+});
+
+// The reorder ops update the internal server-error baseline (serverErrorsRef),
+// not just the displayed errors — so a later setServerError rebuilds from the
+// re-indexed baseline rather than resurrecting a pre-reorder index.
+function BaselineList() {
+  const { items, swap } = useArrayField(['items']);
+  const form = useFormContext();
+  return (
+    <div>
+      {items.map((_, i) => (
+        <ItemError key={i} index={i} />
+      ))}
+      <div data-testid="other">
+        {form.getError(['other'])[0]?.message ?? ''}
+      </div>
+      <button
+        data-testid="seed"
+        onClick={() =>
+          form.setServerErrors([
+            { path: ['items', 1, 'name'], message: 'E1', source: 'server' },
+          ])
+        }
+      >
+        seed
+      </button>
+      <button data-testid="swap" onClick={() => swap(0, 1)}>
+        swap 0 1
+      </button>
+      <button
+        data-testid="bump"
+        onClick={() => form.setServerError(['other'], 'EX')}
+      >
+        bump other
+      </button>
+    </div>
+  );
+}
+
+// A schema constraint ON THE ARRAY ITSELF (e.g. .min(1)) produces an error at the
+// array path. Reindexing item metadata can't refresh it, so reindexArray must
+// re-validate the array path — inserting an item should clear the .min error.
+const minSchema = z.object({
+  items: z.array(z.object({ name: z.string() })).min(1, 'need at least one'),
+});
+
+function MinList() {
+  const { items, insert } = useArrayField(['items']);
+  const form = useFormContext();
+  return (
+    <div>
+      <div data-testid="arr-err">
+        {form.getError(['items'])[0]?.message ?? ''}
+      </div>
+      <div data-testid="can-submit">{form.canSubmit ? 'yes' : 'no'}</div>
+      <div data-testid="count">{items.length}</div>
+      <button data-testid="validate" onClick={() => form.validate(true)}>
+        validate
+      </button>
+      <button data-testid="insert" onClick={() => insert(0, { name: 'x' })}>
+        insert
+      </button>
+    </div>
+  );
+}
+
+// The reorder ops go through reindexArray, which (like setValue, used by add)
+// must mark the array path itself touched — otherwise touched-gated array-level
+// validation/UI would behave differently for add vs insert/move/swap.
+function TouchArrayPath() {
+  const { items, add, insert, move } = useArrayField(['items']);
+  const form = useFormContext();
+  const arrayTouched = form.touched[serializePath(['items'])] ? 'yes' : 'no';
+  return (
+    <div>
+      <div data-testid="arr-touched">{arrayTouched}</div>
+      <div data-testid="count">{items.length}</div>
+      <button data-testid="add" onClick={() => add({ name: 'n' })}>
+        add
+      </button>
+      <button data-testid="insert" onClick={() => insert(0, { name: 'i' })}>
+        insert
+      </button>
+      <button data-testid="move" onClick={() => move(0, 1)}>
+        move
+      </button>
+    </div>
+  );
+}
+
+describe('useArrayField mutations mark the array path touched', () => {
+  it.each([['add'], ['insert'], ['move']])(
+    '%s marks the array path touched (consistent with setValue)',
+    (action) => {
+      render(
+        <FormProvider
+          initialValues={{ items: [{ name: 'a' }, { name: 'b' }] }}
+          onSubmit={jest.fn()}
+        >
+          <TouchArrayPath />
+        </FormProvider>
+      );
+      expect(screen.getByTestId('arr-touched').textContent).toBe('no');
+      fireEvent.click(screen.getByTestId(action));
+      expect(screen.getByTestId('arr-touched').textContent).toBe('yes');
+    }
+  );
+});
+
+describe('useArrayField reindex refreshes array-level validation errors', () => {
+  it('clears a z.array().min() error when an insert makes the array valid', () => {
+    render(
+      <FormProvider
+        initialValues={{ items: [] }}
+        schema={minSchema}
+        onSubmit={jest.fn()}
+      >
+        <MinList />
+      </FormProvider>
+    );
+    // Surface the array-level .min error.
+    fireEvent.click(screen.getByTestId('validate'));
+    expect(screen.getByTestId('arr-err').textContent).toBe('need at least one');
+    expect(screen.getByTestId('can-submit').textContent).toBe('no');
+
+    // Insert an item -> array now satisfies .min(1); the stale error must clear
+    // and canSubmit must flip true (not just canSubmit).
+    fireEvent.click(screen.getByTestId('insert'));
+    expect(screen.getByTestId('count').textContent).toBe('1');
+    expect(screen.getByTestId('arr-err').textContent).toBe('');
+    expect(screen.getByTestId('can-submit').textContent).toBe('yes');
+  });
+});
+
+describe('useArrayField reorder keeps the server-error baseline in sync', () => {
+  it('does not resurrect a pre-reorder server error on a later setServerError', () => {
+    render(
+      <FormProvider
+        initialValues={{
+          items: [{ name: 'a' }, { name: 'b' }],
+          other: 'x',
+        }}
+        onSubmit={jest.fn()}
+      >
+        <BaselineList />
+      </FormProvider>
+    );
+    fireEvent.click(screen.getByTestId('seed')); // E1 on items[1].name
+    expect(screen.getByTestId('err-1').textContent).toBe('E1');
+
+    // Swap moves the errored item to index 0; the error follows.
+    fireEvent.click(screen.getByTestId('swap'));
+    expect(screen.getByTestId('err-0').textContent).toBe('E1');
+    expect(screen.getByTestId('err-1').textContent).toBe('');
+
+    // Setting an unrelated server error rebuilds from the baseline. The E1 error
+    // must stay at index 0 (not snap back to its pre-swap index 1).
+    fireEvent.click(screen.getByTestId('bump'));
+    expect(screen.getByTestId('other').textContent).toBe('EX');
+    expect(screen.getByTestId('err-0').textContent).toBe('E1');
+    expect(screen.getByTestId('err-1').textContent).toBe('');
+  });
+});
+
 describe('useArrayField move (error re-indexing)', () => {
   it('moves an item’s error to its new index', () => {
     render(

@@ -83,6 +83,7 @@ Value operations:
 - `setValue(path: (string|number)[], value: V)`: Set value at any specific path
 - `clearValue(path)`: Reset field to empty value based on its type
 - `deleteField(path)`: Remove field at path (handles arrays properly)
+- `reindexArray(arrayPath, newItems, indexMap)`: Low-level primitive that replaces an array and atomically re-indexes its item metadata (touched, validation + server errors) via `indexMap` (old index → new index, or `null` to drop). Prefer the [`useArrayField`](#usearrayfield) helpers, which wrap it.
 - `hasField(path)`: Check if field exists
 - `getValuePaths(path?: (string|number)[]): (string|number)[][]`: Get all value paths under given path
 
@@ -365,29 +366,48 @@ form.setServerError(['fieldName'], null);
 #### useArrayField
 
 ```tsx
-const { items, add, remove, move } = useArrayField(path);
+const { items, add, remove, move, insert, prepend, swap, replace, update } =
+  useArrayField(path);
 ```
 
-Array operations:
+Array operations (RHF `useFieldArray`-style). The reordering ops re-index the
+errors and touched markers under the array so they follow their items:
 
-- `add(item)`: Add new item
-- `remove(index)`: Remove item at index
-- `move(from, to)`: Reorder items with proper error handling
+- `items`: the current array value (always an array; `[]` if the path isn't one).
+- `add(item)`: append an item to the end.
+- `prepend(item)`: insert an item at the front (`insert(0, item)`).
+- `insert(index, item)`: insert at `index` (clamped to `[0, length]`); items at/after it shift up.
+- `remove(index)`: remove the item at `index`.
+- `move(from, to)`: reorder one item; intermediate items shift to fill the gap.
+- `swap(a, b)`: exchange two items; their errors/touched follow them.
+- `replace(newItems)`: replace the whole array. Per-index errors/touched no longer
+  correspond to the new items, so they're dropped (validation regenerates as fields
+  are touched).
+- `update(index, item)`: replace a single item. Convenience for
+  `form.setValue([...path, index], item)`.
 
 Example:
 
 ```tsx
 const todos = useArrayField(['todos']);
 
-// Add new todo
-todos.add({ text: '', completed: false });
-
-// Remove todo
-todos.remove(0);
-
-// Move todo (handles error repositioning)
-todos.move(0, 1);
+todos.add({ text: '', completed: false }); // append
+todos.prepend({ text: '', completed: false }); // front
+todos.insert(2, { text: '', completed: false }); // at index 2
+todos.remove(0); // remove
+todos.move(0, 1); // reorder (errors follow)
+todos.swap(0, 2); // exchange (errors follow)
+todos.update(1, { text: 'done', completed: true }); // replace one
+todos.replace([{ text: 'fresh', completed: false }]); // replace all
 ```
+
+> How re-indexing works: `move`/`swap`/`insert`/`replace` delegate to the context's
+> `reindexArray` primitive, which updates the values and re-indexes the item
+> metadata — touched markers, validation errors, **and** the internal server-error
+> baseline — in a single atomic update. Because server errors aren't touch-gated,
+> they aren't cleared by a reorder; they move with their item. A later
+> `setServerError`/`setServerErrors` therefore rebuilds from the correct
+> (re-indexed) baseline.
 
 ## Form Submission
 
