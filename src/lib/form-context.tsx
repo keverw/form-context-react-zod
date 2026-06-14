@@ -60,6 +60,12 @@ export interface FormContextValue<T> {
   isSubmitting: boolean;
   isValid: boolean;
   canSubmit: boolean;
+  /** True once the user has attempted to submit at all (pass or fail). Cleared by reset/resetWithValues. */
+  submitAttempted: boolean;
+  /** True only if the most recent submit attempt completed without throwing and the handler set no submission errors. */
+  submitSucceeded: boolean;
+  /** Running count of submit attempts. Reset to 0 by reset/resetWithValues. */
+  submitCount: number;
   lastValidated: number | null;
   /** Whether leaving a field (blur) runs validation. Mirrors the FormProvider prop. */
   validateOnBlur: boolean;
@@ -209,6 +215,11 @@ interface FormState<T> {
   lastValidated: number | null;
   canSubmit: boolean;
   currentSubmissionID: string | null;
+  // Submit-attempt tracking. Set at the start of each submit() attempt and
+  // cleared by reset()/resetWithValues().
+  submitAttempted: boolean;
+  submitSucceeded: boolean;
+  submitCount: number;
 }
 
 // Define action types
@@ -282,6 +293,9 @@ export function FormProvider<T extends Record<string | number, unknown>>({
     lastValidated: null,
     canSubmit: false,
     currentSubmissionID: null,
+    submitAttempted: false,
+    submitSucceeded: false,
+    submitCount: 0,
   });
 
   // Destructure state for easier access
@@ -292,6 +306,9 @@ export function FormProvider<T extends Record<string | number, unknown>>({
     isSubmitting,
     lastValidated,
     canSubmit,
+    submitAttempted,
+    submitSucceeded,
+    submitCount,
     // currentSubmissionID is accessed via state.currentSubmissionID in contextValue
   } = state;
 
@@ -1259,6 +1276,10 @@ export function FormProvider<T extends Record<string | number, unknown>>({
           errors: [],
           lastValidated: null,
           canSubmit: false, // Reflects canSubmitRef.current
+          // Clear submit-attempt tracking — a reset form is back to "never submitted".
+          submitAttempted: false,
+          submitSucceeded: false,
+          submitCount: 0,
           // isSubmitting and currentSubmissionID are handled above if forced
           // If not forced, they remain as they were, or are already false/null
         },
@@ -1310,6 +1331,10 @@ export function FormProvider<T extends Record<string | number, unknown>>({
           errors: [],
           lastValidated: null,
           canSubmit: false, // Reflects canSubmitRef.current
+          // Clear submit-attempt tracking — a reset form is back to "never submitted".
+          submitAttempted: false,
+          submitSucceeded: false,
+          submitCount: 0,
         },
       });
       // Values were replaced wholesale — id-tracking subscribers re-derive.
@@ -1514,8 +1539,22 @@ export function FormProvider<T extends Record<string | number, unknown>>({
     isSubmittingRef.current = true;
     setSubmissionId(submissionId); // This updates both ref and state
 
-    // Then update state
-    dispatch({ type: 'UPDATE_STATE', updates: { isSubmitting: true } });
+    // Then update state. Mark this as a submit attempt (pass or fail), bump the
+    // running count, and clear the previous success flag for the duration of the
+    // attempt — it flips back to true in `finally` only if this attempt succeeds.
+    dispatch({
+      type: 'UPDATE_STATE_FUNC',
+      updater: (prev) => ({
+        isSubmitting: true,
+        submitAttempted: true,
+        submitSucceeded: false,
+        submitCount: prev.submitCount + 1,
+      }),
+    });
+
+    // Tracks whether this attempt completed cleanly (validation passed, onSubmit
+    // resolved without throwing, and the handler set no submission errors).
+    let didSucceed = false;
 
     try {
       const result = validateForm();
@@ -1602,6 +1641,16 @@ export function FormProvider<T extends Record<string | number, unknown>>({
         };
 
         await onSubmit(values, helpers);
+
+        // The attempt succeeded if it's still the current submission and the
+        // handler set no submission errors. serverErrorsRef/clientSubmissionErrorRef
+        // were emptied at the start of submit(), so any non-empty value here means
+        // the handler reported a failure (e.g. setServerError / setClientSubmissionError).
+        if (isCurrentSubmission(submissionId) && mountedRef.current) {
+          didSucceed =
+            serverErrorsRef.current.length === 0 &&
+            clientSubmissionErrorRef.current.length === 0;
+        }
       } else if (result.errors) {
         // Only set errors if this is still the current submission
         if (isCurrentSubmission(submissionId) && mountedRef.current) {
@@ -1638,10 +1687,10 @@ export function FormProvider<T extends Record<string | number, unknown>>({
       if (isCurrentSubmission(submissionId) && mountedRef.current) {
         // Update ref first
         isSubmittingRef.current = false;
-        // Then update state
+        // Then update state, recording whether this attempt succeeded.
         dispatch({
           type: 'UPDATE_STATE',
-          updates: { isSubmitting: false },
+          updates: { isSubmitting: false, submitSucceeded: didSucceed },
         });
       }
     }
@@ -1684,6 +1733,9 @@ export function FormProvider<T extends Record<string | number, unknown>>({
       // vacuously valid). Uses reactive state, not refs, so consumers stay in sync.
       isValid: errors.length === 0 && (lastValidated !== null || !schema),
       canSubmit, // reactive state; the ref stays for the synchronous submit logic
+      submitAttempted,
+      submitSucceeded,
+      submitCount,
       lastValidated,
       validateOnBlur,
       currentSubmissionID: state.currentSubmissionID, // Use state for reactivity
@@ -1723,6 +1775,9 @@ export function FormProvider<T extends Record<string | number, unknown>>({
       errors,
       isSubmitting,
       canSubmit,
+      submitAttempted,
+      submitSucceeded,
+      submitCount,
       lastValidated,
       validateOnBlur,
       schema,

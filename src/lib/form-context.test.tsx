@@ -1790,6 +1790,146 @@ describe('FormProvider', () => {
     expect(screen.getByTestId('exists').textContent).toBe('missing');
   });
 
+  // Shared status readout for the submit-attempt flag tests.
+  const SubmitStatus = () => {
+    const form = useFormContext();
+    return (
+      <div>
+        <span data-testid="attempted">
+          {form.submitAttempted ? 'attempted' : 'untried'}
+        </span>
+        <span data-testid="succeeded">
+          {form.submitSucceeded ? 'succeeded' : 'not-succeeded'}
+        </span>
+        <span data-testid="count">{form.submitCount}</span>
+        <button data-testid="submit-button" onClick={form.submit}>
+          Submit
+        </button>
+        <button data-testid="reset-button" onClick={() => form.reset()}>
+          Reset
+        </button>
+      </div>
+    );
+  };
+
+  it('tracks submit attempts: attempted, succeeded and count on a clean submit', async () => {
+    const onSubmit = jest.fn();
+
+    render(
+      <TestForm initialValues={{ name: 'John' }} onSubmit={onSubmit}>
+        <SubmitStatus />
+      </TestForm>
+    );
+
+    // Initially: never attempted.
+    expect(screen.getByTestId('attempted').textContent).toBe('untried');
+    expect(screen.getByTestId('succeeded').textContent).toBe('not-succeeded');
+    expect(screen.getByTestId('count').textContent).toBe('0');
+
+    // First submit resolves cleanly.
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('submit-button'));
+    });
+    await advanceTimers();
+
+    expect(screen.getByTestId('attempted').textContent).toBe('attempted');
+    expect(screen.getByTestId('succeeded').textContent).toBe('succeeded');
+    expect(screen.getByTestId('count').textContent).toBe('1');
+
+    // Second submit bumps the count and stays successful.
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('submit-button'));
+    });
+    await advanceTimers();
+
+    expect(screen.getByTestId('count').textContent).toBe('2');
+    expect(screen.getByTestId('succeeded').textContent).toBe('succeeded');
+
+    // reset() clears the attempt tracking back to "never submitted".
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('reset-button'));
+    });
+    await advanceTimers();
+
+    expect(screen.getByTestId('attempted').textContent).toBe('untried');
+    expect(screen.getByTestId('succeeded').textContent).toBe('not-succeeded');
+    expect(screen.getByTestId('count').textContent).toBe('0');
+  });
+
+  it('failed validation counts as an attempt but not a success', async () => {
+    const schema = z.object({
+      name: z.string().min(3, 'Name must be at least 3 characters'),
+    });
+    const onSubmit = jest.fn();
+
+    render(
+      <TestForm
+        schema={schema}
+        initialValues={{ name: 'ab' }}
+        onSubmit={onSubmit}
+      >
+        <SubmitStatus />
+      </TestForm>
+    );
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('submit-button'));
+    });
+    await advanceTimers();
+
+    // The schema is invalid, so onSubmit never runs — but it's still an attempt.
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(screen.getByTestId('attempted').textContent).toBe('attempted');
+    expect(screen.getByTestId('succeeded').textContent).toBe('not-succeeded');
+    expect(screen.getByTestId('count').textContent).toBe('1');
+  });
+
+  it('a handler that reports a submission error is not counted as a success', async () => {
+    // onSubmit resolves without throwing, but reports a server error — so the
+    // attempt did not succeed even though no exception was raised.
+    const onSubmit = jest.fn(async (_values, helpers) => {
+      helpers.setServerError(['name'], 'Name already taken');
+    });
+
+    render(
+      <TestForm initialValues={{ name: 'John' }} onSubmit={onSubmit}>
+        <SubmitStatus />
+      </TestForm>
+    );
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('submit-button'));
+    });
+    await advanceTimers();
+
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId('attempted').textContent).toBe('attempted');
+    expect(screen.getByTestId('succeeded').textContent).toBe('not-succeeded');
+    expect(screen.getByTestId('count').textContent).toBe('1');
+  });
+
+  it('a handler that throws is an attempt but not a success', async () => {
+    const onSubmit = jest.fn(() => {
+      throw new Error('boom');
+    });
+
+    render(
+      <TestForm initialValues={{ name: 'John' }} onSubmit={onSubmit}>
+        <SubmitStatus />
+      </TestForm>
+    );
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('submit-button'));
+    });
+    await advanceTimers();
+
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId('attempted').textContent).toBe('attempted');
+    expect(screen.getByTestId('succeeded').textContent).toBe('not-succeeded');
+    expect(screen.getByTestId('count').textContent).toBe('1');
+  });
+
   it('tests validate function with and without force parameter', async () => {
     const schema = z.object({
       username: z.string().min(3, 'Username must be at least 3 characters'),

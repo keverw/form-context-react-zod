@@ -179,15 +179,17 @@ rough.
       errors are raw (not touched-gated) so `invalid`/`error` reflect real validation state, and
       `exists` distinguishes a missing/typo'd path from a present valid one. Exported `FieldState` type.
       Docs + 3 tests (touched/invalid lifecycle; raw-vs-gated via server error; non-existent path).
-- [ ] **Submit-attempt flags.** Two reducer booleans, framed as an _attempt_ so a failed submit
+- [x] **Submit-attempt flags.** Three reducer fields, framed as an _attempt_ so a failed submit
       doesn't read weirdly: **`submitAttempted`** (true once the user has tried to submit at all,
-      pass or fail — RHF calls this `isSubmitted`, but "attempted" is clearer) and
-      **`submitSucceeded`** (true only if the most recent attempt finished without throwing /
-      without the handler setting submission errors; RHF's `isSubmitSuccessful`). Decide whether to
-      keep the RHF names as aliases for familiarity. Both **cleared by `reset()` /
-      `resetWithValues()`** (same as touched/errors/lastValidated). Tiny. Fold **`submitCount`** in
-      here too (running count of attempts; same reducer-state + reset-to-0 treatment) — it pairs
-      naturally with `submitAttempted`.
+      pass or fail), **`submitSucceeded`** (true only if the most recent attempt completed cleanly:
+      validation passed, `onSubmit` resolved without throwing, AND the handler set no submission
+      errors — server or client submission), and **`submitCount`** (running count of attempts,
+      bumped at the start of each `submit()` including validation failures). All set in `submit()`,
+      all **cleared by `reset()` / `resetWithValues()`**. Went with the clearer names only — **no RHF
+      aliases** (keeps the surface free of other-lib vocabulary). Success is detected via the
+      already-cleared `serverErrorsRef`/`clientSubmissionErrorRef` being empty after the handler, so
+      it captures handlers that report failure without throwing. FORM-API docs + 4 tests (clean
+      submit lifecycle + count + reset; failed validation; handler-reported error; thrown handler).
 - [ ] **`setError(path, message)` for manual/client errors.** We have `setServerError` (server
       source) + `setErrors` (replace-all). Add a targeted setter for a **client/manual** error at
       one path (`source: 'client'`), mirroring `setServerError`'s shape (string | string[] | null,

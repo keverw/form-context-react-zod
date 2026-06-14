@@ -40,6 +40,9 @@ State getters:
 - `isSubmitting`: Boolean indicating submission state
 - `isValid`: Boolean indicating if form passes validation for touched fields
 - `canSubmit`: Boolean indicating if the entire form passes Zod schema validation
+- `submitAttempted`: Boolean — `true` once the user has tried to submit at all, pass or fail. Stays `true` for the duration of the submission and after it settles; cleared by `reset`/`resetWithValues`. Use it _alongside_ `touched` to reveal errors — gate on `touched[field] || submitAttempted` so each field shows its error once the user has interacted with it **or** has hit submit (which surfaces errors on fields they skipped). `submit()` also marks every field touched, so on its own `touched` covers this; `submitAttempted` is the cleaner signal if you'd rather key the "reveal everything" moment off the attempt itself.
+- `submitSucceeded`: Boolean — `true` only if the **most recent** attempt completed cleanly: validation passed, `onSubmit` resolved without throwing, **and** the handler set no submission errors (no `setServerError(s)` / `setClientSubmissionError`). It's `false` while a submit is in flight and flips to its final value when the attempt settles.
+- `submitCount`: Number — running count of submit attempts (bumped at the start of each `submit()`, including ones that fail validation). Reset to `0` by `reset`/`resetWithValues`.
 - `errors`: Current validation/server errors
 - `lastValidated`: Timestamp of the last validation
 
@@ -53,8 +56,9 @@ State getters:
   - `validate(force?: boolean)`: Manually trigger form validation
 
 **`reset` vs `resetWithValues`** — they're the same operation with a different target. Both clear
-touched state, validation errors, and server errors, and set `canSubmit=false` /
-`lastValidated=null`. `reset()` restores the original `initialValues` (fixed at mount);
+touched state, validation errors, and server errors, clear the submit-attempt tracking
+(`submitAttempted`/`submitSucceeded` back to `false`, `submitCount` back to `0`), and set
+`canSubmit=false` / `lastValidated=null`. `reset()` restores the original `initialValues` (fixed at mount);
 `resetWithValues(x)` adopts `x` instead — use it to accept the server's canonical record after a
 save, or to load a different record into the same form. Note: `resetWithValues` does **not** move
 the `reset()` baseline — a later `reset()` still returns to the original `initialValues`.
