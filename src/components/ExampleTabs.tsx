@@ -43,7 +43,7 @@ function TabButton({
       onClick={onClick}
       className={`px-5 py-3 text-sm font-medium rounded-t-lg whitespace-nowrap transition-all ${
         active
-          ? 'bg-white text-blue-600 border-t-2 border-x border-b-0 border-t-blue-500 border-x-gray-200 shadow-sm font-semibold'
+          ? 'bg-white text-blue-600 border-t-2 border-x border-b-0 border-t-blue-500 border-x-gray-200 shadow-xs font-semibold'
           : 'text-gray-600 hover:text-blue-500 bg-gray-50 hover:bg-gray-100 border border-transparent hover:border-gray-200'
       }`}
     >
@@ -131,7 +131,7 @@ export default function ExampleTabs() {
           </div>
         </div>
 
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200">
+        <div className="bg-white rounded-lg shadow-xs border border-gray-200">
           <div className="border-b border-gray-200 relative">
             {/* Left scroll arrow */}
             {showLeftArrow && (

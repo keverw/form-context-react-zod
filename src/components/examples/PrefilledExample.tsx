@@ -303,7 +303,7 @@ export default function PrefilledExample() {
             onClick={() => setActiveCase(key)}
             className={`px-4 py-1.5 text-sm font-medium rounded-md transition-all ${
               activeCase === key
-                ? 'bg-white text-blue-600 shadow-sm'
+                ? 'bg-white text-blue-600 shadow-xs'
                 : 'text-gray-600 hover:text-blue-500'
             }`}
           >

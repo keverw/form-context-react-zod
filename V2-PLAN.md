@@ -108,12 +108,15 @@ exports throughout.
 - [x] Published manifest: add `author`, `bugs`, `homepage`. ✅ Done as part of the
       source-of-truth refactor — `build-lib` reads them from root and emits them; verified in
       `dist_module/package.json`.
-- [ ] **Tailwind 3 → 4 (demo-only hygiene).** Only the demo app uses Tailwind; the shipped lib
-      has zero CSS deps, so this is isolated and low-stakes. It IS a real migration though:
-      Tailwind 4 is a new engine with CSS-first config (drops `tailwind.config.js` + the
-      `tailwindcss`/`autoprefixer` PostCSS plugins in favor of `@tailwindcss/postcss` or the
-      `@tailwindcss/vite` plugin, and `@import "tailwindcss"` in CSS). Do as its own pass; verify
-      the demo renders the same.
+- [x] **Tailwind 3 → 4 (demo-only hygiene).** ✅ Migrated to `tailwindcss@4` via the
+      `@tailwindcss/vite` plugin (added to `vite.config.ts`). `src/index.css` is now a single
+      `@import 'tailwindcss'`; deleted `tailwind.config.js` + `postcss.config.js`; removed
+      `tailwindcss@3`/`autoprefixer`/`postcss` devDeps (v4 handles content detection + prefixing).
+      Verified renders the same: built CSS contains all demo utilities; checked the v4 gotchas —
+      bare `border`/`ring` were false positives (always paired with a color, or substrings), bare
+      `rounded` is unchanged (.25rem), and the one real shift (`shadow-sm` enlarged in v4) was
+      mapped to `shadow-xs` in the 3 spots so it matches v3's old value exactly
+      (`0 1px 2px 0 rgba(0,0,0,.05)`). Published lib unaffected (zero CSS deps).
 
 ## 2. Zod 4 upgrade (the headline / major-version reason)
 
