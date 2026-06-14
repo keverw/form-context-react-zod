@@ -209,7 +209,7 @@ describe('FormProvider', () => {
     const initialValues = { name: '', email: '' };
     const schema = z.object({
       name: z.string().min(1, 'Name is required'),
-      email: z.string().email('Invalid email format'),
+      email: z.email('Invalid email format'),
     });
 
     render(
@@ -1438,14 +1438,14 @@ describe('FormProvider', () => {
       user: z.object({
         name: z.string().min(1, 'Name is required'),
         contact: z.object({
-          email: z.string().email('Invalid email format'),
+          email: z.email('Invalid email format'),
           phone: z.string().min(10, 'Phone number is too short'),
         }),
       }),
       preferences: z.object({
         notifications: z.boolean(),
         theme: z.enum(['light', 'dark', 'system'], {
-          errorMap: () => ({ message: 'Invalid theme' }),
+          error: () => 'Invalid theme',
         }),
       }),
       addresses: z
@@ -1617,7 +1617,7 @@ describe('FormProvider', () => {
   it('tests validate function with and without force parameter', async () => {
     const schema = z.object({
       username: z.string().min(3, 'Username must be at least 3 characters'),
-      email: z.string().email('Invalid email format'),
+      email: z.email('Invalid email format'),
       age: z.number().min(18, 'Must be at least 18 years old'),
     });
 
@@ -1945,7 +1945,7 @@ describe('FormProvider', () => {
     // Schema with validation rules
     const schema = z.object({
       name: z.string().min(1, 'Name is required'),
-      email: z.string().email('Invalid email format'),
+      email: z.email('Invalid email format'),
     });
 
     // Initial values that will fail validation
@@ -2793,7 +2793,7 @@ describe('FormProvider', () => {
     // Create a schema with validation rules
     const schema = z.object({
       username: z.string().min(3, 'Username must be at least 3 characters'),
-      email: z.string().email('Invalid email format'),
+      email: z.email('Invalid email format'),
     });
 
     // Initial values that will pass validation
@@ -3268,7 +3268,11 @@ describe('FormProvider', () => {
     const schema = z.object({ name: z.string().min(1, 'Name is required') });
 
     render(
-      <FormProvider initialValues={{ name: '' }} schema={schema} onSubmit={jest.fn()}>
+      <FormProvider
+        initialValues={{ name: '' }}
+        schema={schema}
+        onSubmit={jest.fn()}
+      >
         <BlurField />
       </FormProvider>
     );
@@ -3282,7 +3286,9 @@ describe('FormProvider', () => {
     await advanceTimers();
 
     expect(screen.getByTestId('name-error')).toBeInTheDocument();
-    expect(screen.getByTestId('name-error').textContent).toBe('Name is required');
+    expect(screen.getByTestId('name-error').textContent).toBe(
+      'Name is required'
+    );
   });
 
   it('validateOnBlur={false}: blurring an empty required field does NOT surface its error', async () => {
@@ -3318,9 +3324,7 @@ describe('FormProvider', () => {
           <div data-testid="is-valid">{form.isValid.toString()}</div>
           <button
             data-testid="set-error"
-            onClick={() =>
-              form.setErrors([{ path: ['name'], message: 'bad' }])
-            }
+            onClick={() => form.setErrors([{ path: ['name'], message: 'bad' }])}
           />
         </div>
       );

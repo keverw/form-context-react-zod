@@ -140,6 +140,8 @@ Check out the [live demo](https://keverw.github.io/form-context-react-zod/) to s
 npm install ${PACKAGE_CONFIG.name}
 \`\`\`
 
+> **Requires React 19 and Zod 4.** Need React 18 / Zod 3? Install \`${PACKAGE_CONFIG.name}@^1\`.
+
 ## Features
 
 - Type-safe form handling with Zod schemas

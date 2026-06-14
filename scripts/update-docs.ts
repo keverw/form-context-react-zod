@@ -21,7 +21,10 @@ let readme = fs.readFileSync(readmePath, 'utf8');
 
 // Stamp the version into the H1, e.g. "# Form Context React Zod v1.2.3".
 const baseTitle = '# Form Context React Zod';
-const titleWithVersion = new RegExp(`^${baseTitle} v\\d+\\.\\d+\\.\\d+\\S*`, 'm');
+const titleWithVersion = new RegExp(
+  `^${baseTitle} v\\d+\\.\\d+\\.\\d+\\S*`,
+  'm'
+);
 const newTitle = `${baseTitle} v${pkg.version}`;
 
 if (titleWithVersion.test(readme)) {

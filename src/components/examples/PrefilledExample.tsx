@@ -11,7 +11,7 @@ import { simulateServer } from './utils';
 // Define the schema
 const prefilledSchema = z.object({
   username: z.string().min(3, 'Username must be at least 3 characters'),
-  email: z.string().email('Invalid email address'),
+  email: z.email('Invalid email address'),
   age: z.coerce.number().min(18, 'Must be at least 18 years old'),
   bio: z.string().min(10, 'Bio must be at least 10 characters'),
   website: z

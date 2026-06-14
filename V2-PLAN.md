@@ -8,6 +8,7 @@ scripts (`sync-version`/`update-docs`/`check-deps`/`prepublishOnly`), config, an
 exports throughout.
 
 ## Decisions made
+
 - **Zod: 4-only.** v4 has been out ~a year; fair to require it for a major bump.
 - **React: 19-only.** Published peer `react: ^19` (going 2.0 anyway). Drop React 18.
 - **Deps: match Unirend's pinned versions** (its "known-good latest"), NOT bleeding edge.
@@ -26,7 +27,7 @@ exports throughout.
 
 ---
 
-## 1. Tooling & packaging cleanup  *(doing first)*
+## 1. Tooling & packaging cleanup _(doing first)_
 
 - [x] Delete tracked `package-lock.json` and gitignore npm/yarn/pnpm lockfiles
       (mirrors Unirend; keep `bun.lock`).
@@ -57,15 +58,11 @@ exports throughout.
 - [x] Add ESLint plugins for the lighter-but-a11y config: `eslint-plugin-jsx-a11y` `^6.10.2`,
       `eslint-plugin-react` `^7.37.5` (keep react-hooks). Skip unicorn/check-file/naming.
       ✅ DONE — cherry-pick style (no `flat.recommended`), so `no-unescaped-entities` stays off.
-- [x] **Switch test runner to `bun test`.** ✅ DONE — 66 tests pass.
-      - DOM via `@happy-dom/global-registrator` (`happydom.ts` preload); jest-dom matchers via
-        `expect.extend` in `testSetup.ts`; both wired through `bunfig.toml` `[test].preload`.
-      - `vitest`→`bun:test`, `vi.`→`jest.` (incl. a multiline `vi\n.spyOn`).
-      - Rewrote the `advanceTimers` helper: bun has no `advanceTimersToNextTimerAsync`, so it
-        loops `jest.runAllTimers()` + microtask flush inside async `act()`. `useFakeTimers()` has
-        no `shouldAdvanceTime` option in bun (dropped it; tests still green).
-      - Removed `vitest`/`@vitest/coverage-v8`/`jsdom` + `vitest.config.ts`/`vitest.setup.ts`;
-        added `@types/bun` for `bun:test` typings. Scripts → `bun test` (+ `test:coverage`).
+- [x] **Switch test runner to `bun test`.** ✅ DONE — 66 tests pass. - DOM via `@happy-dom/global-registrator` (`happydom.ts` preload); jest-dom matchers via
+      `expect.extend` in `testSetup.ts`; both wired through `bunfig.toml` `[test].preload`. - `vitest`→`bun:test`, `vi.`→`jest.` (incl. a multiline `vi\n.spyOn`). - Rewrote the `advanceTimers` helper: bun has no `advanceTimersToNextTimerAsync`, so it
+      loops `jest.runAllTimers()` + microtask flush inside async `act()`. `useFakeTimers()` has
+      no `shouldAdvanceTime` option in bun (dropped it; tests still green). - Removed `vitest`/`@vitest/coverage-v8`/`jsdom` + `vitest.config.ts`/`vitest.setup.ts`;
+      added `@types/bun` for `bun:test` typings. Scripts → `bun test` (+ `test:coverage`).
 - [x] Set published **React peer to `^19`**. ✅ Root now has a `peerDependencies` field
       (`react ^19`, `react-dom ^19`, `zod ^3`); build-lib reads it into the published manifest.
       Verified in `dist_module/package.json`. (zod stays `^3` until Track 2.)
@@ -75,43 +72,34 @@ exports throughout.
       published). `build-lib.js` reads all of these from root (no more hard-coded `1.2.0` /
       inline metadata). Verified: generated `dist_module/package.json` carries them through.
       ✅ `build-lib` now also reads **peerDependencies** from root (see React-peer item above).
-- [x] Port Unirend's scripts (`check-deps` only):
-      - ✅ `scripts/check-deps.ts` — validates root `peerDependencies` are satisfied by local
-        deps/devDeps (adapted from Unirend, minus the starter-template surface it doesn't have).
-        Added `semver`. Runs in `build:lib` before tsup. Currently passes.
-      - ❌ `sync-version` — SCRAPPED. Unirend needs it for its CLI's `PKG_VERSION`; this lib has
-        no runtime use for its own version, and `build-lib` already reads the version straight
-        from root. A public `VERSION` export would just be dead weight.
-      - ✅ `scripts/update-docs.ts` — stamps the version into the dev README's **H1 title**
-        (`# Form Context React Zod vX.Y.Z`), Unirend-style, from root version. Kept the dev +
-        published READMEs as separate documents (per plan), so this guards them from drifting on
-        version. Runs in `build:lib`. Verified both branches (corrects stale, stamps bare title).
-        (markdown-toc-gen TOC not added — README is short.)
+- [x] Port Unirend's scripts (`check-deps` only): - ✅ `scripts/check-deps.ts` — validates root `peerDependencies` are satisfied by local
+      deps/devDeps (adapted from Unirend, minus the starter-template surface it doesn't have).
+      Added `semver`. Runs in `build:lib` before tsup. Currently passes. - ❌ `sync-version` — SCRAPPED. Unirend needs it for its CLI's `PKG_VERSION`; this lib has
+      no runtime use for its own version, and `build-lib` already reads the version straight
+      from root. A public `VERSION` export would just be dead weight. - ✅ `scripts/update-docs.ts` — stamps the version into the dev README's **H1 title**
+      (`# Form Context React Zod vX.Y.Z`), Unirend-style, from root version. Kept the dev +
+      published READMEs as separate documents (per plan), so this guards them from drifting on
+      version. Runs in `build:lib`. Verified both branches (corrects stale, stamps bare title).
+      (markdown-toc-gen TOC not added — README is short.)
 - [x] **README drift.** DECISION: keep the dev `README.md` and the build-lib-generated published
       README as **separate documents** (different audiences — contributors vs npm consumers).
       Drift risk was really just the version, now handled by `update-docs` syncing the dev
       README's `**Current version:**` line. No consolidation needed.
-- [x] Add `prepublishOnly` + `type-check`. ✅
-      - `type-check`: `tsc --noEmit`. **Consolidated the Vite-starter split tsconfig** into one
-        root `tsconfig.json` (merged `tsconfig.app.json` in, repointed `tsconfig.lib.json`'s
-        `extends`, dropped the project references) so a bare `tsc --noEmit` checks `src` — no more
-        `-p`, matching the other repos. `tsconfig.node.json` stays for the Vite config.
-      - Fixed the latent type errors this surfaced: added `src/matchers.d.ts` to type jest-dom
-        matchers under `bun:test`; `_`-prefixed unused params; cast one intentionally-mutated test
-        object. Also added a public **`FormSubmitHandler<T>`** type (`onSubmit` handler) so the
-        value type is declared once instead of repeating `z.infer<…>` for both `values` and
-        `helpers`; converted the 4 demos and documented it in `FORM-API.md`.
-      - `publish:lib` uses `bun publish` (was `npm publish`) — staying on bun. The root stays
-        `private` so it can't be published directly; we publish the generated `dist_module`.
-      - `prepublishOnly`: `bun audit --prod && type-check && lint && test && build:lib`
-        (skips spellcheck per Kevin). Moved `tsup` dependencies→devDependencies so `audit --prod`
-        is clean (it's a build tool; was dragging in transitive advisories).
-      - `publish:lib` now runs `prepublishOnly` first. NOTE: since we publish from `dist_module`
-        (which has no scripts), the npm `prepublishOnly` lifecycle hook won't auto-fire — we
-        invoke it explicitly via `publish:lib`.
-      - ⚠️ Currently `prepublishOnly` **blocks at `lint`** on the 10 outstanding Track 4 errors
-        (react-hooks/refs, jsx-a11y, set-state-in-effect). That's the gate working as intended —
-        it goes green once Track 4 is resolved. audit + type-check already pass.
+- [x] Add `prepublishOnly` + `type-check`. ✅ - `type-check`: `tsc --noEmit`. **Consolidated the Vite-starter split tsconfig** into one
+      root `tsconfig.json` (merged `tsconfig.app.json` in, repointed `tsconfig.lib.json`'s
+      `extends`, dropped the project references) so a bare `tsc --noEmit` checks `src` — no more
+      `-p`, matching the other repos. `tsconfig.node.json` stays for the Vite config. - Fixed the latent type errors this surfaced: added `src/matchers.d.ts` to type jest-dom
+      matchers under `bun:test`; `_`-prefixed unused params; cast one intentionally-mutated test
+      object. Also added a public **`FormSubmitHandler<T>`** type (`onSubmit` handler) so the
+      value type is declared once instead of repeating `z.infer<…>` for both `values` and
+      `helpers`; converted the 4 demos and documented it in `FORM-API.md`. - `publish:lib` uses `bun publish` (was `npm publish`) — staying on bun. The root stays
+      `private` so it can't be published directly; we publish the generated `dist_module`. - `prepublishOnly`: `bun audit --prod && type-check && lint && test && build:lib`
+      (skips spellcheck per Kevin). Moved `tsup` dependencies→devDependencies so `audit --prod`
+      is clean (it's a build tool; was dragging in transitive advisories). - `publish:lib` now runs `prepublishOnly` first. NOTE: since we publish from `dist_module`
+      (which has no scripts), the npm `prepublishOnly` lifecycle hook won't auto-fire — we
+      invoke it explicitly via `publish:lib`. - ⚠️ Currently `prepublishOnly` **blocks at `lint`** on the 10 outstanding Track 4 errors
+      (react-hooks/refs, jsx-a11y, set-state-in-effect). That's the gate working as intended —
+      it goes green once Track 4 is resolved. audit + type-check already pass.
 - [x] Rename `build-lib.js` → `scripts/build-lib.ts`, run via bun. ✅ `git mv` into a new
       `scripts/` folder; `node:` imports; internal `npx tsup` → `bunx tsup`; scripts now
       `build:lib: bun run scripts/build-lib.ts` and `publish:lib: bun run build:lib && …`.
@@ -131,28 +119,27 @@ exports throughout.
 
 [changelog](https://zod.dev/v4/changelog) · [library authors guide](https://zod.dev/library-authors)
 
-- [ ] Bump `zod` to `^4`; set published **peer dependency** to `zod: ^4` (4-only).
-- [ ] Fix `error.errors` → `error.issues` in [zod-helpers.ts:23](src/lib/zod-helpers.ts#L23)
-      (`.errors` removed/deprecated in v4).
-- [ ] Re-check `ZodError` / `SafeParseError` imports in [zod-helpers.ts:1](src/lib/zod-helpers.ts#L1)
-      against v4 type names (`SafeParseError` shape changed).
-- [ ] Verify `z.ZodType<T>` still types correctly under v4.
-- [ ] Update demo examples using deprecated `z.string().email()` → `z.email()`.
-- [ ] **README note**: v2 requires Zod 4; one-line migration note for Zod 3 users.
-- [ ] **Update the docs to match the v4 changes.** `ZOD-HELPERS.md` (and `FORM-API.md` where
-      relevant) are separate hand-maintained docs that ship in the published package — any API,
-      type, or example changes from the Zod 4 upgrade must be reflected there so code and docs
-      stay consistent (e.g. `error.issues`, `z.email()`, any signature/behavior changes).
+- [x] Bump `zod` to `^4` (root dep `zod@4.4.3`); published **peer dependency** now `zod: ^4`
+      (verified in `dist_module/package.json`). `check-deps` passes.
+- [x] `error.errors` → `error.issues` in [zod-helpers.ts](src/lib/zod-helpers.ts) (path narrowed
+      to `(string|number)[]` since v4 issue paths are `PropertyKey[]`).
+- [x] `SafeParseError` import removed — after the `result.success` early-return, `result.error`
+      narrows directly, so the cast is gone. `ZodError` import kept. `z.ZodType<T>` still typechecks.
+- [x] Demo + test schemas: `z.string().email()` → `z.email()`; `z.enum(..., { errorMap })` →
+      `{ error }` (v4 renamed it).
+- [x] **README note**: dev README + build-lib's generated README both state "Requires React 19
+      and Zod 4; use 1.x for React 18 / Zod 3."
+- [x] **Docs updated**: `ZOD-HELPERS.md` gains a Zod-4 requirements banner; `FORM-API.md` example
+      uses `z.email()`. (Public helper API — `validate`/`validateAsync`/`ValidationError` — is
+      unchanged, so no signature edits needed.)
+- ✅ All green under Zod 4: type-check, lint, 69 tests, build:lib, prepublishOnly.
 
 ## 3. Code splitting (Unirend-style multi-entry exports)
 
 Unirend uses conditional exports with separate entries, each emitting types/import/require.
 Apply the same so the core is DOM-free and RN-friendly; debug tooling is opt-in.
 
-- [ ] Define entry points:
-      - `.` — core (`FormProvider`, hooks, zod-helpers) — **no DOM imports**.
-      - `./devtools` — web `FormState` debug component (DOM).
-      - `./devtools/native` — React Native debug component equivalent (see track 5).
+- [ ] Define entry points: - `.` — core (`FormProvider`, hooks, zod-helpers) — **no DOM imports**. - `./devtools` — web `FormState` debug component (DOM). - `./devtools/native` — React Native debug component equivalent (see track 5).
 - [ ] Update tsup config for multiple entries; update generated `package.json` `exports`/`files`.
 - [ ] Move `FormState` out of the root `index.ts` barrel into the `devtools` entry.
 - [ ] ⚠️ **Singleton concern: `FormContext` must be ONE instance across entries.** If
@@ -198,6 +185,7 @@ Done before Cursor had review tooling — re-run now.
 ## 5. React Native support
 
 Feasible — field binding is via hooks (render-agnostic). Only DOM hard-deps:
+
 1. the optional `<form>` wrapper ([form-context.tsx:1412](src/lib/form-context.tsx#L1412)) —
    confirm it can be fully disabled (RN has no `<form>`).
 2. `FormState` debug component (web-only) — replaced by a native equivalent via code splitting.
@@ -221,9 +209,10 @@ Currently only 3 test files (`utils.test.ts`, `zod-helpers.test.ts`, `form-conte
       server vs client error sources, root messages.
 - [ ] Add `FormState` smoke test.
 
-## 7. Hydration safety  ✅ (verified — doc task only)
+## 7. Hydration safety ✅ (verified — doc task only)
 
 Scanned the lib: **no hydration hazards found.**
+
 - `useReducer` initial state is deterministic ([form-context.tsx:174](src/lib/form-context.tsx#L174)).
 - `generateID()` (`Date.now()+Math.random()`) only runs at submit time
   ([form-context.tsx:1168](src/lib/form-context.tsx#L1168)), never during render.

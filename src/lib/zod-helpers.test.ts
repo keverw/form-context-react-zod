@@ -6,7 +6,7 @@ describe('zod-helpers', () => {
   // Test schema
   const testSchema = z.object({
     name: z.string().min(2),
-    email: z.string().email(),
+    email: z.email(),
     age: z.number().int().positive(),
   });
 

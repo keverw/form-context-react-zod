@@ -39,7 +39,9 @@ function ErrorForm() {
         <RootErrors />
 
         <div className="space-y-2">
-          <p className="block text-sm font-medium text-gray-700">Submission Mode</p>
+          <p className="block text-sm font-medium text-gray-700">
+            Submission Mode
+          </p>
           <div className="space-y-2">
             <label className="flex items-center">
               <input

@@ -43,7 +43,9 @@ function isCompatible(requiredRange: string, candidateRange: string): boolean {
 
 const errors: string[] = [];
 
-console.log('🔍 check-deps: validating peerDependencies against local deps...\n');
+console.log(
+  '🔍 check-deps: validating peerDependencies against local deps...\n'
+);
 
 for (const [name, peerRange] of Object.entries(peers)) {
   const localRange = installed[name];

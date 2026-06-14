@@ -1,10 +1,9 @@
 import React from 'react';
 
-interface FormInputProps<T = string>
-  extends Omit<
-    React.InputHTMLAttributes<HTMLInputElement>,
-    'onChange' | 'value'
-  > {
+interface FormInputProps<T = string> extends Omit<
+  React.InputHTMLAttributes<HTMLInputElement>,
+  'onChange' | 'value'
+> {
   value: T;
   onChange: (value: T) => void;
   onBlur?: () => void;
@@ -91,11 +90,10 @@ const FormInput = <T extends string | number | unknown>({
   );
 };
 
-interface FormCheckboxProps
-  extends Omit<
-    React.InputHTMLAttributes<HTMLInputElement>,
-    'onChange' | 'type' | 'value' | 'checked'
-  > {
+interface FormCheckboxProps extends Omit<
+  React.InputHTMLAttributes<HTMLInputElement>,
+  'onChange' | 'type' | 'value' | 'checked'
+> {
   value: boolean;
   onChange: (value: boolean) => void;
   onBlur?: () => void;

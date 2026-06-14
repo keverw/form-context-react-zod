@@ -47,6 +47,8 @@ You can use this library in your projects by installing it from NPM:
 npm install form-context-react-zod
 ```
 
+> **Requires React 19 and Zod 4.** Need React 18 / Zod 3? Install `form-context-react-zod@^1`.
+
 ## Documentation
 
 - [Form API Documentation](./FORM-API.md)

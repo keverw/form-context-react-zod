@@ -87,7 +87,10 @@ export type FormSubmitHandler<T> = (
 ) => Promise<void> | void;
 
 // Usage — the value type is written only once:
-const onSubmit: FormSubmitHandler<z.infer<typeof schema>> = async (values, helpers) => {
+const onSubmit: FormSubmitHandler<z.infer<typeof schema>> = async (
+  values,
+  helpers
+) => {
   // `values` and `helpers` are fully typed
 };
 ```
@@ -873,7 +876,7 @@ function BasicForm() {
       initialValues={{ name: '', email: '' }}
       schema={z.object({
         name: z.string().min(2),
-        email: z.string().email(),
+        email: z.email(),
       })}
       onSubmit={async (values, helpers) => {
         await submitToServer(values);

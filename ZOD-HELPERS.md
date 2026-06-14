@@ -1,5 +1,7 @@
 # ZOD Helpers Documentation
 
+> **Requires Zod 4** (peer dependency `zod@^4`). Still on Zod 3? Install `form-context-react-zod@^1`.
+
 ## Overview
 
 Enhanced ZOD validation helpers that provide a more JSON-friendly error format and utility functions for working with nested paths.

@@ -1,4 +1,4 @@
-import { SafeParseError, ZodError, z } from 'zod';
+import { ZodError, z } from 'zod';
 
 export interface ValidationError {
   path: (string | number)[];
@@ -20,8 +20,10 @@ interface ValidationOptions {
 }
 
 function formatZodError(error: ZodError, isServer = false): ValidationError[] {
-  return error.errors.map((err) => ({
-    path: err.path,
+  // Zod 4 renamed `error.errors` -> `error.issues`. Issue paths are PropertyKey[]
+  // in v4; form paths are always string/number, so narrow the type here.
+  return error.issues.map((err) => ({
+    path: err.path as (string | number)[],
     message: err.message,
     source: isServer ? 'server' : 'client',
   }));
@@ -59,16 +61,15 @@ export function validate<T>(
         errors: addRootMessages([], options.rootMessages),
       };
     }
+
     return {
       valid: true,
       value: result.data,
     };
   }
 
-  const errors = formatZodError(
-    (result as SafeParseError<unknown>).error,
-    options.isServer
-  );
+  const errors = formatZodError(result.error, options.isServer);
+
   return {
     valid: false,
     value: null,
@@ -94,16 +95,15 @@ export async function validateAsync<T>(
         errors: addRootMessages([], options.rootMessages),
       };
     }
+
     return {
       valid: true,
       value: result.data,
     };
   }
 
-  const errors = formatZodError(
-    (result as SafeParseError<unknown>).error,
-    options.isServer
-  );
+  const errors = formatZodError(result.error, options.isServer);
+
   return {
     valid: false,
     value: null,
