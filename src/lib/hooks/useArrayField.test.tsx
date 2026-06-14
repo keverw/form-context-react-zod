@@ -482,6 +482,279 @@ function MinList() {
   );
 }
 
+// Stable per-item ids (arrayFieldIDs) must follow items across mutations.
+function IdList() {
+  const {
+    items,
+    arrayFieldIDs,
+    add,
+    remove,
+    move,
+    insert,
+    swap,
+    replace,
+    update,
+  } = useArrayField(['items']);
+  return (
+    <div>
+      <div data-testid="ids">{arrayFieldIDs.join(',')}</div>
+      <div data-testid="count">{items.length}</div>
+      <button data-testid="add" onClick={() => add({ name: 'n' })}>
+        add
+      </button>
+      <button data-testid="remove1" onClick={() => remove(1)}>
+        remove1
+      </button>
+      <button data-testid="move02" onClick={() => move(0, 2)}>
+        move02
+      </button>
+      <button data-testid="swap02" onClick={() => swap(0, 2)}>
+        swap02
+      </button>
+      <button data-testid="insert1" onClick={() => insert(1, { name: 'i' })}>
+        insert1
+      </button>
+      <button data-testid="update1" onClick={() => update(1, { name: 'u' })}>
+        update1
+      </button>
+      <button data-testid="replace" onClick={() => replace([{ name: 'x' }])}>
+        replace
+      </button>
+    </div>
+  );
+}
+
+describe('useArrayField arrayFieldIDs', () => {
+  const setup = () => {
+    render(
+      <FormProvider
+        initialValues={{ items: [{ name: 'a' }, { name: 'b' }, { name: 'c' }] }}
+        onSubmit={jest.fn()}
+      >
+        <IdList />
+      </FormProvider>
+    );
+    return screen.getByTestId('ids').textContent!.split(',');
+  };
+  const idsNow = () => screen.getByTestId('ids').textContent!.split(',');
+
+  it('has one stable id per item, all distinct', () => {
+    const ids = setup();
+    expect(ids).toHaveLength(3);
+    expect(new Set(ids).size).toBe(3);
+  });
+
+  it('move carries each id to its item’s new index', () => {
+    const [i0, i1, i2] = setup();
+    fireEvent.click(screen.getByTestId('move02')); // [a,b,c] -> [b,c,a]
+    expect(idsNow()).toEqual([i1, i2, i0]);
+  });
+
+  it('swap exchanges the two ids', () => {
+    const [i0, i1, i2] = setup();
+    fireEvent.click(screen.getByTestId('swap02'));
+    expect(idsNow()).toEqual([i2, i1, i0]);
+  });
+
+  it('insert keeps existing ids and gives the new item a fresh id', () => {
+    const [i0, i1, i2] = setup();
+    fireEvent.click(screen.getByTestId('insert1')); // new item at index 1
+    const after = idsNow();
+    expect(after).toHaveLength(4);
+    expect(after[0]).toBe(i0);
+    expect(after[2]).toBe(i1);
+    expect(after[3]).toBe(i2);
+    expect([i0, i1, i2]).not.toContain(after[1]); // brand-new id
+  });
+
+  it('remove drops that id and keeps the rest', () => {
+    const [i0, , i2] = setup();
+    fireEvent.click(screen.getByTestId('remove1'));
+    expect(idsNow()).toEqual([i0, i2]);
+  });
+
+  it('update keeps the item’s id (in-place)', () => {
+    const before = setup();
+    fireEvent.click(screen.getByTestId('update1'));
+    expect(idsNow()).toEqual(before);
+  });
+
+  it('add keeps existing ids and appends a fresh one', () => {
+    const [i0, i1, i2] = setup();
+    fireEvent.click(screen.getByTestId('add'));
+    const after = idsNow();
+    expect(after.slice(0, 3)).toEqual([i0, i1, i2]);
+    expect([i0, i1, i2]).not.toContain(after[3]);
+  });
+});
+
+// Ids must stay aligned even when the array is mutated DIRECTLY through the
+// context (bypassing the hook ops) — the context broadcasts the change and the
+// hook applies it.
+function ExternalMutList() {
+  const { items, arrayFieldIDs } = useArrayField(['items']);
+  const form = useFormContext();
+  return (
+    <div>
+      <div data-testid="ids">{arrayFieldIDs.join(',')}</div>
+      <div data-testid="count">{items.length}</div>
+      <button
+        data-testid="ctx-delete1"
+        onClick={() => form.deleteField(['items', 1])}
+      >
+        ctx delete 1
+      </button>
+      <button
+        data-testid="ctx-setvalue"
+        onClick={() => form.setValue(['items'], [{ name: 'x' }, { name: 'y' }])}
+      >
+        ctx setValue
+      </button>
+      <button data-testid="ctx-reset" onClick={() => form.reset()}>
+        ctx reset
+      </button>
+    </div>
+  );
+}
+
+describe('useArrayField ids survive direct context mutations', () => {
+  const setup = () => {
+    render(
+      <FormProvider
+        initialValues={{ items: [{ name: 'a' }, { name: 'b' }, { name: 'c' }] }}
+        onSubmit={jest.fn()}
+      >
+        <ExternalMutList />
+      </FormProvider>
+    );
+    return screen.getByTestId('ids').textContent!.split(',');
+  };
+  const idsNow = () => screen.getByTestId('ids').textContent!.split(',');
+
+  it('a direct form.deleteField keeps the surviving items’ ids (no tail shuffle)', () => {
+    const [i0, , i2] = setup();
+    fireEvent.click(screen.getByTestId('ctx-delete1')); // delete B directly
+    // B's id is dropped; C keeps i2 (a length-only fallback would truncate from
+    // the end and hand C the wrong id).
+    expect(idsNow()).toEqual([i0, i2]);
+  });
+
+  it('a direct wholesale form.setValue re-mints (no mapping to carry over)', () => {
+    const before = setup();
+    fireEvent.click(screen.getByTestId('ctx-setvalue'));
+    const after = idsNow();
+    expect(after).toHaveLength(2);
+    expect(after.some((id) => before.includes(id))).toBe(false);
+  });
+
+  it('form.reset re-mints the ids', () => {
+    const before = setup();
+    fireEvent.click(screen.getByTestId('ctx-reset'));
+    const after = idsNow();
+    expect(after).toHaveLength(3);
+    expect(after.some((id) => before.includes(id))).toBe(false);
+  });
+});
+
+// Replacing a PARENT object that contains a tracked array carries no item mapping,
+// so the nested array's ids must re-mint (not silently keep stale slot ids).
+function NestedArrayList() {
+  const { items, arrayFieldIDs } = useArrayField(['profile', 'phones']);
+  const form = useFormContext();
+  return (
+    <div>
+      <div data-testid="ids">{arrayFieldIDs.join(',')}</div>
+      <div data-testid="count">{items.length}</div>
+      <button
+        data-testid="replace-parent"
+        onClick={() =>
+          // Replace the whole `profile` object with a reordered (same-length)
+          // phones array — no old->new mapping is available.
+          form.setValue(['profile'], { phones: [{ n: 'b' }, { n: 'a' }] })
+        }
+      >
+        replace parent
+      </button>
+    </div>
+  );
+}
+
+// A hook on a nested array (['sections', 0, 'questions']) is pinned to a fixed
+// item index. When the PARENT array reorders, index 0 may now be a different
+// section, so the nested ids must re-mint — but a parent reorder that doesn't
+// touch index 0 must leave them alone.
+function NestedReorder() {
+  const sections = useArrayField(['sections']);
+  const q0 = useArrayField(['sections', 0, 'questions']);
+  return (
+    <div>
+      <div data-testid="q0-ids">{q0.arrayFieldIDs.join(',')}</div>
+      <div data-testid="q0-count">{q0.items.length}</div>
+      <button data-testid="swap01" onClick={() => sections.swap(0, 1)}>
+        swap sections 0,1
+      </button>
+      <button data-testid="swap12" onClick={() => sections.swap(1, 2)}>
+        swap sections 1,2
+      </button>
+    </div>
+  );
+}
+
+describe('useArrayField nested-array ids follow ancestor reorders', () => {
+  const renderNested = () =>
+    render(
+      <FormProvider
+        initialValues={{
+          sections: [
+            { questions: [{ t: 'a' }, { t: 'b' }] },
+            { questions: [{ t: 'c' }] },
+            { questions: [{ t: 'd' }, { t: 'e' }] },
+          ],
+        }}
+        onSubmit={jest.fn()}
+      >
+        <NestedReorder />
+      </FormProvider>
+    );
+
+  it('re-mints nested ids when the parent reorder changes their index', () => {
+    renderNested();
+    const before = screen.getByTestId('q0-ids').textContent!.split(',');
+    fireEvent.click(screen.getByTestId('swap01')); // section 0 <-> 1
+    // Index 0 now holds the old section 1 (a single question), so the nested ids
+    // must re-mint to match the new items.
+    expect(screen.getByTestId('q0-count').textContent).toBe('1');
+    const after = screen.getByTestId('q0-ids').textContent!.split(',');
+    expect(after).toHaveLength(1);
+    expect(after.some((id) => before.includes(id))).toBe(false);
+  });
+
+  it('keeps nested ids when the parent reorder leaves their index untouched', () => {
+    renderNested();
+    const before = screen.getByTestId('q0-ids').textContent;
+    fireEvent.click(screen.getByTestId('swap12')); // sections 1 <-> 2; index 0 untouched
+    expect(screen.getByTestId('q0-ids').textContent).toBe(before);
+  });
+});
+
+describe('useArrayField ids re-mint when a parent object is replaced', () => {
+  it('re-mints nested array ids on a wholesale parent setValue', () => {
+    render(
+      <FormProvider
+        initialValues={{ profile: { phones: [{ n: 'a' }, { n: 'b' }] } }}
+        onSubmit={jest.fn()}
+      >
+        <NestedArrayList />
+      </FormProvider>
+    );
+    const before = screen.getByTestId('ids').textContent!.split(',');
+    fireEvent.click(screen.getByTestId('replace-parent'));
+    const after = screen.getByTestId('ids').textContent!.split(',');
+    expect(after).toHaveLength(2);
+    expect(after.some((id) => before.includes(id))).toBe(false);
+  });
+});
+
 // The reorder ops go through reindexArray, which (like setValue, used by add)
 // must mark the array path itself touched — otherwise touched-gated array-level
 // validation/UI would behave differently for add vs insert/move/swap.

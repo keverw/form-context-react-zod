@@ -115,7 +115,17 @@ function ArrayForm() {
   const form = useFormContext();
   const toast = useToast();
   const todos = useArrayField(['todos']);
-  const { items, add, remove, move, insert, prepend, swap, replace } = todos;
+  const {
+    items,
+    arrayFieldIDs,
+    add,
+    remove,
+    move,
+    insert,
+    prepend,
+    swap,
+    replace,
+  } = todos;
 
   const deleteIndex = (index: number) => {
     form.deleteField(['todos', index]);
@@ -158,8 +168,9 @@ function ArrayForm() {
       <RootErrors />
       <div className="space-y-4">
         {items.map((_, index) => (
+          // Key by the stable id (not index) so input focus/cursor survives reorders.
           <TodoItem
-            key={index}
+            key={arrayFieldIDs[index]}
             index={index}
             total={items.length}
             onMove={move}

@@ -83,6 +83,12 @@ export interface FormContextValue<T> {
     newItems: unknown[],
     indexMap: (oldIndex: number) => number | null
   ) => void;
+  /**
+   * Subscribe to structural array changes (used by `useArrayField` to keep its
+   * stable ids aligned no matter which mutation path changed the array). Returns
+   * an unsubscribe function.
+   */
+  subscribeArrayStructure: (listener: ArrayStructureListener) => () => void;
   getValuePaths: (path?: (string | number)[]) => (string | number)[][];
   getError: (path: (string | number)[]) => ValidationError[];
   getErrorPaths: (path?: (string | number)[]) => (string | number)[][];
@@ -110,6 +116,29 @@ export interface FormContextValue<T> {
   getClientSubmissionError: () => string[];
   isCurrentSubmission: (submissionId: string) => boolean;
 }
+
+/**
+ * Broadcast describing a STRUCTURAL change to an array field, so subscribers
+ * (useArrayField's stable-id tracking) can follow items to their new positions.
+ * - `reindex`: items moved/inserted/removed under `path`; `indexMap` maps each old
+ *   item index to its new one (or null to drop), and `newLength` is the new count.
+ * - `reset-subtree`: a value was assigned at `path` with no old->new item mapping
+ *   (a wholesale `setValue`). Any tracked array AT or UNDER `path` must re-mint —
+ *   this covers both replacing the array itself and replacing a parent object that
+ *   contains it.
+ * - `reset-all`: a form-wide values reset; subscribers should re-derive from scratch.
+ */
+export type ArrayStructureChange =
+  | {
+      kind: 'reindex';
+      path: (string | number)[];
+      indexMap: (oldIndex: number) => number | null;
+      newLength: number;
+    }
+  | { kind: 'reset-subtree'; path: (string | number)[] }
+  | { kind: 'reset-all' };
+
+export type ArrayStructureListener = (change: ArrayStructureChange) => void;
 
 // Create a context with a more specific type
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -302,6 +331,25 @@ export function FormProvider<T extends Record<string | number, unknown>>({
     normalizedInitialServerErrors
   );
 
+  // Subscribers (useArrayField instances) that track stable item ids and need to
+  // be told when an array changes shape — so ids follow items no matter which
+  // mutation path (reindexArray, deleteField, setValue, reset) caused the change.
+  const arrayStructureListenersRef = React.useRef<Set<ArrayStructureListener>>(
+    new Set()
+  );
+  const subscribeArrayStructure = useCallback(
+    (listener: ArrayStructureListener) => {
+      arrayStructureListenersRef.current.add(listener);
+      return () => {
+        arrayStructureListenersRef.current.delete(listener);
+      };
+    },
+    []
+  );
+  const notifyArrayStructure = useCallback((change: ArrayStructureChange) => {
+    for (const listener of arrayStructureListenersRef.current) listener(change);
+  }, []);
+
   // Initialize refs with current state values
   React.useEffect(() => {
     errorsRef.current = errors;
@@ -452,8 +500,15 @@ export function FormProvider<T extends Record<string | number, unknown>>({
           canSubmit: newCanSubmit,
         }),
       });
+
+      // A wholesale assignment carries no old->new item mapping, so any stable ids
+      // tracked for an array AT or UNDER this path can't be preserved — signal a
+      // re-mint for the subtree. This covers replacing the array itself AND
+      // replacing a parent object that contains it. (A leaf value edit has no
+      // tracked array under it, so subscribers leave their ids untouched.)
+      notifyArrayStructure({ kind: 'reset-subtree', path });
     },
-    [validateOnChange, schema, markPathAsTouched, dispatch]
+    [validateOnChange, schema, markPathAsTouched, dispatch, notifyArrayStructure]
   );
 
   // Function to set isSubmitting status - explicitly defined
@@ -834,6 +889,16 @@ export function FormProvider<T extends Record<string | number, unknown>>({
             canSubmit: newCanSubmit,
           },
         });
+
+        // Tell id-tracking subscribers an item was removed so their stable ids
+        // follow (the deleted index drops; everything after it shifts down).
+        notifyArrayStructure({
+          kind: 'reindex',
+          path: parentPath,
+          indexMap: (j) =>
+            j === arrayIndex ? null : j > arrayIndex ? j - 1 : j,
+          newLength: newItems.length,
+        });
       } else {
         // For non-array items, implement a comprehensive approach
         // Create a new values object with the item removed - update valuesRef first
@@ -969,7 +1034,7 @@ export function FormProvider<T extends Record<string | number, unknown>>({
         });
       }
     },
-    [canSubmit, validateOnChange, schema]
+    [canSubmit, validateOnChange, schema, notifyArrayStructure]
   );
 
   // Atomically reshape an array field and re-index the metadata attached to its
@@ -1084,8 +1149,16 @@ export function FormProvider<T extends Record<string | number, unknown>>({
           ...(validateOnChange && schema ? { lastValidated: Date.now() } : {}),
         },
       });
+
+      // Tell id-tracking subscribers how items moved so their stable ids follow.
+      notifyArrayStructure({
+        kind: 'reindex',
+        path: arrayPath,
+        indexMap,
+        newLength: newItems.length,
+      });
     },
-    [validateOnChange, schema, dispatch, markPathAsTouched]
+    [validateOnChange, schema, dispatch, markPathAsTouched, notifyArrayStructure]
   );
 
   const getError = useCallback(
@@ -1154,9 +1227,11 @@ export function FormProvider<T extends Record<string | number, unknown>>({
           // If not forced, they remain as they were, or are already false/null
         },
       });
+      // Values were replaced wholesale — id-tracking subscribers re-derive.
+      notifyArrayStructure({ kind: 'reset-all' });
       return true;
     },
-    [initialValues, dispatch]
+    [initialValues, dispatch, notifyArrayStructure]
   );
 
   // Type-safe resetWithValues function
@@ -1201,9 +1276,11 @@ export function FormProvider<T extends Record<string | number, unknown>>({
           canSubmit: false, // Reflects canSubmitRef.current
         },
       });
+      // Values were replaced wholesale — id-tracking subscribers re-derive.
+      notifyArrayStructure({ kind: 'reset-all' });
       return true;
     },
-    [dispatch] // initialValues is not needed here as newValues is passed
+    [dispatch, notifyArrayStructure] // initialValues is not needed here as newValues is passed
   );
 
   // Function to check if a submission ID is the current one
@@ -1583,6 +1660,7 @@ export function FormProvider<T extends Record<string | number, unknown>>({
       clearValue,
       deleteField,
       reindexArray,
+      subscribeArrayStructure,
       getValuePaths,
       getError,
       getErrorPaths,
@@ -1621,6 +1699,7 @@ export function FormProvider<T extends Record<string | number, unknown>>({
       clearValue,
       deleteField,
       reindexArray,
+      subscribeArrayStructure,
       getValuePaths,
       getError,
       getErrorPaths,

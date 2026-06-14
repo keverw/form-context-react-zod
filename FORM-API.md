@@ -366,14 +366,26 @@ form.setServerError(['fieldName'], null);
 #### useArrayField
 
 ```tsx
-const { items, add, remove, move, insert, prepend, swap, replace, update } =
-  useArrayField(path);
+const {
+  items,
+  arrayFieldIDs,
+  add,
+  remove,
+  move,
+  insert,
+  prepend,
+  swap,
+  replace,
+  update,
+} = useArrayField(path);
 ```
 
-Array operations (RHF `useFieldArray`-style). The reordering ops re-index the
-errors and touched markers under the array so they follow their items:
+Array operations. The reordering ops re-index the errors and touched markers under
+the array so they follow their items:
 
 - `items`: the current array value (always an array; `[]` if the path isn't one).
+- `arrayFieldIDs`: a stable id per item, parallel to `items`. Use it as the React
+  `key` instead of the array index — see "Stable keys" below.
 - `add(item)`: append an item to the end.
 - `prepend(item)`: insert an item at the front (`insert(0, item)`).
 - `insert(index, item)`: insert at `index` (clamped to `[0, length]`); items at/after it shift up.
@@ -408,6 +420,46 @@ todos.replace([{ text: 'fresh', completed: false }]); // replace all
 > they aren't cleared by a reorder; they move with their item. A later
 > `setServerError`/`setServerErrors` therefore rebuilds from the correct
 > (re-indexed) baseline.
+
+**Stable keys (`arrayFieldIDs`)**
+
+When you render an array with `.map()`, keying by the array **index** makes React
+reuse component instances _positionally_ — so on a reorder/insert, an input's focus,
+cursor position, and uncontrolled state stay pinned to the slot instead of following
+the item. `arrayFieldIDs` gives each item a stable id that moves with it, so keying by
+it preserves the right instance:
+
+```tsx
+const { items, arrayFieldIDs, move } = useArrayField(['todos']);
+
+return items.map((_, index) => (
+  <TodoRow
+    key={arrayFieldIDs[index]}
+    index={index}
+    onMoveUp={() => move(index, index - 1)}
+  />
+));
+```
+
+The ids stay aligned no matter **how** the array changes — not just through the
+`useArrayField` ops. The context broadcasts every structural change with its intent,
+and the hook applies it:
+
+- `move`/`swap`/`insert`/`remove` (and a direct `form.deleteField([...path, i])`):
+  the change carries an old→new index map, so each id follows its item exactly.
+- `update` keeps an item's id (same slot); `add` mints a fresh id for the new item.
+- A **wholesale** replacement carries no old→new mapping, so the ids are **re-minted**
+  (the honest result — there's no way to know which new item is which old one). This
+  covers `replace`, `form.setValue(path, newArray)`, replacing a **parent object** that
+  contains the array (`form.setValue(['profile'], { phones })`), and a form-wide `reset()`.
+- A **nested** array (e.g. `useArrayField(['sections', 0, 'questions'])`) is pinned to a
+  fixed item index, so if its **ancestor** array reorders and a different item lands at
+  that index, its ids re-mint; a reorder that doesn't touch that index leaves them alone.
+
+So editing field values never disturbs the ids, and reshaping the array — through the
+hook ops _or_ directly via the context — keeps them correct. (One minor note: the ids
+are per-hook-instance, so two `useArrayField` on the same path generate independent
+id sets.)
 
 ## Form Submission
 

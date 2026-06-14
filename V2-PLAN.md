@@ -157,21 +157,23 @@ rough.
       prepend, swap+errors, replace drop, update, server-baseline-after-reorder, array-level `.min`
       refresh). Demo: per-item "insert below" + Prepend/Append/Swap/Replace controls. FORM-API.md
       updated.
-- [ ] **Stable array item IDs (`useArrayField` → `arrayFieldIds`).** RHF's `field.id`: a stable key
-      per array item so React preserves the right instance (input focus/cursor, uncontrolled state)
-      across reorders — today the demo keys by `index`, so a reorder can shuffle focus. **Name it
-      specifically** (`arrayFieldIds`, a parallel `string[]`) — NOT a bare `id`/`ids`, to avoid
-      confusion with `currentSubmissionID` / submission IDs. **Option A (chosen): hook-local.** Keep a
-      `useRef<string[]>` alongside `items`; every op mutates it the same way (reuse `reindexArray`'s
-      `indexMap` for move/swap/insert/replace; push on add; splice on remove; keep on update).
-      Reconcile by length in render for external mutations (best-effort). Return the parallel array
-      (cleaner than RHF's `{ id, ...item }`, which breaks for primitive items) →
-      `items.map((it, i) => <Row key={arrayFieldIds[i]} … />)`. Array-only — static/nested fields
-      already have stable paths, so they don't need it. **Caveats to document:** ids are
-      hook-instance-local (two `useArrayField` on the same path get different ids), and a direct
-      `setValue`/`deleteField` on the array from elsewhere desyncs identity (counts stay right, but
-      which-id-is-which can't be preserved). Not Option B (an id registry in the context) — too much
-      core machinery against the value/path-as-identity model. ~half a chunk.
+- [x] **Stable array item IDs (`useArrayField` → `arrayFieldIDs`).** ✅ Returned as a parallel
+      `arrayFieldIDs: string[]` (named to avoid confusion with submission IDs). Use as the React
+      `key` instead of index so focus/cursor/uncontrolled state survive reorders. **Context-integrated
+      (Option B, pub/sub)**: the context broadcasts every structural array change via
+      `subscribeArrayStructure` — `reindexArray`/`deleteField` send the old→new `indexMap`,
+      `setValue(arrayPath,…)`/`reset` send a re-mint signal — and `useArrayField` subscribes and
+      applies it. So ids follow items **no matter which mutation path** changed the array, including a
+      **direct `form.deleteField([...path, i])`** from elsewhere (the case hook-local couldn't handle).
+      Wholesale replacement (`setValue` on the array path, `replace`, `reset`) re-mints, which is the
+      honest result (no old→new mapping). `add` routes through `reindexArray` (identity map) to keep
+      ids; `update` keeps the id (sub-path set, no structural notify). Subscribers handle three
+      change kinds: `reindex` (their own array — precise remap; OR an **ancestor** array — re-mint
+      iff their pinned index's occupant changed, i.e. `indexMap(myIndex) !== myIndex`),
+      `reset-subtree` (a wholesale `setValue` at/above their path — covers replacing a parent
+      object), and `reset-all` (form reset). Render-time length check is a safety net. 18 tests incl.
+      direct-context delete/setValue/reset, parent-object replace, and nested ancestor reorder.
+      Demo keys `TodoItem` by `arrayFieldIDs[index]`. FORM-API.md updated. Array-only by design.
 - [ ] **`getFieldState(path)` convenience.** Returns `{ error, isTouched, invalid }` for one field
       in a single call (RHF parity). Pure wrapper over existing `getError(path)` + `touched` lookup.
       Tiny.
@@ -277,8 +279,7 @@ Remaining 13 findings:
 Done before Cursor had review tooling — re-run now.
 
 - [ ] Run `/code-review high` on the working tree once changes are staged.
-- [ ] Manual pass over `form-context.tsx` (1420 lines — the ref + reducer hybrid is the
-      riskiest area for race conditions).
+- [ ] Manual pass over `form-context.tsx` (1420 lines — the ref + reducer hybrid is the riskiest area for race conditions).
 - [ ] Lint clean (`bun run lint`) and typecheck under the new Zod.
 
 ## 7. React Native support
@@ -342,7 +343,7 @@ Scanned the lib: **no hydration hazards found.**
 - No `useId` / `window` / `document` reads during render.
 
 - [ ] Add a short README "SSR/Hydration" note: hydration-safe as long as the caller passes
-      identical `initialValues` on server and client.
+      identical `initialValues` on server and client. (would go for the server errors warning stuff too)
 - [ ] (Optional) Add an SSR render test (`renderToString`) to lock it in.
 
 ## 10. Features (emerged while dogfooding the demo)
