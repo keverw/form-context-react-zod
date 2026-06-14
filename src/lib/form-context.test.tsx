@@ -2302,6 +2302,157 @@ describe('FormProvider', () => {
     );
   });
 
+  it('validateField surfaces only that field and returns its validity', async () => {
+    const schema = z.object({
+      a: z.string().min(3, 'a too short'),
+      b: z.string().min(3, 'b too short'),
+    });
+
+    const results: Record<string, boolean> = {};
+    const TestComponent = () => {
+      const form = useFormContext();
+      const fa = useField(['a']);
+      const fb = useField(['b']);
+      return (
+        <div>
+          <span data-testid="a-err">{(fa.error as string) ?? 'none'}</span>
+          <span data-testid="b-err">{(fb.error as string) ?? 'none'}</span>
+          <button
+            data-testid="vf-a"
+            onClick={() => {
+              results.a = form.validateField(['a']);
+            }}
+          >
+            validate a
+          </button>
+          <button
+            data-testid="vf-b"
+            onClick={() => {
+              results.b = form.validateField(['b']);
+            }}
+          >
+            validate b
+          </button>
+        </div>
+      );
+    };
+
+    render(
+      <TestForm
+        schema={schema}
+        initialValues={{ a: 'x', b: 'bbb' }}
+        validateOnChange={false}
+      >
+        <TestComponent />
+      </TestForm>
+    );
+
+    // Nothing validated yet.
+    expect(screen.getByTestId('a-err').textContent).toBe('none');
+    expect(screen.getByTestId('b-err').textContent).toBe('none');
+
+    // Validate only `a` (invalid): its error surfaces, returns false, and `b`
+    // stays quiet even though the whole schema ran.
+    fireEvent.click(screen.getByTestId('vf-a'));
+    await advanceTimers();
+    expect(results.a).toBe(false);
+    expect(screen.getByTestId('a-err').textContent).toBe('a too short');
+    expect(screen.getByTestId('b-err').textContent).toBe('none');
+
+    // Validate `b` (valid): returns true, no error surfaces.
+    fireEvent.click(screen.getByTestId('vf-b'));
+    await advanceTimers();
+    expect(results.b).toBe(true);
+    expect(screen.getByTestId('b-err').textContent).toBe('none');
+  });
+
+  it('validateField keeps canSubmit in sync with whole-form validity', async () => {
+    const schema = z.object({ a: z.string().min(3, 'a too short') });
+
+    const TestComponent = () => {
+      const form = useFormContext();
+      return (
+        <div>
+          <span data-testid="can-submit">{form.canSubmit ? 'yes' : 'no'}</span>
+          <button data-testid="vf" onClick={() => form.validateField(['a'])}>
+            validate
+          </button>
+        </div>
+      );
+    };
+
+    render(
+      <TestForm
+        schema={schema}
+        initialValues={{ a: 'abc' }}
+        validateOnChange={false}
+      >
+        <TestComponent />
+      </TestForm>
+    );
+
+    // No validation has run yet, so canSubmit starts false.
+    expect(screen.getByTestId('can-submit').textContent).toBe('no');
+
+    // validateField runs the full schema (valid), so canSubmit must flip true —
+    // not stay stale.
+    fireEvent.click(screen.getByTestId('vf'));
+    await advanceTimers();
+    expect(screen.getByTestId('can-submit').textContent).toBe('yes');
+  });
+
+  it('validateField runs regardless of the validateOnBlur prop', async () => {
+    const schema = z.object({ a: z.string().min(3, 'a too short') });
+
+    const out: { result?: boolean } = {};
+    const TestComponent = () => {
+      const form = useFormContext();
+      const fa = useField(['a']);
+      return (
+        <div>
+          <span data-testid="a-err">{(fa.error as string) ?? 'none'}</span>
+          <button
+            data-testid="blur"
+            onClick={() => form.handleBlur(['a'])}
+          >
+            blur
+          </button>
+          <button
+            data-testid="vf"
+            onClick={() => {
+              out.result = form.validateField(['a']);
+            }}
+          >
+            validate
+          </button>
+        </div>
+      );
+    };
+
+    render(
+      <FormProvider
+        initialValues={{ a: 'x' }}
+        schema={schema}
+        onSubmit={jest.fn()}
+        validateOnBlur={false}
+        validateOnChange={false}
+      >
+        <TestComponent />
+      </FormProvider>
+    );
+
+    // handleBlur with validateOnBlur=false only marks touched — no error surfaces.
+    fireEvent.click(screen.getByTestId('blur'));
+    await advanceTimers();
+    expect(screen.getByTestId('a-err').textContent).toBe('none');
+
+    // validateField is not gated on validateOnBlur: it validates and surfaces.
+    fireEvent.click(screen.getByTestId('vf'));
+    await advanceTimers();
+    expect(out.result).toBe(false);
+    expect(screen.getByTestId('a-err').textContent).toBe('a too short');
+  });
+
   it('tests validate function with and without force parameter', async () => {
     const schema = z.object({
       username: z.string().min(3, 'Username must be at least 3 characters'),

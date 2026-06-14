@@ -84,6 +84,13 @@ export interface FormContextValue<T> {
   reset: (force?: boolean) => boolean;
   resetWithValues: (newValues: T, force?: boolean) => boolean;
   validate: (force?: boolean) => boolean;
+  /**
+   * Imperatively validate one field ("trigger"). Marks it touched and re-runs the
+   * schema, surfacing only that field's error. Returns whether the field is now
+   * error-free (no error of any source at the path). Unlike `handleBlur`, this is
+   * not gated on the `validateOnBlur` prop and it returns the field's validity.
+   */
+  validateField: (path: (string | number)[]) => boolean;
   getValue: <V = unknown>(path: (string | number)[]) => V;
   setValue: <V = unknown>(path: (string | number)[], value: V) => void;
   clearValue: (path: (string | number)[]) => void;
@@ -703,6 +710,47 @@ export function FormProvider<T extends Record<string | number, unknown>>({
       return result.valid;
     },
     [getValuePaths, setFieldTouched, validateForm, dispatch]
+  );
+
+  // Imperatively validate a single field ("trigger"). Marks it touched (errors are
+  // touch-gated) and reconciles just this field's Zod error: Zod validates the
+  // whole object — a field can depend on others via .refine — so we run the full
+  // schema, drop the field's stale 'client' error, and re-add a fresh one if it's
+  // still invalid. Server/manual errors at the path are left as-is. Returns whether
+  // the field is now error-free (no error of any source at the path).
+  const validateField = useCallback(
+    (path: (string | number)[]): boolean => {
+      const atPath = (p: (string | number)[]) =>
+        p.length === path.length && p.every((val, idx) => path[idx] === val);
+
+      setFieldTouched(path, true);
+
+      if (schema) {
+        const result = validate(schema, valuesRef.current);
+        const withoutStale = errorsRef.current.filter(
+          (e) => e.source !== 'client' || !atPath(e.path)
+        );
+        const freshAtPath = result.valid
+          ? []
+          : (result.errors ?? []).filter((e) => atPath(e.path));
+        errorsRef.current = [...withoutStale, ...freshAtPath];
+        // validateField runs the full schema, so keep whole-form canSubmit in sync
+        // with the result — matching validateForm/setValue. Otherwise the submit
+        // button could read stale after validating through this imperative path.
+        canSubmitRef.current = result.valid;
+        dispatch({
+          type: 'UPDATE_STATE',
+          updates: {
+            errors: errorsRef.current,
+            lastValidated: Date.now(),
+            canSubmit: result.valid,
+          },
+        });
+      }
+
+      return !errorsRef.current.some((e) => atPath(e.path));
+    },
+    [setFieldTouched, schema, dispatch]
   );
 
   // Field blur handler shared by useField and any raw-context consumer. Marks the
@@ -1814,6 +1862,7 @@ export function FormProvider<T extends Record<string | number, unknown>>({
       reset,
       resetWithValues,
       validate: validateFunction,
+      validateField,
       getValue,
       setValue,
       clearValue,
@@ -1858,6 +1907,7 @@ export function FormProvider<T extends Record<string | number, unknown>>({
       reset,
       resetWithValues,
       validateFunction,
+      validateField,
       getValue,
       setValue,
       clearValue,

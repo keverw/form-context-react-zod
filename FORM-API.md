@@ -54,6 +54,10 @@ State getters:
   - `resetWithValues(newValues, force?): boolean`: Same as `reset`, but resets to a
     caller-supplied set of values instead of `initialValues`.
   - `validate(force?: boolean)`: Manually trigger form validation
+  - `validateField(path): boolean`: Imperatively validate **one** field ("trigger").
+    Marks it touched and re-runs the schema (Zod validates the whole object, but only
+    this field's error is surfaced/reconciled), returning whether the field is now
+    error-free. See the note below on how it differs from `handleBlur`.
 
 **`reset` vs `resetWithValues`** — they're the same operation with a different target. Both clear
 touched state, validation errors, and server errors, clear the submit-attempt tracking
@@ -132,6 +136,21 @@ Touch state operations:
   wire fields manually from the context, call `form.handleBlur(path)` on blur
   (instead of just `setFieldTouched`) so `validateOnBlur` works — and gate your
   error display on `touched` so only fields the user has interacted with show errors.
+
+**`validateField(path)` vs `handleBlur(path)`** — they overlap (both touch the field
+and can surface its error), but they're for different jobs:
+
+- `handleBlur` is the **blur event handler** you wire to `onBlur`. It marks touched and
+  validates **only if the `validateOnBlur` prop is enabled** (otherwise it just marks
+  touched), and it returns nothing. It's event-driven UI plumbing.
+- `validateField` is an **imperative trigger** you call yourself — e.g. validate a field
+  before enabling a button, on a custom event, or inside an async flow. It **always**
+  validates regardless of `validateOnBlur`/`validateOnChange`, and **returns the field's
+  validity** (`boolean`). It also reconciles just that one field's error, so it's correct
+  even when fixing the field made the whole form valid.
+
+In short: blur handler → `handleBlur`; "validate this field now and tell me if it
+passed" → `validateField`.
 
 ### FormSubmitHandler
 

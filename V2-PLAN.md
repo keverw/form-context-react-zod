@@ -224,10 +224,43 @@ rough.
       descendants) — previously it cleared `errorsRef` only, so a later `setServerError` rebuilt from the
       stale baseline and resurrected a cleared server error (pre-existing for the exact path, widened by
       the cascade). Manual errors need no equivalent (no parallel baseline). +1 bisected test.
-- [ ] **`validateField(path)` (manual per-field validate / "trigger").** `validate()` runs the
-      whole Zod schema (no isolated field check). Implement as `setFieldTouched(path, true)` +
-      `validateFunction()`: since error display gates on `touched`, only that field surfaces. ~15
-      lines + test.
+- [x] **`validateField(path)` (manual per-field validate / "trigger").** Marks the field touched and
+      runs the full schema (Zod can't validate one field in isolation — refinements span fields), but
+      **reconciles only that field's `client` error** (drop stale, re-add fresh if still invalid;
+      server/manual at the path untouched), then returns whether the field is now error-free (any
+      source). Went beyond the bare `setFieldTouched + validateFunction` sketch because
+      `validateFunction` skips rewriting `errorsRef` when the whole form is valid, which would leave a
+      now-valid field's stale error — the per-field reconcile handles that. **Not** gated on
+      `validateOnBlur`/`validateOnChange` (unlike `handleBlur`) and returns a boolean. Context-only (not
+      an onSubmit helper). FORM-API entry + `validateField` vs `handleBlur` note + 2 tests.
+- [ ] **Per-field subscriptions (re-render isolation).** _Biggest competitive gap._ Done on `v2`
+      as a normal list item, built incrementally (see build order below). Today state lives in a
+      `useReducer` whose memoized context value changes on every
+      `values`/`errors`/`touched` update, so **every** `useField` consumer re-renders on every
+      keystroke (React context has no per-subscriber granularity). Fine at 5 fields, felt at 100.
+      Plan (the foundation already exists — refs are the source of truth, and `subscribeArrayStructure`
+      is a working pub/sub precedent):
+      - **Two contexts.** A _stable_ one carrying just the methods + a subscription store (never changes
+        identity → consumers stop re-rendering on unrelated changes), and the existing _reactive_ one
+        for whole-form reads (`FormState`, `form.isValid`, etc.) so existing code keeps working — **no
+        big migration.**
+      - `useField` swaps its reactive reads for
+        `useSyncExternalStore(subscribe, () => getSnapshot(path))`, re-rendering only when its own slice
+        changes.
+      - A `notify()` after each ref mutation (~10–15 sites: `setValue`, `setFieldTouched`,
+        `reindexArray`, `deleteField`, the error setters, `reset`, …) — same pattern already used for
+        `notifyArrayStructure`.
+      Real cost drivers (not the mechanism): (1) **snapshot identity** — `getSnapshot` must return a
+      stable ref for unchanged slices or `useSyncExternalStore` infinite-loops, so error-array/touched
+      slices need per-path caching; (2) **reliability** — a missed `notify` = silently stale UI, needs
+      its own subscription-focused test suite; (3) keep the reactive context alongside for back-compat.
+      Est: core ~1–2 days, correct + migration-safe + tested ~1 week. **Build order** (land
+      incrementally on `v2`, keeping the suite green at each step): (1) wire just `useField`'s _value_
+      through a subscription + the stable context, and measure the re-render drop on the demo's big form
+      as a checkpoint; (2) extend the same mechanism to `errors`/`touched` with per-path snapshot
+      caching; (3) add the subscription-focused test suite (every `notify` site, no stale UI, snapshot
+      identity). Pairs with **typed field paths** as the two things that most move the "competitive with
+      RHF/TanStack at scale" needle.
 - [ ] **`AbortSignal` on the `onSubmit` helpers.** Today `reset(force)` only _invalidates_ a
       submission (flips `isSubmitting`, clears the submission ID so `helpers.*` writes no-op via
       `isCurrentSubmission`) — it does **not** abort the user's network call, and there's no signal
