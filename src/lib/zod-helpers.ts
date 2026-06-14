@@ -6,6 +6,35 @@ export interface ValidationError {
   source?: 'client' | 'server' | 'client-form-handler';
 }
 
+/**
+ * A snapshot of a single field's state, returned by `getFieldState(path)`.
+ * Unlike `useField`'s display-oriented `error`, the errors here are NOT gated on
+ * touched — they reflect the field's real validation state for programmatic
+ * inspection (e.g. "is this field currently valid?").
+ *
+ * This is a snapshot read at call time, not a live object: call `getFieldState`
+ * during render and it stays in sync because the component re-renders on form
+ * state changes. Don't stash the returned object expecting it to update itself.
+ */
+export interface FieldState {
+  /** All errors at this exact path (validation + server), unfiltered. */
+  errors: ValidationError[];
+  /** The first error message, or null if the field has no errors. */
+  error: string | null;
+  /** Whether the field has been touched (blurred or edited). */
+  isTouched: boolean;
+  /** Whether the field currently has any error. */
+  invalid: boolean;
+  /**
+   * Whether the path is present in the form's `values` (a `hasField(path)` read).
+   * This reflects presence only — it is independent of `errors`/`invalid`. A
+   * required schema field that hasn't been filled in is absent from `values`, so
+   * it can be `exists: false` AND `invalid: true` once validation runs. Use this
+   * to catch a typo'd/never-set path, not to decide whether a field has errors.
+   */
+  exists: boolean;
+}
+
 export interface ValidationResult<T> {
   valid: boolean;
   value: T | null;

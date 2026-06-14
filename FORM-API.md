@@ -91,6 +91,7 @@ Error operations:
 
 - `getError(path)`: Get array of errors at specific path level
 - `getErrorPaths(path?: (string|number)[]): (string|number)[][]`: Get all error paths under given path
+- `getFieldState(path): FieldState`: Convenience snapshot of one field in a single call — `{ errors, error, isTouched, invalid, exists }`. A pure read over `getError(path)` + the `touched` lookup + `hasField(path)`. Note the errors here are **raw** (not gated on `touched`), so `invalid`/`error` reflect the field's real validation state — handy for raw-context fields that want a field's error/touched/validity without wiring up [`useField`](#usefield) (whose display `error` _is_ touched-gated).
 - `setErrors(errors)`: Set all errors (replaces existing errors)
 - `setServerErrors(errors)`: Replace all server errors with new ones
 - `setServerError(path, message)`: Set server error(s) for a specific path
@@ -299,7 +300,53 @@ const errors = form.getError(['todos', 0]);
 // Get all error paths under todos
 const errorPaths = form.getErrorPaths(['todos']);
 // Returns: [['todos', 0, 'text'], ['todos', 1, 'completed'], ...]
+
+// Snapshot one field's state in a single call
+const state = form.getFieldState(['email']);
+// state.errors   -> ValidationError[] (raw, all sources)
+// state.error    -> 'Invalid email format' | null (first message)
+// state.isTouched -> boolean
+// state.invalid  -> boolean (state.errors.length > 0)
+// state.exists   -> boolean (false for a missing/typo'd path)
 ```
+
+`getFieldState` returns a `FieldState`:
+
+```tsx
+export interface FieldState {
+  /** All errors at this exact path (validation + server), unfiltered. */
+  errors: ValidationError[];
+  /** The first error message, or null if the field has no errors. */
+  error: string | null;
+  /** Whether the field has been touched (blurred or edited). */
+  isTouched: boolean;
+  /** Whether the field currently has any error. */
+  invalid: boolean;
+  /** Whether the path is present in the form's `values` (a `hasField` read). */
+  exists: boolean;
+}
+```
+
+Unlike [`useField`](#usefield)'s display `error` (which is gated on `touched` so
+untouched fields stay quiet), the errors in `FieldState` are **raw** — `invalid`
+and `error` reflect the field's real validation state. Gate on `isTouched`
+yourself if you only want to show errors after interaction.
+
+`FieldState` is a snapshot read at call time, not a live object. Call
+`getFieldState(path)` during render and it stays in sync because your component
+re-renders when the form's touched or error state changes. Don't stash the
+returned object and expect it to update on its own — read it fresh each render.
+
+A path that doesn't exist doesn't throw — like `getError` and the `touched`
+lookup it builds on, it reads as a clean state: `{ errors: [], error: null,
+isTouched: false, invalid: false, exists: false }`. The `exists` flag is how you
+tell a missing/typo'd field apart from a present one.
+
+`exists` reflects presence in `values` only and is independent of the error
+fields. A required schema field that hasn't been filled in is absent from
+`values`, so once validation runs it can read `exists: false` **and**
+`invalid: true` at the same time. Use `exists` to catch a typo'd or never-set
+path, not to decide whether a field has errors.
 
 ### Performance Optimizations
 

@@ -1614,6 +1614,182 @@ describe('FormProvider', () => {
     expect(address0Errors.length).toBe(2);
   });
 
+  it('getFieldState returns errors, touched and invalid for a field', async () => {
+    const schema = z.object({
+      username: z.string().min(3, 'Username must be at least 3 characters'),
+      email: z.email('Invalid email format'),
+    });
+
+    const TestComponent = () => {
+      const form = useFormContext();
+      const state = form.getFieldState(['username']);
+      const emailState = form.getFieldState(['email']);
+      return (
+        <div>
+          <input
+            data-testid="username-input"
+            onChange={(e) => form.setValue(['username'], e.target.value)}
+            onBlur={() => form.handleBlur(['username'])}
+          />
+          <span data-testid="u-error">{state.error ?? 'none'}</span>
+          <span data-testid="u-touched">
+            {state.isTouched ? 'touched' : 'untouched'}
+          </span>
+          <span data-testid="u-invalid">
+            {state.invalid ? 'invalid' : 'valid'}
+          </span>
+          <span data-testid="u-count">{state.errors.length}</span>
+          <span data-testid="u-exists">
+            {state.exists ? 'exists' : 'missing'}
+          </span>
+          {/* email is never edited: stays untouched + valid (no error yet) */}
+          <span data-testid="e-touched">
+            {emailState.isTouched ? 'touched' : 'untouched'}
+          </span>
+          <span data-testid="e-invalid">
+            {emailState.invalid ? 'invalid' : 'valid'}
+          </span>
+        </div>
+      );
+    };
+
+    render(
+      <TestForm schema={schema} validateOnMount={false}>
+        <TestComponent />
+      </TestForm>
+    );
+
+    // Initially: no validation has run, nothing touched, and the field isn't in
+    // values yet (no initialValues), so exists is false.
+    expect(screen.getByTestId('u-error').textContent).toBe('none');
+    expect(screen.getByTestId('u-touched').textContent).toBe('untouched');
+    expect(screen.getByTestId('u-invalid').textContent).toBe('valid');
+    expect(screen.getByTestId('u-count').textContent).toBe('0');
+    expect(screen.getByTestId('u-exists').textContent).toBe('missing');
+
+    // Type an invalid value and blur -> field becomes touched + invalid, error set.
+    fireEvent.change(screen.getByTestId('username-input'), {
+      target: { value: 'ab' },
+    });
+    fireEvent.blur(screen.getByTestId('username-input'));
+    await advanceTimers();
+
+    expect(screen.getByTestId('u-touched').textContent).toBe('touched');
+    expect(screen.getByTestId('u-invalid').textContent).toBe('invalid');
+    expect(screen.getByTestId('u-error').textContent).toBe(
+      'Username must be at least 3 characters'
+    );
+    expect(screen.getByTestId('u-count').textContent).toBe('1');
+    // setValue put the field into values, so exists is now true.
+    expect(screen.getByTestId('u-exists').textContent).toBe('exists');
+
+    // email was never touched, but whole-form validation produced an error for it
+    // (it's empty/required). getFieldState reports it as invalid anyway: invalid is
+    // raw error presence, NOT touched-gated.
+    expect(screen.getByTestId('e-touched').textContent).toBe('untouched');
+    expect(screen.getByTestId('e-invalid').textContent).toBe('invalid');
+
+    // Fix the value -> error clears, field stays touched but becomes valid.
+    fireEvent.change(screen.getByTestId('username-input'), {
+      target: { value: 'abcd' },
+    });
+    await advanceTimers();
+
+    expect(screen.getByTestId('u-touched').textContent).toBe('touched');
+    expect(screen.getByTestId('u-invalid').textContent).toBe('valid');
+    expect(screen.getByTestId('u-error').textContent).toBe('none');
+    expect(screen.getByTestId('u-count').textContent).toBe('0');
+  });
+
+  it('getFieldState reports invalid regardless of touched state (raw errors)', async () => {
+    const schema = z.object({
+      username: z.string().min(3, 'Username must be at least 3 characters'),
+    });
+
+    const TestComponent = () => {
+      const form = useFormContext();
+      const state = form.getFieldState(['username']);
+      return (
+        <div>
+          <span data-testid="invalid">
+            {state.invalid ? 'invalid' : 'valid'}
+          </span>
+          <span data-testid="touched">
+            {state.isTouched ? 'touched' : 'untouched'}
+          </span>
+          <span data-testid="error">{state.error ?? 'none'}</span>
+          <button
+            data-testid="set-server-error"
+            onClick={() => form.setServerError(['username'], 'Already taken')}
+          >
+            Set server error
+          </button>
+        </div>
+      );
+    };
+
+    render(
+      <TestForm
+        schema={schema}
+        initialValues={{ username: 'abcd' }}
+        validateOnMount={false}
+      >
+        <TestComponent />
+      </TestForm>
+    );
+
+    // A server error is set on a field the user never touched. getFieldState
+    // surfaces it (invalid + error message) without requiring touched — it is not
+    // gated on touched, unlike useField's display error.
+    fireEvent.click(screen.getByTestId('set-server-error'));
+    await advanceTimers();
+
+    expect(screen.getByTestId('invalid').textContent).toBe('invalid');
+    expect(screen.getByTestId('touched').textContent).toBe('untouched');
+    expect(screen.getByTestId('error').textContent).toBe('Already taken');
+  });
+
+  it('getFieldState returns a clean snapshot for a non-existent field', async () => {
+    const schema = z.object({
+      username: z.string().min(3, 'Username must be at least 3 characters'),
+    });
+
+    const TestComponent = () => {
+      const form = useFormContext();
+      // A path that isn't in values or the schema: should not throw, just read
+      // as untouched / no errors / valid (same as getError + touched lookups),
+      // and exists === false to mark it as missing.
+      const state = form.getFieldState(['does', 'not', 'exist']);
+      return (
+        <div>
+          <span data-testid="error">{state.error ?? 'none'}</span>
+          <span data-testid="touched">
+            {state.isTouched ? 'touched' : 'untouched'}
+          </span>
+          <span data-testid="invalid">
+            {state.invalid ? 'invalid' : 'valid'}
+          </span>
+          <span data-testid="count">{state.errors.length}</span>
+          <span data-testid="exists">
+            {state.exists ? 'exists' : 'missing'}
+          </span>
+        </div>
+      );
+    };
+
+    render(
+      <TestForm schema={schema} initialValues={{ username: 'ab' }}>
+        <TestComponent />
+      </TestForm>
+    );
+
+    expect(screen.getByTestId('error').textContent).toBe('none');
+    expect(screen.getByTestId('touched').textContent).toBe('untouched');
+    expect(screen.getByTestId('invalid').textContent).toBe('valid');
+    expect(screen.getByTestId('count').textContent).toBe('0');
+    expect(screen.getByTestId('exists').textContent).toBe('missing');
+  });
+
   it('tests validate function with and without force parameter', async () => {
     const schema = z.object({
       username: z.string().min(3, 'Username must be at least 3 characters'),

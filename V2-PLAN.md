@@ -174,9 +174,11 @@ rough.
       object), and `reset-all` (form reset). Render-time length check is a safety net. 18 tests incl.
       direct-context delete/setValue/reset, parent-object replace, and nested ancestor reorder.
       Demo keys `TodoItem` by `arrayFieldIDs[index]`. FORM-API.md updated. Array-only by design.
-- [ ] **`getFieldState(path)` convenience.** Returns `{ error, isTouched, invalid }` for one field
-      in a single call (RHF parity). Pure wrapper over existing `getError(path)` + `touched` lookup.
-      Tiny.
+- [x] **`getFieldState(path)` convenience.** Returns `{ errors, error, isTouched, invalid, exists }`
+      for one field in a single call. Pure read over existing `getError(path)` + `touched` + `hasField`;
+      errors are raw (not touched-gated) so `invalid`/`error` reflect real validation state, and
+      `exists` distinguishes a missing/typo'd path from a present valid one. Exported `FieldState` type.
+      Docs + 3 tests (touched/invalid lifecycle; raw-vs-gated via server error; non-existent path).
 - [ ] **Submit-attempt flags.** Two reducer booleans, framed as an _attempt_ so a failed submit
       doesn't read weirdly: **`submitAttempted`** (true once the user has tried to submit at all,
       pass or fail — RHF calls this `isSubmitted`, but "attempted" is clearer) and

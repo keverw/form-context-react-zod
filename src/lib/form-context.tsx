@@ -1,6 +1,6 @@
 import React, { createContext, useCallback, useMemo, useReducer } from 'react';
 import { z } from 'zod';
-import { validate, ValidationError } from './zod-helpers';
+import { validate, ValidationError, FieldState } from './zod-helpers';
 import {
   getValueAtPath,
   setValueAtPath,
@@ -92,6 +92,13 @@ export interface FormContextValue<T> {
   getValuePaths: (path?: (string | number)[]) => (string | number)[][];
   getError: (path: (string | number)[]) => ValidationError[];
   getErrorPaths: (path?: (string | number)[]) => (string | number)[][];
+  /**
+   * Convenience snapshot of one field's state in a single call:
+   * `{ errors, error, isTouched, invalid }`. A pure read over the existing
+   * `getError(path)` + `touched` lookup — handy for raw-context fields that want
+   * a field's error/touched/validity without wiring up `useField`.
+   */
+  getFieldState: (path: (string | number)[]) => FieldState;
   hasField: (path: (string | number)[]) => boolean;
   setServerErrors: (errors: ValidationError[]) => void;
   setServerError: (
@@ -508,7 +515,13 @@ export function FormProvider<T extends Record<string | number, unknown>>({
       // tracked array under it, so subscribers leave their ids untouched.)
       notifyArrayStructure({ kind: 'reset-subtree', path });
     },
-    [validateOnChange, schema, markPathAsTouched, dispatch, notifyArrayStructure]
+    [
+      validateOnChange,
+      schema,
+      markPathAsTouched,
+      dispatch,
+      notifyArrayStructure,
+    ]
   );
 
   // Function to set isSubmitting status - explicitly defined
@@ -1158,7 +1171,13 @@ export function FormProvider<T extends Record<string | number, unknown>>({
         newLength: newItems.length,
       });
     },
-    [validateOnChange, schema, dispatch, markPathAsTouched, notifyArrayStructure]
+    [
+      validateOnChange,
+      schema,
+      dispatch,
+      markPathAsTouched,
+      notifyArrayStructure,
+    ]
   );
 
   const getError = useCallback(
@@ -1183,6 +1202,23 @@ export function FormProvider<T extends Record<string | number, unknown>>({
         .map((error) => error.path);
     },
     [errors]
+  );
+
+  // Convenience snapshot of one field's state. Pure read over getError + touched
+  // + hasField; errors are raw (not touched-gated) so callers see the real
+  // validation state.
+  const getFieldState = useCallback(
+    (path: (string | number)[]): FieldState => {
+      const fieldErrors = getError(path);
+      return {
+        errors: fieldErrors,
+        error: fieldErrors[0]?.message ?? null,
+        isTouched: !!touched[serializePath(path)],
+        invalid: fieldErrors.length > 0,
+        exists: hasField(path),
+      };
+    },
+    [getError, touched, hasField]
   );
 
   const reset = useCallback(
@@ -1664,6 +1700,7 @@ export function FormProvider<T extends Record<string | number, unknown>>({
       getValuePaths,
       getError,
       getErrorPaths,
+      getFieldState,
       hasField,
       setErrors: (newErrors: ValidationError[]) => {
         // Update ref first
@@ -1703,6 +1740,7 @@ export function FormProvider<T extends Record<string | number, unknown>>({
       getValuePaths,
       getError,
       getErrorPaths,
+      getFieldState,
       hasField,
       setErrors,
       setServerErrors,
