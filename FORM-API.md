@@ -278,7 +278,7 @@ const onSubmit: FormSubmitHandler<FormValues> = async (values, helpers) => {
 
   if (res.status === 422) {
     const { fieldErrors } = await res.json();
-    
+
     for (const [name, msg] of Object.entries(fieldErrors))
       helpers.setServerError([name], msg as string);
     helpers.focusFirstError(); // jump to the first server-rejected field

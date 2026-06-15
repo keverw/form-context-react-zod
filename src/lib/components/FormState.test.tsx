@@ -89,9 +89,10 @@ describe('FormState (debug panel)', () => {
       </FormProvider>
     );
 
-    // ValueDisplay covers the boolean and null branches.
+    // ValueDisplay covers the boolean and null branches. (null appears more than
+    // once now — the Submission section also shows currentSubmissionID: null.)
     expect(screen.getByText('true')).toBeInTheDocument();
-    expect(screen.getByText('null')).toBeInTheDocument();
+    expect(screen.getAllByText('null').length).toBeGreaterThan(0);
 
     fireEvent.click(screen.getByTestId('seed'));
 
@@ -100,6 +101,11 @@ describe('FormState (debug panel)', () => {
     expect(screen.getByText('client boom')).toBeInTheDocument(); // client submission
     expect(screen.getByText('server boom')).toBeInTheDocument(); // server
     expect(screen.getByText('manual boom')).toBeInTheDocument(); // manual
+
+    // Submission section surfaces the submit-attempt flags.
+    expect(screen.getByText('Submission')).toBeInTheDocument();
+    expect(screen.getByText('submitAttempted')).toBeInTheDocument();
+    expect(screen.getByText('submitCount')).toBeInTheDocument();
   });
 
   it('renders the String() fallback for non-standard value types (e.g. bigint)', () => {

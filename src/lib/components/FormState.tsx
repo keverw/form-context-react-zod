@@ -346,6 +346,18 @@ export function FormState({
               <span style={{ color: palette.subtext }}>No dirty fields</span>
             )}
           </Section>
+
+          <Section title="Submission" palette={palette}>
+            <ValueDisplay
+              value={{
+                submitAttempted: form.submitAttempted,
+                submitSucceeded: form.submitSucceeded,
+                submitCount: form.submitCount,
+                currentSubmissionID: form.currentSubmissionID,
+              }}
+              palette={palette}
+            />
+          </Section>
         </div>
 
         <div>
