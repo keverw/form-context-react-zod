@@ -1,5 +1,6 @@
 import { useContext, useCallback, useSyncExternalStore } from 'react';
-import { FormFieldContext, type Focusable } from '../form-context';
+import { FormFieldContext } from '../context';
+import { type Focusable } from '../form-context';
 import { serializePath } from '../utils';
 
 export function useField(path: (string | number)[]) {

@@ -5,7 +5,7 @@ import {
   useState,
   useSyncExternalStore,
 } from 'react';
-import { FormFieldContext } from '../form-context';
+import { FormFieldContext } from '../context';
 import { deserializePath, generateID, serializePath } from '../utils';
 
 // A single frozen empty array, shared by every useArrayField instance. getSnapshot

@@ -303,10 +303,10 @@ rough.
 Unirend uses conditional exports with separate entries, each emitting types/import/require.
 Apply the same so the core is DOM-free and RN-friendly; debug tooling is opt-in.
 
-- [ ] Define entry points: - `.` — core (`FormProvider`, hooks, zod-helpers) — **no DOM imports**. - `./devtools` — web `FormState` debug component (DOM). - `./devtools/native` — React Native debug component equivalent (see the React Native track).
-- [ ] Update tsup config for multiple entries; update generated `package.json` `exports`/`files`.
-- [ ] Move `FormState` out of the root `index.ts` barrel into the `devtools` entry.
-- [ ] ⚠️ **Singleton concern: the contexts must be ONE instance across entries.** NOTE: there are
+- [x] Define entry points: - `.` — core (`FormProvider`, hooks, zod-helpers) — **no DOM imports**. - `./devtools` — web `FormState` debug component (DOM). - `./devtools/native` — React Native debug component equivalent (see the React Native track). _`.` + `./devtools` shipped; `./devtools/native` follows the same pattern under the RN track._
+- [x] Update tsup config for multiple entries; update generated `package.json` `exports`/`files`. _Object `entry` (index/devtools/context), `splitting: false`; generated `exports`/`files` updated (incl. a glob for the hashed shared dts chunk)._
+- [x] Move `FormState` out of the root `index.ts` barrel into the `devtools` entry. _New `src/lib/devtools.ts` barrel; now `import { FormState } from 'form-context-react-zod/devtools'`._
+- [x] ⚠️ **Singleton concern: the contexts must be ONE instance across entries.** NOTE: there are
       now **TWO** contexts — `FormContext` (reactive, whole-form) **and** `FormFieldContext` (stable,
       per-field subscriptions). Both must be single shared instances. If `./devtools` bundles its own
       copy of either `createContext()` call, `FormState`'s `useContext(FormContext)` (and `useField`'s
@@ -316,8 +316,16 @@ Apply the same so the core is DOM-free and RN-friendly; debug tooling is opt-in.
       imports the shared instances instead of inlining a copy (Unirend uses an esbuild `onResolve`
       plugin to redirect `./context` imports to the shared subpath). The same applies to the type side —
       a duplicated context type breaks nominal identity.
-- [ ] `react-refresh/only-export-components` (3 warnings) — re-evaluate / resolve here, since
+      _Done the Unirend way: both contexts live in `src/lib/context.ts` (its own `./context` entry);
+      an esbuild `onResolve` plugin rewrites relative `./context`/`../context` imports to the external
+      `form-context-react-zod/context`, so every entry shares one instance. Verified at runtime:
+      `core.FormContext === context.FormContext` (and FormFieldContext), `createContext` appears only in
+      `context.js`. Type side stays structural per Unirend's note — a runtime-JS concern, not a dts one._
+- [x] `react-refresh/only-export-components` (3 warnings) — re-evaluate / resolve here, since
       splitting components out of barrels into dedicated entries naturally addresses it.
+      _The two lib warnings (the `createContext` calls in `form-context.tsx`) are resolved by moving the
+      contexts into `context.ts`. The remaining 2 are in the demo's `src/components/Toast.tsx` (app, not
+      the published lib) — out of scope for the library build._
 
 ## 5. Lint findings to triage (surfaced by the eslint 9.39 + react-hooks 7 + jsx-a11y upgrade)
 
@@ -336,8 +344,10 @@ Remaining 13 findings:
       last non-null submission ID across clears).
 - [x] **`jsx-a11y/label-has-associated-control` (2).** ✅ The two were group captions misusing
       `<label>`; converted to `<p>` (demo files).
-- [ ] `react-refresh/only-export-components` (3) — deferred to the code-splitting track. Warnings,
-      don't block the prepublishOnly gate.
+- [x] `react-refresh/only-export-components` (3) — resolved in the code-splitting track. The 2 lib
+      warnings cleared when the contexts moved to `src/lib/context.ts`; the 2 demo `Toast.tsx` warnings
+      cleared by moving the non-component exports (`useToastContext`, `showToast`, types, global decl)
+      into a JSX-free `src/components/ToastContext.ts`. Lint is now **0 warnings**.
 
 ## 6. Code review / scan
 

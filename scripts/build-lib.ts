@@ -45,12 +45,11 @@ async function build() {
     try {
       // Use tsup with config file for JSX support
       console.log('Running tsup with config file...');
-      execSync(
-        'bunx tsup --config tsup.config.ts --out-dir dist_module --tsconfig tsconfig.lib.json',
-        {
-          stdio: 'inherit',
-        }
-      );
+      // No --out-dir: each entry sets its own outDir (dist_module/<entry>), so
+      // every pass can clean its own folder without clobbering siblings.
+      execSync('bunx tsup --config tsup.config.ts --tsconfig tsconfig.lib.json', {
+        stdio: 'inherit',
+      });
 
       console.log('✅ Library built successfully with tsup');
     } catch (error) {
@@ -92,21 +91,43 @@ async function build() {
       bugs: PACKAGE_CONFIG.bugs,
       keywords: PACKAGE_CONFIG.keywords,
       type: 'module',
-      main: 'index.cjs',
-      module: 'index.js',
-      types: 'index.d.ts',
+      main: './core/index.cjs',
+      module: './core/index.js',
+      types: './core/index.d.ts',
       exports: {
         '.': {
-          import: './index.js',
-          require: './index.cjs',
-          types: './index.d.ts',
+          types: './core/index.d.ts',
+          import: './core/index.js',
+          require: './core/index.cjs',
+        },
+        './devtools': {
+          types: './devtools/index.d.ts',
+          import: './devtools/index.js',
+          require: './devtools/index.cjs',
+        },
+        // Shared React contexts. Kept as a real subpath so every entry resolves
+        // to ONE instance at runtime (see tsup.config.ts). Mostly internal, but
+        // exported so the redirect target resolves for consumers.
+        './context': {
+          types: './context/index.d.ts',
+          import: './context/index.js',
+          require: './context/index.cjs',
         },
       },
+      // Explicit per-entry files (no sourcemaps in the published tarball).
       files: [
-        'index.js',
-        'index.cjs',
-        'index.d.ts',
-        'index.d.cts',
+        'core/index.js',
+        'core/index.cjs',
+        'core/index.d.ts',
+        'core/index.d.cts',
+        'devtools/index.js',
+        'devtools/index.cjs',
+        'devtools/index.d.ts',
+        'devtools/index.d.cts',
+        'context/index.js',
+        'context/index.cjs',
+        'context/index.d.ts',
+        'context/index.d.cts',
         'README.md',
         'FORM-API.md',
         'ZOD-HELPERS.md',
@@ -181,11 +202,12 @@ The \`FormState\` component is a developer tool for inspecting the current form 
 **Usage:**
 
 \`\`\`tsx
-import { FormState } from '${PACKAGE_CONFIG.name}';
+import { FormState } from '${PACKAGE_CONFIG.name}/devtools';
 
 <FormState showToggle />
 \`\`\`
 
+- Imported from the \`${PACKAGE_CONFIG.name}/devtools\` subpath so the core entry stays DOM-free.
 - Use the \`showToggle\` prop to allow switching between light and dark mode.
 - This component is intended for development and debugging purposes.
 

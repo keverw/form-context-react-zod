@@ -1,4 +1,4 @@
-import { useToast as useToastContext } from './Toast';
+import { useToastContext } from './ToastContext';
 
 export function useToast() {
   const { showToast } = useToastContext();

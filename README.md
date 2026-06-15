@@ -49,6 +49,25 @@ npm install form-context-react-zod
 
 > **Requires React 19 and Zod 4.** Need React 18 / Zod 3? Install `form-context-react-zod@^1`.
 
+## Entry points
+
+The package ships as conditional exports so you only pull in what you use:
+
+| Import                                    | Contents                                                                 |
+| ----------------------------------------- | ------------------------------------------------------------------------ |
+| `form-context-react-zod`                  | Core — `FormProvider`, `useForm`/`useFormContext`, `useField`, `useArrayField`, zod helpers. **No DOM imports.** |
+| `form-context-react-zod/devtools`         | The `FormState` debug panel (web/DOM). Opt-in, keep it out of production bundles. |
+
+```tsx
+import { FormProvider, useField } from 'form-context-react-zod';
+import { FormState } from 'form-context-react-zod/devtools'; // debug only
+```
+
+The two React contexts are published as an internal `./context` subpath and shared
+across every entry, so a `FormState` rendered from `/devtools` reads the same form
+state your `FormProvider` populated. Keeping the core DOM-free is also what makes the
+React Native track possible.
+
 ## SSR / Hydration
 
 The library is server-render safe — it works with `renderToString` (and the streaming

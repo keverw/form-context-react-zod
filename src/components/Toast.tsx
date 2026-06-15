@@ -1,36 +1,11 @@
-import React, {
-  useState,
-  useEffect,
-  createContext,
-  useContext,
-  useCallback,
-} from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { X } from 'lucide-react';
-
-type ToastType = 'success' | 'error' | 'info' | 'warning';
-
-interface Toast {
-  id: string;
-  message: string;
-  type: ToastType;
-  duration?: number;
-}
-
-interface ToastContextType {
-  toasts: Toast[];
-  showToast: (message: string, type: ToastType, duration?: number) => string;
-  hideToast: (id: string) => void;
-}
-
-const ToastContext = createContext<ToastContextType | undefined>(undefined);
-
-export const useToast = () => {
-  const context = useContext(ToastContext);
-  if (!context) {
-    throw new Error('useToast must be used within a ToastProvider');
-  }
-  return context;
-};
+import {
+  ToastContext,
+  useToastContext,
+  type Toast,
+  type ToastType,
+} from './ToastContext';
 
 export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({
   children,
@@ -59,7 +34,7 @@ export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({
 };
 
 const ToastContainer: React.FC = () => {
-  const { toasts, hideToast } = useToast();
+  const { toasts, hideToast } = useToastContext();
 
   return (
     <div className="fixed bottom-4 right-4 z-50 flex flex-col gap-2">
@@ -110,26 +85,3 @@ const ToastItem: React.FC<{ toast: Toast; onClose: () => void }> = ({
     </div>
   );
 };
-
-// Utility functions for direct usage
-export const showToast = {
-  success: (message: string, duration?: number): string => {
-    return window.showToast?.(message, 'success', duration) || '';
-  },
-  error: (message: string, duration?: number): string => {
-    return window.showToast?.(message, 'error', duration) || '';
-  },
-  info: (message: string, duration?: number): string => {
-    return window.showToast?.(message, 'info', duration) || '';
-  },
-  warning: (message: string, duration?: number): string => {
-    return window.showToast?.(message, 'warning', duration) || '';
-  },
-};
-
-// Declare global window interface extension
-declare global {
-  interface Window {
-    showToast?: (message: string, type: ToastType, duration?: number) => string;
-  }
-}

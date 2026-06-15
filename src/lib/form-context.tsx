@@ -1,4 +1,5 @@
-import React, { createContext, useCallback, useMemo, useReducer } from 'react';
+import React, { useCallback, useMemo, useReducer } from 'react';
+import { FormContext, FormFieldContext } from './context';
 import { z } from 'zod';
 import { validate, ValidationError, FieldState } from './zod-helpers';
 import {
@@ -334,13 +335,10 @@ function sameErrors(a: ValidationError[], b: ValidationError[]): boolean {
   return true;
 }
 
-// Create a context with a more specific type
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export const FormContext = createContext<FormContextValue<any> | null>(null);
-
-export const FormFieldContext = createContext<FormFieldContextValue | null>(
-  null
-);
+// The contexts live in their own module (./context) so the build can keep them
+// a single shared instance across every entry point. Re-exported here so the
+// public `.` entry still surfaces them and FormProvider can render the providers.
+export { FormContext, FormFieldContext };
 
 /**
  * Handler for FormProvider's `onSubmit`. Declare the value type once and both

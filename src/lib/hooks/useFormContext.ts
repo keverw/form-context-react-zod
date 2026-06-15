@@ -1,5 +1,6 @@
 import { useContext } from 'react';
-import { FormContext, FormContextValue } from '../form-context';
+import { FormContext } from '../context';
+import type { FormContextValue } from '../form-context';
 
 /**
  * Hook for accessing form context with strong type inference.

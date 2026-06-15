@@ -6,7 +6,7 @@ import { FormState } from '../../lib/components/FormState';
 import { AlertTriangle } from 'lucide-react';
 import { useFormContext } from '../../lib/hooks/useFormContext';
 import { useField } from '../../lib/hooks/useField';
-import { showToast } from '../Toast';
+import { showToast } from '../ToastContext';
 
 const schema = z.object({
   name: z.string().min(1, 'Name is required'),
