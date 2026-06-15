@@ -259,26 +259,31 @@ rough.
       `finally` so a later force-reset can't abort a finished request. FORM-API "Resetting mid-submit"
       updated with the recipe; +3 tests (abort on force-reset, abort on unmount, no abort on normal
       submit).
-- [ ] **`isDirty` + `dirtyFields`.** Derived from a **baseline** kept in a ref (starts =
-      `initialValues`): `isDirty` = `!deepEqual(values, baseline)`, `dirtyFields` = the per-field
-      diff. Enables "disable Save until changed." For "mark clean after a save," add a dedicated
-      **`markPristine(path?, value?)`** (a.k.a. `commitValues`) that **only moves the baseline** —
-      it never mutates form values/errors/touched and never force-flips the flag. `isDirty` is
-      _always derived_ by comparing current values to the baseline, so `markPristine` just changes
-      what we compare against and lets the comparison decide. Two knobs: - **`path`** (optional) scopes the baseline update to a single field/subtree; omit for the
-      whole form. - **`value`** (optional) sets the baseline to an _explicit_ saved value rather than the
-      current form value. This matters: a save often returns server-normalized data (trimmed
-      strings, coerced numbers, server-filled fields), so baselining to **what actually
-      persisted** is the correct comparison target. Defaults to the current value at `path`.
-
-      Key consequence (this is the desired behavior): if the user kept typing past what was saved,
-      the current value **won't match** the new baseline, so the field **stays dirty** — exactly
-      right, there are real unsaved edits. This is the fundamental split from `reset`: `reset`
-      **mutates values** to a target (forces a state), `markPristine` **mutates the baseline** and
-      derives dirtiness from it. (RHF's nearest equivalent is `reset(values, { keepDirty: false })`,
-      but it conflates the two; a focused baseline-only method reads cleaner.) So the dirty baseline
-      can drift from the `reset()` baseline (`initialValues`) — intended: `reset()` = "back to
-      load", `markPristine()` = "this is the new saved-clean reference."
+- [x] **`isDirty` + `dirtyFields` + `markPristine`.** Both derived (never force-flipped) by comparing
+      current values against a **dirty baseline** held in reactive state (`useState`, starts =
+      `initialValues`). `isDirty` = any leaf differs; `dirtyFields` = `Record<serializedPath, true>`
+      (same shape as `touched`). New `deepEqual` + `flattenLeaves` utils back the diff. `reset()` /
+      `resetWithValues(x)` move the baseline back to their target (clean after reset); they stay separate
+      from the dirty baseline so the two can drift — `reset()` = "back to load", `markPristine()` =
+      "new saved-clean reference." **Decisions made while implementing:**
+      - **Objects key-precise, arrays cascade** (`diffDirtyFields`). Plain objects compare key by key
+        (editing `meta.a` leaves `meta.b` clean). A dirty array marks its own path AND **every field under
+        it recursively** — any edit/add/remove/**reorder** dirties the whole subtree up to the outermost
+        changed array. Chosen so a generic field component can always check its own path and get a sensible
+        answer even inside arrays; tradeoff is no per-item attribution (indices aren't stable identities —
+        a prepend would falsely flag every row). Per-item-by-id is left to the stable `arrayFieldIDs` and
+        the sub-form composition pattern. Reference-equality short-circuit keeps it O(path depth) per edit.
+        Decided with the user after weighing per-index/per-id alternatives.
+      - **Batch shape = nested partial** mirroring the values shape (the friendlier API), applied at the
+        **leaf** level so unmentioned sibling baselines survive (a clean field stays clean).
+      - **`markPristine` overloads:** `()` whole form, `(path)` field→current value, `(path, value)`
+        field→explicit persisted value, `(serverResult)` batch. Named function expression so it can read
+        `arguments.length` to distinguish `(path)` from `(path, undefined)`.
+      - **Exposed on `FormHelpers`** too (`helpers.markPristine`) — the primary flow is re-baselining to
+        the server's returned record inside `onSubmit`. Forwarded via `...args` to preserve arg count.
+      +14 tests (`useDirty.test.tsx`: derive/per-field/array-leaf/reset/all 4 overloads/batch-leaf-granularity/
+      helpers-forwarding) + util tests; FormState debug panel shows a Dirty/Pristine chip + Dirty Fields
+      section. Baseline-only: never touches values/errors/touched (bisected).
 
 - [ ] **`setFocus(path)` / `focusFirstError()`.** Needs a field-ref registry: `useField` spreads
       props but doesn't register the input centrally (RHF focuses via `register()`'s captured ref).
@@ -296,14 +301,16 @@ Apply the same so the core is DOM-free and RN-friendly; debug tooling is opt-in.
 - [ ] Define entry points: - `.` — core (`FormProvider`, hooks, zod-helpers) — **no DOM imports**. - `./devtools` — web `FormState` debug component (DOM). - `./devtools/native` — React Native debug component equivalent (see the React Native track).
 - [ ] Update tsup config for multiple entries; update generated `package.json` `exports`/`files`.
 - [ ] Move `FormState` out of the root `index.ts` barrel into the `devtools` entry.
-- [ ] ⚠️ **Singleton concern: `FormContext` must be ONE instance across entries.** If
-      `./devtools` bundles its own copy of the `createContext()` call, `FormState`'s
-      `useContext` returns `null` even though the app rendered `FormProvider` from `.`.
+- [ ] ⚠️ **Singleton concern: the contexts must be ONE instance across entries.** NOTE: there are
+      now **TWO** contexts — `FormContext` (reactive, whole-form) **and** `FormFieldContext` (stable,
+      per-field subscriptions). Both must be single shared instances. If `./devtools` bundles its own
+      copy of either `createContext()` call, `FormState`'s `useContext(FormContext)` (and `useField`'s
+      `useContext(FormFieldContext)`) returns `null` even though the app rendered `FormProvider` from `.`.
       Fix the Unirend way ([its tsup.config.ts](https://github.com/keverw/unirend/blob/master/tsup.config.ts)):
-      put the context in its **own entry** and mark it **external** so every other entry
-      imports the shared instance instead of inlining a copy (Unirend uses an esbuild
-      `onResolve` plugin to redirect `./context` imports to the shared subpath). The same
-      applies to the type side — a duplicated context type breaks nominal identity.
+      put **both** contexts in their **own entry** and mark it **external** so every other entry
+      imports the shared instances instead of inlining a copy (Unirend uses an esbuild `onResolve`
+      plugin to redirect `./context` imports to the shared subpath). The same applies to the type side —
+      a duplicated context type breaks nominal identity.
 - [ ] `react-refresh/only-export-components` (3 warnings) — re-evaluate / resolve here, since
       splitting components out of barrels into dedicated entries naturally addresses it.
 

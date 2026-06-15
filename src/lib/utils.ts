@@ -212,3 +212,143 @@ export function isEmptyValue(value: unknown): boolean {
 export function generateID(): string {
   return Date.now().toString(36) + Math.random().toString(36).substring(2);
 }
+
+/**
+ * Structural deep equality for form values (JSON-ish data plus Date). Used to
+ * derive `isDirty`/`dirtyFields` by comparing current values against a baseline.
+ * Treats `NaN === NaN` as equal and compares Dates by timestamp; arrays and plain
+ * objects are compared element/key-wise. Not intended for class instances, Maps,
+ * Sets, or functions (form values shouldn't contain them).
+ */
+export function deepEqual(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  // Past the identity check, differing types can never be equal.
+  if (typeof a !== typeof b) return false;
+  if (a === null || b === null) return a === b;
+
+  if (typeof a === 'number' && typeof b === 'number') {
+    // a === b already failed above, so the only remaining equal case is NaN/NaN.
+    return Number.isNaN(a) && Number.isNaN(b);
+  }
+
+  if (a instanceof Date || b instanceof Date) {
+    return (
+      a instanceof Date && b instanceof Date && a.getTime() === b.getTime()
+    );
+  }
+
+  if (Array.isArray(a) || Array.isArray(b)) {
+    if (!Array.isArray(a) || !Array.isArray(b)) return false;
+    if (a.length !== b.length) return false;
+    for (let i = 0; i < a.length; i++) {
+      if (!deepEqual(a[i], b[i])) return false;
+    }
+    return true;
+  }
+
+  if (typeof a === 'object' && typeof b === 'object') {
+    const aObj = a as Record<string, unknown>;
+    const bObj = b as Record<string, unknown>;
+    const aKeys = Object.keys(aObj);
+    const bKeys = Object.keys(bObj);
+    if (aKeys.length !== bKeys.length) return false;
+    for (const key of aKeys) {
+      if (!Object.prototype.hasOwnProperty.call(bObj, key)) return false;
+      if (!deepEqual(aObj[key], bObj[key])) return false;
+    }
+    return true;
+  }
+
+  return false;
+}
+
+/**
+ * Whether a value is a "plain object" we recurse INTO for path-based work:
+ * a non-null object that isn't an array or a Date. Arrays and Dates are treated
+ * as terminal field values, not containers to descend.
+ */
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return (
+    value !== null &&
+    typeof value === 'object' &&
+    !Array.isArray(value) &&
+    !(value instanceof Date)
+  );
+}
+
+/**
+ * Flattens a values object into its leaf `[path, value]` pairs. A "leaf" is any
+ * non-plain-object: primitives, null, Date, AND arrays (an array is treated as a
+ * single leaf value, replaced wholesale rather than merged index-by-index). Used
+ * to apply a server-returned record as a batch of baseline updates.
+ */
+export function flattenLeaves(
+  obj: unknown,
+  prefix: (string | number)[] = []
+): Array<[(string | number)[], unknown]> {
+  if (!isPlainObject(obj)) {
+    return [[prefix, obj]];
+  }
+
+  const out: Array<[(string | number)[], unknown]> = [];
+  for (const key of Object.keys(obj)) {
+    out.push(...flattenLeaves(obj[key], [...prefix, key]));
+  }
+  return out;
+}
+
+/**
+ * Computes the per-field dirty map between `values` and a `baseline`, keyed by
+ * serialized path (same shape as `touched`). Semantics:
+ *
+ * - **Plain objects** are compared key-precise — only the leaf paths that
+ *   actually differ appear, so editing `a.b` doesn't flag `a.c`.
+ * - **Arrays are compared as a unit.** If an array differs from the baseline in
+ *   ANY way — a content edit, an add/remove, or a **reorder** — the array's own
+ *   path AND every field path beneath it (recursively, through nested
+ *   arrays/objects) are marked dirty. No attempt is made to attribute the change
+ *   to specific items, because array indices aren't stable identities (a prepend
+ *   would otherwise falsely flag every later row).
+ *
+ * Unchanged subtrees short-circuit on reference equality, so typical edits cost
+ * O(path depth) rather than O(form size): `setValue` clones only along the edited
+ * path, leaving sibling subtrees referentially identical to the baseline.
+ */
+export function diffDirtyFields(
+  values: unknown,
+  baseline: unknown
+): Record<string, boolean> {
+  const result: Record<string, boolean> = {};
+
+  // Mark `val` and everything under it dirty: array paths and primitive leaves
+  // get a key; plain-object container paths don't (they're structure, not fields).
+  const markAll = (val: unknown, path: (string | number)[]): void => {
+    if (Array.isArray(val)) {
+      if (path.length) result[serializePath(path)] = true;
+      val.forEach((item, i) => markAll(item, [...path, i]));
+    } else if (isPlainObject(val)) {
+      for (const key of Object.keys(val)) markAll(val[key], [...path, key]);
+    } else if (path.length) {
+      result[serializePath(path)] = true;
+    }
+  };
+
+  const walk = (
+    cur: unknown,
+    base: unknown,
+    path: (string | number)[]
+  ): void => {
+    if (cur === base) return; // identical reference -> whole subtree is clean
+    if (isPlainObject(cur) && isPlainObject(base)) {
+      const keys = new Set([...Object.keys(cur), ...Object.keys(base)]);
+      for (const key of keys) walk(cur[key], base[key], [...path, key]);
+      return;
+    }
+    // A comparison unit: array, primitive, Date, or a type mismatch. If it differs,
+    // mark it (and — for arrays — its whole subtree) dirty.
+    if (!deepEqual(cur, base)) markAll(cur, path);
+  };
+
+  walk(values, baseline, []);
+  return result;
+}

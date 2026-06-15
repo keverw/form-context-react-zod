@@ -45,6 +45,8 @@ State getters:
 - `submitCount`: Number — running count of submit attempts (bumped at the start of each `submit()`, including ones that fail validation). Reset to `0` by `reset`/`resetWithValues`.
 - `errors`: Current validation/server errors
 - `lastValidated`: Timestamp of the last validation
+- `isDirty`: Boolean — `true` when the current values differ from the **dirty baseline**. See [Dirty tracking](#dirty-tracking).
+- `dirtyFields`: `Record<string, boolean>` — per-field dirty map keyed by serialized path (same shape as `touched`). See [Dirty tracking](#dirty-tracking).
 
 - Form operations:
 
@@ -58,6 +60,10 @@ State getters:
     Marks it touched and re-runs the schema (Zod validates the whole object, but only
     this field's error is surfaced/reconciled), returning whether the field is now
     error-free. See the note below on how it differs from `handleBlur`.
+  - `markPristine(path?, value?)`: Move the **dirty baseline** so the current (or an
+    explicit) value reads clean — "this is the new saved-clean reference." Baseline-only;
+    never touches values/errors/touched. Also accepts a server-returned partial record to
+    re-baseline many fields at once. See [Dirty tracking](#dirty-tracking).
 
 **`reset` vs `resetWithValues`** — they're the same operation with a different target. Both clear
 touched state, validation errors, and server errors, clear the submit-attempt tracking
@@ -111,6 +117,105 @@ const onSubmit: FormSubmitHandler<FormValues> = async (values, helpers) => {
 mainly for your own non-`helpers` side effects.) To re-baseline after a successful save without
 invalidating anything, call reset **after** `submit()` resolves (when `isSubmitting` is already back
 to `false`).
+
+### Dirty tracking
+
+The form tracks "has the user changed anything since the last known-clean state?" against a **dirty
+baseline** — a snapshot that starts at `initialValues` and moves only when you tell it to.
+
+- `isDirty`: `true` when the current values differ from the baseline. Use it to disable a Save
+  button until there's something to save: `disabled={!form.isDirty || form.isSubmitting}`.
+- `dirtyFields`: a per-field map keyed by **serialized path** (same shape as `touched`) — a leaf
+  path maps to `true` when that leaf differs from the baseline. Read it with the `serializePath`
+  helper: `form.dirtyFields[serializePath(['email'])]`. Absent keys are clean.
+
+Both are **always derived** by comparing current values to the baseline — nothing is ever force-flipped. So an edit that returns a field to its baseline value reads clean again on its own;
+there's no latched "once dirty, always dirty."
+
+**Objects are key-precise; arrays cascade.** This is the one asymmetry to internalize:
+
+- **Plain objects** are compared key by key. Editing `meta.a` marks only `["meta","a"]` dirty —
+  `meta.b` and other siblings stay clean.
+- **Arrays are compared as a unit.** If an array differs from the baseline in **any** way — a content
+  edit, an add, a remove, **or a reorder** — then the array's own path **and every field underneath it**
+  (recursively, through nested arrays and objects) are marked dirty. So a deep edit at
+  `sections[0].questions[0].q` flips `["sections"]`, `["sections",0,"title"]`,
+  `["sections",0,"questions"]`, and the edited leaf — the whole subtree under the outermost changed
+  array. A pure reorder does the same.
+
+The practical upshot: a generic field component can always check **its own path** (`dirtyFields[serializePath(myPath)]`)
+and get a sensible answer, even for fields nested inside arrays. The tradeoff is that array dirtiness is
+all-or-nothing — it does **not** tell you _which_ item changed (indices aren't stable identities; a
+prepend would otherwise falsely flag every later row, so no per-item attribution is attempted). For
+per-item change tracking, pair this with the stable item ids from [`useArrayField`](#usearrayfield).
+
+#### Baselines: `reset` vs `markPristine`
+
+There are two baselines and they can legitimately drift:
+
+- `reset()` restores **values** to `initialValues` (the mount snapshot) — "back to load." It moves
+  the dirty baseline back to `initialValues` too, so a freshly reset form is clean. `resetWithValues(x)`
+  is the same but to `x`.
+- `markPristine(...)` moves **only the dirty baseline** — it never touches values, errors, or touched.
+  It's "this is the new saved-clean reference." This is the piece you call after a successful save so
+  the form goes clean **without** rewinding what's on screen.
+
+`markPristine` has three forms:
+
+```tsx
+form.markPristine();                       // baseline the WHOLE form to current values
+form.markPristine([]);                     // same as above (empty path = whole form)
+form.markPristine([], wholeObject);        // replace the whole baseline with an explicit object
+form.markPristine(['email']);              // baseline one field to its current value
+form.markPristine(['email'], 'a@b.com');   // baseline one field to an explicit (persisted) value
+form.markPristine(['user']);               // a subtree works too — baselines the whole `user` object
+form.markPristine(serverResult);           // batch: MERGE a partial record's leaves into the baseline
+```
+
+**Batch is a leaf-level merge, not a whole-baseline replace.** You pass only the fields you want
+re-baselined — you do **not** need to include the whole containing object. The record is flattened to
+its leaves and each one is merged into the baseline; **everything you omit keeps its existing baseline**:
+
+```tsx
+// baseline before: { user: { name: 'old', age: 30 }, theme: 'dark' }
+form.markPristine({ user: { name: 'new' } });
+// baseline after:  { user: { name: 'new', age: 30 }, theme: 'dark' }
+//                                        ^^^^^^^^ age and theme are untouched
+```
+
+So a partial record never "applies to the whole thing" — it only moves the leaves it contains. (Arrays
+are the one stop point: a record's array is merged as one whole value, per "Arrays baseline as a whole"
+below.) If you actually want to **replace** the entire baseline, use the whole-form forms above
+(`markPristine()` or `markPristine([], obj)`), not the batch. A non-object argument (a bare primitive)
+is a safe no-op.
+
+The **explicit value** and **batch** forms matter because a save often returns server-normalized data
+(trimmed strings, coerced numbers, server-filled fields). Baseline to **what actually persisted**, not
+to the raw input:
+
+```tsx
+const onSubmit: FormSubmitHandler<FormValues> = async (values, helpers) => {
+  const res = await fetch('/api/save', { method: 'POST', body: JSON.stringify(values), signal: helpers.signal });
+  const saved = await res.json(); // the canonical record the server stored
+  if (!helpers.isCurrentSubmission(helpers.currentSubmissionID)) return;
+  helpers.markPristine(saved); // each returned leaf becomes that field's baseline
+};
+```
+
+**Key consequence (intended):** a field whose current value doesn't match the new baseline **stays
+dirty**. If the user kept typing past what was saved, those edits are real unsaved changes and remain
+flagged — exactly right. The batch form only moves the baselines for the leaves present in the record;
+fields it doesn't mention keep their existing baseline (a field that was clean stays clean).
+
+This is the split from `reset(savedValues)`: `reset` would **overwrite the on-screen values** with the
+saved record (throwing away any in-progress edits); `markPristine(savedValues)` leaves the inputs alone
+and just redefines "clean", letting the derived comparison decide what's still dirty.
+
+**Arrays baseline as a whole.** Symmetric with the dirty check above: `markPristine` stores an array (or
+any subtree) as a single value — `markPristine(['items'])` baselines the entire current `items` array,
+and a record passed to the batch form applies each array as one unit. The array then reads clean only if
+it deep-matches that baseline element-for-element and in order; any later edit/add/remove/reorder dirties
+the whole array subtree again.
 
 The `useFormTag` prop allows wrapping the form content in a native HTML `<form>` tag with automatic `preventDefault` handling on submit events. When enabled, you can use standard HTML submit buttons instead of manually calling `form.submit()`.
 
@@ -235,6 +340,7 @@ export interface FormHelpers<T> {
   currentSubmissionID: string | null;
   isCurrentSubmission: (submissionId: string) => boolean;
   signal: AbortSignal; // aborts on force-reset / unmount; pass to fetch(url, { signal })
+  markPristine: MarkPristine<T>; // re-baseline after a save; see "Dirty tracking"
 }
 ```
 

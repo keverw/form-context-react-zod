@@ -8,6 +8,9 @@ import {
   cloneAlongPath,
   generateID,
   isEmptyValue,
+  deepEqual,
+  flattenLeaves,
+  diffDirtyFields,
 } from './utils';
 
 describe('utils', () => {
@@ -448,6 +451,159 @@ describe('utils', () => {
       for (const v of ['x', 5, true, [1], { a: 1 }]) {
         expect(isEmptyValue(v)).toBe(false);
       }
+    });
+  });
+
+  describe('deepEqual', () => {
+    it('compares primitives', () => {
+      expect(deepEqual(1, 1)).toBe(true);
+      expect(deepEqual('a', 'a')).toBe(true);
+      expect(deepEqual(true, true)).toBe(true);
+      expect(deepEqual(1, 2)).toBe(false);
+      expect(deepEqual('a', 'b')).toBe(false);
+      expect(deepEqual(1, '1')).toBe(false);
+    });
+
+    it('treats NaN as equal to NaN', () => {
+      expect(deepEqual(NaN, NaN)).toBe(true);
+      expect(deepEqual(NaN, 0)).toBe(false);
+    });
+
+    it('handles null/undefined distinctly', () => {
+      expect(deepEqual(null, null)).toBe(true);
+      expect(deepEqual(undefined, undefined)).toBe(true);
+      expect(deepEqual(null, undefined)).toBe(false);
+      expect(deepEqual(null, {})).toBe(false);
+    });
+
+    it('compares Dates by timestamp', () => {
+      expect(deepEqual(new Date(0), new Date(0))).toBe(true);
+      expect(deepEqual(new Date(0), new Date(1))).toBe(false);
+      expect(deepEqual(new Date(0), 0)).toBe(false);
+    });
+
+    it('compares arrays element-wise', () => {
+      expect(deepEqual([1, 2, 3], [1, 2, 3])).toBe(true);
+      expect(deepEqual([1, 2], [1, 2, 3])).toBe(false);
+      expect(deepEqual([1, [2, 3]], [1, [2, 3]])).toBe(true);
+      expect(deepEqual([1, [2, 3]], [1, [2, 4]])).toBe(false);
+      expect(deepEqual([1], { 0: 1 })).toBe(false);
+    });
+
+    it('compares plain objects key-wise (order-independent)', () => {
+      expect(deepEqual({ a: 1, b: 2 }, { b: 2, a: 1 })).toBe(true);
+      expect(deepEqual({ a: 1 }, { a: 1, b: 2 })).toBe(false);
+      expect(deepEqual({ a: 1, b: 2 }, { a: 1, b: 3 })).toBe(false);
+      // same key count, different keys
+      expect(deepEqual({ a: 1 }, { b: 1 })).toBe(false);
+    });
+
+    it('compares deeply nested structures', () => {
+      const a = { user: { name: 'x', tags: ['a', 'b'], meta: { age: 1 } } };
+      const b = { user: { name: 'x', tags: ['a', 'b'], meta: { age: 1 } } };
+      expect(deepEqual(a, b)).toBe(true);
+      const c = { user: { name: 'x', tags: ['a', 'c'], meta: { age: 1 } } };
+      expect(deepEqual(a, c)).toBe(false);
+    });
+  });
+
+  describe('flattenLeaves', () => {
+    it('flattens nested objects to leaf path/value pairs', () => {
+      const leaves = flattenLeaves({ a: 1, b: { c: 2, d: 3 } });
+      expect(leaves).toEqual([
+        [['a'], 1],
+        [['b', 'c'], 2],
+        [['b', 'd'], 3],
+      ]);
+    });
+
+    it('treats arrays as a single leaf (no per-index descent)', () => {
+      const leaves = flattenLeaves({ items: [1, 2, 3] });
+      expect(leaves).toEqual([[['items'], [1, 2, 3]]]);
+    });
+
+    it('treats Date as a single leaf', () => {
+      const d = new Date(0);
+      const leaves = flattenLeaves({ when: d });
+      expect(leaves).toEqual([[['when'], d]]);
+    });
+
+    it('keeps null/primitive leaves', () => {
+      const leaves = flattenLeaves({ a: null, b: '', c: 0, d: false });
+      expect(leaves).toEqual([
+        [['a'], null],
+        [['b'], ''],
+        [['c'], 0],
+        [['d'], false],
+      ]);
+    });
+  });
+
+  describe('diffDirtyFields', () => {
+    const key = (...p: (string | number)[]) => serializePath(p);
+
+    it('is empty when nothing changed', () => {
+      const v = { a: 1, b: { c: 2 } };
+      expect(diffDirtyFields(v, v)).toEqual({});
+      // structurally equal but different references -> still clean
+      expect(diffDirtyFields({ a: 1, b: { c: 2 } }, { a: 1, b: { c: 2 } })).toEqual(
+        {}
+      );
+    });
+
+    it('objects are key-precise (no sibling cascade)', () => {
+      const base = { meta: { a: '1', b: '2' }, name: 'x' };
+      const cur = { meta: { a: 'CHANGED', b: '2' }, name: 'x' };
+      expect(diffDirtyFields(cur, base)).toEqual({ [key('meta', 'a')]: true });
+    });
+
+    it('flags added and removed object keys', () => {
+      expect(diffDirtyFields({ a: 1, b: 2 }, { a: 1 })).toEqual({
+        [key('b')]: true,
+      });
+      expect(diffDirtyFields({ a: 1 }, { a: 1, b: 2 })).toEqual({
+        [key('b')]: true,
+      });
+    });
+
+    it('a dirty array marks its path AND every descendant field recursively', () => {
+      const base = {
+        sections: [{ title: 'Intro', questions: [{ q: 'Name?' }] }],
+      };
+      const cur = {
+        sections: [{ title: 'Intro', questions: [{ q: 'Your name?' }] }],
+      };
+      expect(diffDirtyFields(cur, base)).toEqual({
+        [key('sections')]: true,
+        [key('sections', 0, 'title')]: true,
+        [key('sections', 0, 'questions')]: true,
+        [key('sections', 0, 'questions', 0, 'q')]: true,
+      });
+    });
+
+    it('a reorder marks the whole array subtree (content unchanged)', () => {
+      const base = { rows: [{ label: 'a' }, { label: 'b' }] };
+      const cur = { rows: [{ label: 'b' }, { label: 'a' }] };
+      expect(diffDirtyFields(cur, base)).toEqual({
+        [key('rows')]: true,
+        [key('rows', 0, 'label')]: true,
+        [key('rows', 1, 'label')]: true,
+      });
+    });
+
+    it('does not leak array cascade into an unrelated object sibling', () => {
+      const base = { meta: { a: '1' }, list: ['x'] };
+      const cur = { meta: { a: '1' }, list: ['y'] };
+      expect(diffDirtyFields(cur, base)).toEqual({
+        [key('list')]: true,
+        [key('list', 0)]: true,
+      });
+    });
+
+    it('handles an emptied array (length change)', () => {
+      expect(diffDirtyFields({ items: [] }, { items: [1, 2] })).toEqual({
+        [key('items')]: true,
+      });
     });
   });
 });

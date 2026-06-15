@@ -10,6 +10,8 @@ import {
   cloneAlongPath,
   generateID,
   isEmptyValue,
+  flattenLeaves,
+  diffDirtyFields,
 } from './utils';
 
 export interface FormHelpers<T> {
@@ -63,6 +65,14 @@ export interface FormHelpers<T> {
    * provider unmounts. A normal completion does NOT abort.
    */
   signal: AbortSignal;
+  /**
+   * Move the dirty baseline so the saved values read clean — call it after a
+   * successful save (typically with the server's returned record:
+   * `helpers.markPristine(saved)`) so the form goes pristine without rewinding
+   * the on-screen values. Baseline-only; never touches values/errors/touched.
+   * See {@link FormContextValue.markPristine} for the overloads.
+   */
+  markPristine: MarkPristine<T>;
 }
 
 export interface FormContextValue<T> {
@@ -163,6 +173,52 @@ export interface FormContextValue<T> {
    */
   getClientSubmissionError: () => string[];
   isCurrentSubmission: (submissionId: string) => boolean;
+  /**
+   * True when the current values differ from the dirty baseline (initially
+   * `initialValues`, moved by `markPristine`/`reset`/`resetWithValues`). Always
+   * derived — never force-flipped. Use it to disable a Save button until the user
+   * actually changes something.
+   */
+  isDirty: boolean;
+  /**
+   * Per-field dirty map keyed by serialized path (same shape as `touched`): a
+   * path maps to `true` when it differs from the baseline. Plain objects are
+   * compared key-precise (only changed leaves appear); a dirty array marks its
+   * own path AND every field underneath it recursively (a content edit, add,
+   * remove, or reorder dirties the whole subtree — array indices aren't stable
+   * identities, so no per-item attribution is attempted). Absent keys are clean.
+   * Read with `dirtyFields[serializePath(path)]`.
+   */
+  dirtyFields: Record<string, boolean>;
+  /**
+   * Moves the dirty baseline so the current (or an explicitly provided) value
+   * reads clean — "this is the new saved-clean reference." Unlike `reset`, it
+   * NEVER touches values/errors/touched; it only changes what `isDirty`/`dirtyFields`
+   * compare against and lets the comparison decide. Overloads:
+   *
+   * - `markPristine()` — baseline the whole form to the current values.
+   * - `markPristine(path, value?)` — baseline one field/subtree. `value` defaults
+   *   to the current value at `path`; pass an explicit value to baseline to what
+   *   actually persisted (server-normalized data) rather than the live input.
+   * - `markPristine(serverResult)` — batch: `serverResult` is a partial object
+   *   mirroring the values shape (typically the API's returned record). Each leaf
+   *   it contains moves that field's baseline to the provided value.
+   *
+   * Key consequence: a field whose current value doesn't match the new baseline
+   * STAYS dirty — so anything the user kept editing past the save is still flagged.
+   */
+  markPristine: MarkPristine<T>;
+}
+
+/**
+ * Signature for {@link FormContextValue.markPristine}. Either re-baselines a
+ * single field/subtree (`path`, optional explicit `value`), a batch of fields
+ * from a server-returned partial record, or — with no args — the whole form.
+ */
+export interface MarkPristine<T> {
+  (): void;
+  (path: (string | number)[], value?: unknown): void;
+  (serverResult: Partial<T>): void;
 }
 
 /**
@@ -436,6 +492,14 @@ export function FormProvider<T extends Record<string | number, unknown>>({
     submitCount,
     // currentSubmissionID is accessed via state.currentSubmissionID in contextValue
   } = state;
+
+  // Dirty-tracking baseline. Starts at initialValues and is moved by
+  // markPristine() (after a save) and reset()/resetWithValues() (back to a known
+  // state). It is intentionally SEPARATE from initialValues: reset() = "back to
+  // load", markPristine() = "this is the new saved-clean reference", so the two
+  // baselines can legitimately drift. Kept in reactive state so isDirty/dirtyFields
+  // recompute when it moves; markPristine never touches values/errors/touched.
+  const [baseline, setBaseline] = React.useState<T>(initialValues);
 
   /**
    * IMPLEMENTATION PATTERN:
@@ -978,8 +1042,12 @@ export function FormProvider<T extends Record<string | number, unknown>>({
         // Create a new array without the deleted item
         const newItems = array.filter((_, i) => i !== arrayIndex);
 
-        // Create a new values object with the updated array - first update valuesRef
-        const newValues = { ...valuesRef.current };
+        // Create a new values object with the updated array - first update valuesRef.
+        // Clone ALONG the parent path (not just the root) so the array's container
+        // object is a fresh copy. initialValues / the dirty baseline may share that
+        // reference, and setValueAtPath writes through it in place — a root-only
+        // shallow clone would mutate the shared object and corrupt reset()/isDirty.
+        const newValues = cloneAlongPath(valuesRef.current, parentPath);
         setValueAtPath(newValues, parentPath, newItems);
         valuesRef.current = newValues;
 
@@ -1077,9 +1145,13 @@ export function FormProvider<T extends Record<string | number, unknown>>({
           newLength: newItems.length,
         });
       } else {
-        // For non-array items, implement a comprehensive approach
-        // Create a new values object with the item removed - update valuesRef first
-        const newValues = { ...valuesRef.current };
+        // For non-array items, implement a comprehensive approach.
+        // Clone ALONG the path (not just the root) so the parent object we delete
+        // from is a fresh copy — never the shared reference held by initialValues
+        // or the dirty baseline. A root-only shallow clone would `delete` from the
+        // shared nested object in place, corrupting reset() and making isDirty
+        // miss the change (the baseline would lose the key too).
+        const newValues = cloneAlongPath(valuesRef.current, path);
 
         // Handle the case where we're deleting a top-level field
         if (parentPath.length === 0) {
@@ -1087,16 +1159,10 @@ export function FormProvider<T extends Record<string | number, unknown>>({
             delete newValues[lastKey as keyof typeof newValues];
           }
         } else {
-          // For nested fields, navigate to the parent object
-          const parentObj = parentPath.reduce<Record<string | number, unknown>>(
-            (acc, key) => {
-              if (acc && typeof acc === 'object') {
-                return (acc[key] as Record<string | number, unknown>) || {};
-              }
-              return {} as Record<string | number, unknown>;
-            },
-            newValues as Record<string | number, unknown>
-          );
+          // For nested fields, navigate to the (now freshly cloned) parent object
+          const parentObj = getValueAtPath(newValues, parentPath) as
+            | Record<string | number, unknown>
+            | undefined;
 
           if (parentObj && typeof parentObj === 'object') {
             delete parentObj[lastKey];
@@ -1507,6 +1573,10 @@ export function FormProvider<T extends Record<string | number, unknown>>({
       clientSubmissionErrorRef.current = [];
       canSubmitRef.current = false; // Typically, a reset form isn't immediately submittable until validated
 
+      // reset() means "back to load" — the dirty baseline returns to initialValues
+      // too, so a freshly reset form reads clean.
+      setBaseline(initialValues);
+
       // Then update the main state to reflect the reset
       dispatch({
         type: 'UPDATE_STATE',
@@ -1565,6 +1635,10 @@ export function FormProvider<T extends Record<string | number, unknown>>({
       serverErrorsRef.current = [];
       clientSubmissionErrorRef.current = [];
       canSubmitRef.current = false; // Reset form isn't immediately submittable
+
+      // resetWithValues() establishes a new known state — the dirty baseline moves
+      // to those values so the form reads clean immediately after.
+      setBaseline(newValues);
 
       // Then update the main state to reflect the reset
       dispatch({
@@ -1785,6 +1859,58 @@ export function FormProvider<T extends Record<string | number, unknown>>({
     [dispatch]
   );
 
+  // Move the dirty baseline (only) so current/explicit values read clean. Declared
+  // as a named function expression so it can inspect `arguments.length` to tell
+  // `markPristine(path)` (default to current value) from `markPristine(path, undefined)`
+  // (explicitly baseline to undefined). See MarkPristine for the overloads. Defined
+  // before submit() so it can be exposed on the FormHelpers passed to onSubmit.
+  const markPristine = useCallback(
+    function markPristine(
+      arg?: (string | number)[] | Partial<T>,
+      value?: unknown
+    ): void {
+      // No args: baseline the whole form to the current values.
+      if (arg === undefined) {
+        setBaseline(valuesRef.current);
+        return;
+      }
+
+      // Path form: an array is a path; baseline that field/subtree.
+      if (Array.isArray(arg)) {
+        const path = arg;
+        const explicitValue = arguments.length >= 2;
+        const nextValue = explicitValue
+          ? value
+          : getValueAtPath(valuesRef.current, path);
+        // An empty path means the whole form.
+        if (path.length === 0) {
+          setBaseline(nextValue as T);
+          return;
+        }
+        setBaseline((prev) => {
+          const next = cloneAlongPath(prev, path);
+          setValueAtPath(next, path, nextValue);
+          return next;
+        });
+        return;
+      }
+
+      // Batch form: a partial object mirroring the values shape (e.g. the API's
+      // returned record). Move each provided leaf's baseline to its value.
+      const leaves = flattenLeaves(arg);
+      setBaseline((prev) => {
+        let next = prev;
+        for (const [path, leafValue] of leaves) {
+          if (path.length === 0) continue;
+          next = cloneAlongPath(next, path);
+          setValueAtPath(next, path, leafValue);
+        }
+        return next;
+      });
+    },
+    []
+  ) as MarkPristine<T>;
+
   const submit = useCallback(async () => {
     if (!onSubmit) return;
 
@@ -1936,6 +2062,14 @@ export function FormProvider<T extends Record<string | number, unknown>>({
           currentSubmissionID: submissionId, // Changed to use the submissionId from this closure
           isCurrentSubmission, // This function already uses the ref correctly
           signal: abortController.signal,
+          // Forward via ...args (not (arg, value)) so the argument COUNT is
+          // preserved — markPristine uses arguments.length to tell
+          // markPristine(path) (default to current) from markPristine(path, undefined).
+          markPristine: function (...args: unknown[]) {
+            if (isCurrentSubmission(submissionId) && mountedRef.current) {
+              (markPristine as (...a: unknown[]) => void)(...args);
+            }
+          } as MarkPristine<T>,
         };
 
         await onSubmit(values, helpers);
@@ -2022,8 +2156,25 @@ export function FormProvider<T extends Record<string | number, unknown>>({
     setServerErrors,
     setServerError,
     setError,
+    markPristine,
     dispatch,
   ]);
+
+  // Per-field dirty diff against the baseline, keyed by serialized path (same shape
+  // as `touched`). Plain objects are compared key-precise; a dirty array marks its
+  // own path plus every field under it recursively (see diffDirtyFields). Recomputes
+  // only when values or the baseline change, and short-circuits unchanged subtrees
+  // by reference.
+  const dirtyFields = useMemo<Record<string, boolean>>(
+    () => diffDirtyFields(values, baseline),
+    [values, baseline]
+  );
+
+  // Derived from the diff so the two can never disagree.
+  const isDirty = useMemo(
+    () => Object.keys(dirtyFields).length > 0,
+    [dirtyFields]
+  );
 
   const contextValue = React.useMemo<FormContextValue<T>>(
     () => ({
@@ -2073,6 +2224,9 @@ export function FormProvider<T extends Record<string | number, unknown>>({
       clearClientSubmissionError,
       getClientSubmissionError,
       isCurrentSubmission,
+      isDirty,
+      dirtyFields,
+      markPristine,
     }),
     [
       values,
@@ -2113,6 +2267,9 @@ export function FormProvider<T extends Record<string | number, unknown>>({
       clearClientSubmissionError,
       getClientSubmissionError,
       isCurrentSubmission,
+      isDirty,
+      dirtyFields,
+      markPristine,
     ]
   );
 

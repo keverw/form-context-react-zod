@@ -283,6 +283,15 @@ export function FormState({
             style={{
               display: 'inline-flex',
               alignItems: 'center',
+              color: form.isDirty ? palette.serverError : palette.idle,
+            }}
+          >
+            {form.isDirty ? '● Dirty' : '○ Pristine'}
+          </span>
+          <span
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
               color: form.isSubmitting ? palette.submitting : palette.idle,
             }}
           >
@@ -328,6 +337,14 @@ export function FormState({
 
           <Section title="Touched State" palette={palette}>
             <ValueDisplay value={form.touched} palette={palette} />
+          </Section>
+
+          <Section title="Dirty Fields" palette={palette}>
+            {Object.keys(form.dirtyFields).length > 0 ? (
+              <ValueDisplay value={form.dirtyFields} palette={palette} />
+            ) : (
+              <span style={{ color: palette.subtext }}>No dirty fields</span>
+            )}
           </Section>
         </div>
 
