@@ -63,6 +63,7 @@ interface FormHelpers {
   touched: Record<string, boolean>;
   setFieldTouched: (path: (string | number)[], value?: boolean) => void;
   reset: (force?: boolean) => boolean;
+  signal: AbortSignal;
 }
 
 function TestForm({
@@ -4327,5 +4328,194 @@ describe('FormProvider', () => {
     fireEvent.click(screen.getByTestId('set-error'));
     await advanceTimers();
     expect(screen.getByTestId('is-valid').textContent).toBe('false');
+  });
+});
+
+describe('onSubmit helpers.signal (AbortSignal)', () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+    jest.useRealTimers();
+  });
+
+  const SignalControls = () => {
+    const form = useFormContext();
+    return (
+      <div>
+        <button data-testid="submit" onClick={form.submit}>
+          submit
+        </button>
+        <button data-testid="force-reset" onClick={() => form.reset(true)}>
+          force reset
+        </button>
+        <button
+          data-testid="force-reset-with"
+          onClick={() => form.resetWithValues({ name: 'z' }, true)}
+        >
+          force resetWithValues
+        </button>
+        <button
+          data-testid="change"
+          onClick={() => form.setValue(['name'], 'edited')}
+        >
+          change value
+        </button>
+      </div>
+    );
+  };
+
+  function HangingForm({
+    onSubmit,
+  }: {
+    onSubmit: (v: Record<string, unknown>, h: FormHelpers) => Promise<void>;
+  }) {
+    return (
+      <TestForm initialValues={{ name: 'a' }} onSubmit={onSubmit}>
+        <SignalControls />
+      </TestForm>
+    );
+  }
+
+  it('aborts the in-flight signal on a force reset', async () => {
+    const captured: { signal?: AbortSignal } = {};
+    let resolve: () => void = () => {};
+    const pending = new Promise<void>((r) => {
+      resolve = r;
+    });
+    const onSubmit = jest.fn((_v: unknown, helpers: FormHelpers) => {
+      captured.signal = helpers.signal;
+      return pending;
+    });
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+    render(<HangingForm onSubmit={onSubmit} />);
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('submit'));
+    });
+    await advanceTimers();
+    expect(captured.signal).toBeDefined();
+    expect(captured.signal!.aborted).toBe(false);
+
+    // Force-reset mid-submit aborts the signal so a wired fetch cancels.
+    fireEvent.click(screen.getByTestId('force-reset'));
+    await advanceTimers();
+    expect(captured.signal!.aborted).toBe(true);
+
+    await act(async () => {
+      resolve();
+    });
+    await advanceTimers();
+    warn.mockRestore();
+  });
+
+  it('aborts the in-flight signal when the provider unmounts', async () => {
+    const captured: { signal?: AbortSignal } = {};
+    let resolve: () => void = () => {};
+    const pending = new Promise<void>((r) => {
+      resolve = r;
+    });
+    const onSubmit = jest.fn((_v: unknown, helpers: FormHelpers) => {
+      captured.signal = helpers.signal;
+      return pending;
+    });
+
+    const { unmount } = render(<HangingForm onSubmit={onSubmit} />);
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('submit'));
+    });
+    await advanceTimers();
+    expect(captured.signal!.aborted).toBe(false);
+
+    unmount();
+    expect(captured.signal!.aborted).toBe(true);
+
+    await act(async () => {
+      resolve();
+    });
+    await advanceTimers();
+  });
+
+  it('aborts the in-flight signal on a force resetWithValues', async () => {
+    const captured: { signal?: AbortSignal } = {};
+    let resolve: () => void = () => {};
+    const pending = new Promise<void>((r) => {
+      resolve = r;
+    });
+    const onSubmit = jest.fn((_v: unknown, helpers: FormHelpers) => {
+      captured.signal = helpers.signal;
+      return pending;
+    });
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+    render(<HangingForm onSubmit={onSubmit} />);
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('submit'));
+    });
+    await advanceTimers();
+    expect(captured.signal!.aborted).toBe(false);
+
+    fireEvent.click(screen.getByTestId('force-reset-with'));
+    await advanceTimers();
+    expect(captured.signal!.aborted).toBe(true);
+
+    await act(async () => {
+      resolve();
+    });
+    await advanceTimers();
+    warn.mockRestore();
+  });
+
+  it('does NOT abort the signal on a value change during an in-flight submit', async () => {
+    const captured: { signal?: AbortSignal } = {};
+    let resolve: () => void = () => {};
+    const pending = new Promise<void>((r) => {
+      resolve = r;
+    });
+    const onSubmit = jest.fn((_v: unknown, helpers: FormHelpers) => {
+      captured.signal = helpers.signal;
+      return pending;
+    });
+
+    render(<HangingForm onSubmit={onSubmit} />);
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('submit'));
+    });
+    await advanceTimers();
+    expect(captured.signal!.aborted).toBe(false);
+
+    // An ordinary edit re-renders the provider; its mount-validation effect cleanup
+    // must NOT abort the in-flight submission.
+    fireEvent.click(screen.getByTestId('change'));
+    await advanceTimers();
+    expect(captured.signal!.aborted).toBe(false);
+
+    await act(async () => {
+      resolve();
+    });
+    await advanceTimers();
+  });
+
+  it('does NOT abort the signal on a normal successful submit', async () => {
+    const captured: { signal?: AbortSignal } = {};
+    const onSubmit = jest.fn(async (_v: unknown, helpers: FormHelpers) => {
+      captured.signal = helpers.signal;
+    });
+
+    render(<HangingForm onSubmit={onSubmit} />);
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('submit'));
+    });
+    await advanceTimers();
+
+    expect(captured.signal).toBeDefined();
+    expect(captured.signal!.aborted).toBe(false);
   });
 });

@@ -70,14 +70,47 @@ the `reset()` baseline — a later `reset()` still returns to the original `init
 **Resetting mid-submit** — while a submission is in flight (`isSubmitting === true`, e.g. inside
 `onSubmit`), both `reset()` and `resetWithValues()` **no-op**: they log a warning and return
 `false`. Pass `force: true` to reset anyway — this **invalidates the in-flight submission** first,
-then resets. "Invalidates" means the bookkeeping only: it flips `isSubmitting` off and clears the
-current submission ID, so any `helpers.*` writes from the now-stale `onSubmit` become no-ops (they're
-all guarded by `isCurrentSubmission`). It does **not** abort your network request — there's no
-`AbortSignal` passed to `onSubmit`. If you need to actually stop the fetch, bring your own
-`AbortController`: capture `helpers.currentSubmissionID` at the top of `onSubmit`, and after each
-`await` check `helpers.isCurrentSubmission(id)` to detect that you were superseded (then `abort()` /
-bail). To re-baseline after a successful save without invalidating anything, call reset **after**
-`submit()` resolves (when `isSubmitting` is already back to `false`).
+then resets. "Invalidates" means the bookkeeping: it flips `isSubmitting` off, clears the current
+submission ID (so any `helpers.*` writes from the now-stale `onSubmit` become no-ops, guarded by
+`isCurrentSubmission`), **and aborts `helpers.signal`**. So if you passed that signal to your request,
+the force-reset actually cancels it:
+
+```tsx
+const onSubmit: FormSubmitHandler<FormValues> = async (values, helpers) => {
+  // Real cancellation — fires on a force-reset (`reset(true)`) or provider unmount.
+  const res = await fetch('/api/save', {
+    method: 'POST',
+    body: JSON.stringify(values),
+    signal: helpers.signal,
+  });
+  // ...
+};
+```
+
+A normal completion does **not** abort. For robust handling, use **both**, since they cover different
+things: `signal` cancels the in-flight request, while `isCurrentSubmission(id)` guards against acting
+on a result that landed _anyway_ (a request can resolve in the tiny window before the abort) and
+against your **own** side effects that a signal can't cancel (navigation, a toast, non-`helpers` state):
+
+```tsx
+const onSubmit: FormSubmitHandler<FormValues> = async (values, helpers) => {
+  const id = helpers.currentSubmissionID;
+  const res = await fetch('/api/save', {
+    method: 'POST',
+    body: JSON.stringify(values),
+    signal: helpers.signal, // (1) cancels the network request on force-reset/unmount
+  });
+  const data = await res.json();
+  if (!helpers.isCurrentSubmission(id)) return; // (2) superseded? don't act on it
+  helpers.resetWithValues(data); // safe — helpers.* are already guarded internally too
+  showToast('Saved'); // your own side effect: only runs for the live submission
+};
+```
+
+(`helpers.*` writes are already internally no-ops when stale, so the `isCurrentSubmission` check is
+mainly for your own non-`helpers` side effects.) To re-baseline after a successful save without
+invalidating anything, call reset **after** `submit()` resolves (when `isSubmitting` is already back
+to `false`).
 
 The `useFormTag` prop allows wrapping the form content in a native HTML `<form>` tag with automatic `preventDefault` handling on submit events. When enabled, you can use standard HTML submit buttons instead of manually calling `form.submit()`.
 
@@ -201,6 +234,7 @@ export interface FormHelpers<T> {
   resetWithValues: (newValues: T, force?: boolean) => boolean;
   currentSubmissionID: string | null;
   isCurrentSubmission: (submissionId: string) => boolean;
+  signal: AbortSignal; // aborts on force-reset / unmount; pass to fetch(url, { signal })
 }
 ```
 

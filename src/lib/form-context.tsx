@@ -56,6 +56,13 @@ export interface FormHelpers<T> {
   resetWithValues: (newValues: T, force?: boolean) => boolean;
   currentSubmissionID: string | null;
   isCurrentSubmission: (submissionId: string) => boolean;
+  /**
+   * An `AbortSignal` tied to this submission. Pass it to `fetch(url, { signal })`
+   * (or any abortable API) for real cancellation: it fires when the submission is
+   * superseded by a force-reset (`reset(true)` / `resetWithValues(_, true)`) or the
+   * provider unmounts. A normal completion does NOT abort.
+   */
+  signal: AbortSignal;
 }
 
 export interface FormContextValue<T> {
@@ -450,6 +457,10 @@ export function FormProvider<T extends Record<string | number, unknown>>({
   // Using useRef instead of useState to avoid race conditions
   const mountedRef = React.useRef(false);
   const currentSubmissionIDRef = React.useRef<string | null>(null);
+  // AbortController for the in-flight submission. Its signal is handed to onSubmit
+  // via helpers.signal and aborted when the submission is force-reset or the
+  // provider unmounts, so users can pass it to fetch() for real cancellation.
+  const currentAbortControllerRef = React.useRef<AbortController | null>(null);
 
   // Remove queue refs and replace with direct value/touched refs
   const valuesRef = React.useRef<T>(initialValues);
@@ -871,9 +882,19 @@ export function FormProvider<T extends Record<string | number, unknown>>({
 
     return () => {
       mountedRef.current = false;
-      // No need to clear timeouts since we're not using them anymore
     };
   }, [validateOnMount, schema, performInitialValidation]);
+
+  // Abort any in-flight submission ONLY on a real unmount, so a fetch wired to
+  // helpers.signal cancels. This is its own effect with empty deps — the
+  // mount-validation effect above re-runs (and its cleanup fires) on ordinary value
+  // changes, which must NOT abort an in-flight submit.
+  React.useEffect(() => {
+    return () => {
+      currentAbortControllerRef.current?.abort();
+      currentAbortControllerRef.current = null;
+    };
+  }, []);
 
   // Helper function removed since we now filter errors directly
 
@@ -1467,6 +1488,10 @@ export function FormProvider<T extends Record<string | number, unknown>>({
       if (isSubmittingRef.current && force) {
         isSubmittingRef.current = false;
         currentSubmissionIDRef.current = null;
+        // Abort the in-flight request's signal so a fetch wired to helpers.signal
+        // actually cancels (not just the helpers.* no-op'ing via isCurrentSubmission).
+        currentAbortControllerRef.current?.abort();
+        currentAbortControllerRef.current = null;
         // Dispatch updates for submission state if it was active
         dispatch({
           type: 'UPDATE_STATE',
@@ -1523,6 +1548,10 @@ export function FormProvider<T extends Record<string | number, unknown>>({
       if (isSubmittingRef.current && force) {
         isSubmittingRef.current = false;
         currentSubmissionIDRef.current = null;
+        // Abort the in-flight request's signal (matching reset(true)) so a fetch
+        // wired to helpers.signal actually cancels.
+        currentAbortControllerRef.current?.abort();
+        currentAbortControllerRef.current = null;
         dispatch({
           type: 'UPDATE_STATE',
           updates: { isSubmitting: false, currentSubmissionID: null },
@@ -1788,6 +1817,12 @@ export function FormProvider<T extends Record<string | number, unknown>>({
     // Generate a new submission ID to track this submission
     const submissionId = generateID();
 
+    // Fresh AbortController for this attempt. Aborted if the submission is
+    // force-reset or the provider unmounts (see reset/resetWithValues + the unmount
+    // cleanup); cleared in `finally` when this attempt settles as the current one.
+    const abortController = new AbortController();
+    currentAbortControllerRef.current = abortController;
+
     // Update state to indicate we're submitting and store the submission ID
     // Update ref first
     isSubmittingRef.current = true;
@@ -1900,6 +1935,7 @@ export function FormProvider<T extends Record<string | number, unknown>>({
           },
           currentSubmissionID: submissionId, // Changed to use the submissionId from this closure
           isCurrentSubmission, // This function already uses the ref correctly
+          signal: abortController.signal,
         };
 
         await onSubmit(values, helpers);
@@ -1950,6 +1986,9 @@ export function FormProvider<T extends Record<string | number, unknown>>({
     } finally {
       // Only reset submitting state if this is still the current submission and component is mounted
       if (isCurrentSubmission(submissionId) && mountedRef.current) {
+        // This attempt settled as the current one — drop its (now-finished)
+        // controller so a later force-reset can't abort a completed request.
+        currentAbortControllerRef.current = null;
         // Update ref first
         isSubmittingRef.current = false;
         // Then update state, recording whether this attempt succeeded.

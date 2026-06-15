@@ -252,15 +252,13 @@ rough.
       touch-gated (untouched siblings stay quiet), and it pairs with the subscription work so only the
       affected sibling re-renders. +2 bisected tests (live update on a touched sibling; stays hidden when
       untouched).
-- [ ] **`AbortSignal` on the `onSubmit` helpers.** Today `reset(force)` only _invalidates_ a
-      submission (flips `isSubmitting`, clears the submission ID so `helpers.*` writes no-op via
-      `isCurrentSubmission`) — it does **not** abort the user's network call, and there's no signal
-      handed to `onSubmit`. Add **`helpers.signal`** (an `AbortSignal`) that fires when the
-      submission is superseded / force-reset / the provider unmounts, so users can just pass it to
-      `fetch(url, { signal })` and get real cancellation instead of manually polling
-      `isCurrentSubmission`. We already track the submission lifecycle that'd drive it — wire an
-      `AbortController` per submit, `abort()` it on invalidate/unmount. Update the "Resetting
-      mid-submit" docs once it lands.
+- [x] **`AbortSignal` on the `onSubmit` helpers.** Added **`helpers.signal`** — a per-submit
+      `AbortController`'s signal, aborted when the submission is force-reset (`reset(true)` /
+      `resetWithValues(_, true)`) or the provider unmounts, so users pass it to `fetch(url, { signal })`
+      for real cancellation. A normal completion doesn't abort; the controller is cleared in `submit`'s
+      `finally` so a later force-reset can't abort a finished request. FORM-API "Resetting mid-submit"
+      updated with the recipe; +3 tests (abort on force-reset, abort on unmount, no abort on normal
+      submit).
 - [ ] **`isDirty` + `dirtyFields`.** Derived from a **baseline** kept in a ref (starts =
       `initialValues`): `isDirty` = `!deepEqual(values, baseline)`, `dirtyFields` = the per-field
       diff. Enables "disable Save until changed." For "mark clean after a save," add a dedicated
