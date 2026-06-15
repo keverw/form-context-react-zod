@@ -49,6 +49,19 @@ npm install form-context-react-zod
 
 > **Requires React 19 and Zod 4.** Need React 18 / Zod 3? Install `form-context-react-zod@^1`.
 
+## SSR / Hydration
+
+The library is server-render safe — it works with `renderToString` (and the streaming
+APIs), so it slots into Next.js, Remix, Unirend, etc. The per-field hooks supply a
+`getServerSnapshot` to `useSyncExternalStore`, so a server render produces the initial-values
+markup the client then hydrates.
+
+The one rule: **pass identical `initialValues` on the server and the client.** Hydration assumes
+the two renders start from the same state, so derive `initialValues` from the same source (loader
+data, props) on both sides rather than regenerating it (e.g. avoid `Date.now()`/random defaults
+that differ per render). The same applies to `initialServerErrors` if you seed them — hand the
+server and client the same array.
+
 ## Documentation
 
 - [Form API Documentation](./FORM-API.md)

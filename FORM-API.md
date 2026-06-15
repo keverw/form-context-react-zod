@@ -64,6 +64,11 @@ State getters:
     explicit) value reads clean — "this is the new saved-clean reference." Baseline-only;
     never touches values/errors/touched. Also accepts a server-returned partial record to
     re-baseline many fields at once. See [Dirty tracking](#dirty-tracking).
+  - `setFocus(path): boolean`: Imperatively focus a field by path. Returns whether a
+    registered focusable field was found. See [Focus management](#focus-management).
+  - `focusFirstError(): path | null`: Focus the first registered field that currently has
+    an error (registration order). Returns the focused path, or `null`. See
+    [Focus management](#focus-management).
 
 **`reset` vs `resetWithValues`** — they're the same operation with a different target. Both clear
 touched state, validation errors, and server errors, clear the submit-attempt tracking
@@ -163,13 +168,13 @@ There are two baselines and they can legitimately drift:
 `markPristine` has three forms:
 
 ```tsx
-form.markPristine();                       // baseline the WHOLE form to current values
-form.markPristine([]);                     // same as above (empty path = whole form)
-form.markPristine([], wholeObject);        // replace the whole baseline with an explicit object
-form.markPristine(['email']);              // baseline one field to its current value
-form.markPristine(['email'], 'a@b.com');   // baseline one field to an explicit (persisted) value
-form.markPristine(['user']);               // a subtree works too — baselines the whole `user` object
-form.markPristine(serverResult);           // batch: MERGE a partial record's leaves into the baseline
+form.markPristine(); // baseline the WHOLE form to current values
+form.markPristine([]); // same as above (empty path = whole form)
+form.markPristine([], wholeObject); // replace the whole baseline with an explicit object
+form.markPristine(['email']); // baseline one field to its current value
+form.markPristine(['email'], 'a@b.com'); // baseline one field to an explicit (persisted) value
+form.markPristine(['user']); // a subtree works too — baselines the whole `user` object
+form.markPristine(serverResult); // batch: MERGE a partial record's leaves into the baseline
 ```
 
 **Batch is a leaf-level merge, not a whole-baseline replace.** You pass only the fields you want
@@ -195,8 +200,14 @@ to the raw input:
 
 ```tsx
 const onSubmit: FormSubmitHandler<FormValues> = async (values, helpers) => {
-  const res = await fetch('/api/save', { method: 'POST', body: JSON.stringify(values), signal: helpers.signal });
+  const res = await fetch('/api/save', {
+    method: 'POST',
+    body: JSON.stringify(values),
+    signal: helpers.signal,
+  });
+
   const saved = await res.json(); // the canonical record the server stored
+
   if (!helpers.isCurrentSubmission(helpers.currentSubmissionID)) return;
   helpers.markPristine(saved); // each returned leaf becomes that field's baseline
 };
@@ -216,6 +227,78 @@ any subtree) as a single value — `markPristine(['items'])` baselines the entir
 and a record passed to the batch form applies each array as one unit. The array then reads clean only if
 it deep-matches that baseline element-for-element and in order; any later edit/add/remove/reorder dirties
 the whole array subtree again.
+
+### Focus management
+
+`setFocus(path)` and `focusFirstError()` let you move focus imperatively — most commonly to drop the
+user on the first invalid field after a failed submit.
+
+**Register the field's node.** `useField` returns an `inputRef` callback; attach it to your input so the form can reach that field:
+
+```tsx
+function TextField({ path }: { path: (string | number)[] }) {
+  const { value, setValue, error, inputRef } = useField(path);
+  return (
+    <>
+      <input
+        ref={inputRef}
+        value={value as string}
+        onChange={(e) => setValue(e.target.value)}
+      />
+      {error && <span>{error}</span>}
+    </>
+  );
+}
+```
+
+Then drive focus from anywhere with the context (or `helpers` inside `onSubmit`):
+
+```tsx
+const form = useFormContext();
+form.setFocus(['email']); // focus one field; returns false if it has no registered ref
+form.focusFirstError(); // focus the first errored field; returns the path or null
+```
+
+A natural pattern is focusing the first error after a submit attempt — `submit()` touches every field
+first, so all errors are active by the time it resolves:
+
+```tsx
+await form.submit();
+form.focusFirstError();
+```
+
+Or, when the **server** rejects fields, do it inside the handler via `helpers`:
+
+```tsx
+const onSubmit: FormSubmitHandler<FormValues> = async (values, helpers) => {
+  const res = await fetch('/api/save', {
+    method: 'POST',
+    body: JSON.stringify(values),
+  });
+
+  if (res.status === 422) {
+    const { fieldErrors } = await res.json();
+    
+    for (const [name, msg] of Object.entries(fieldErrors))
+      helpers.setServerError([name], msg as string);
+    helpers.focusFirstError(); // jump to the first server-rejected field
+  }
+};
+```
+
+**Notes:**
+
+- **Platform-agnostic.** The registry stores any node exposing `focus()` — a DOM `<input>`, a React
+  Native `<TextInput>` (`<TextInput ref={inputRef} />`), or any custom component with a `focus()` method.
+  The core imports no DOM types. On the web, `setFocus` also calls `scrollIntoView()` when present
+  (feature-detected, so it's a harmless no-op elsewhere).
+- **Ordering.** `focusFirstError()` scans fields in **registration order** (≈ mount/source order), which
+  is the usual top-to-bottom visual order. It intentionally does not use DOM position, so the behavior is
+  identical on React Native.
+- **Raw context.** Not using `useField`? Call `registerFieldRef(path, node)` from `FormFieldContext`
+  directly (pass `null` on unmount to unregister).
+- `setFocus` returns `false` (and `focusFirstError` returns `null`) when no matching registered,
+  focusable field exists — e.g. the field is unmounted or never attached an `inputRef`.
 
 The `useFormTag` prop allows wrapping the form content in a native HTML `<form>` tag with automatic `preventDefault` handling on submit events. When enabled, you can use standard HTML submit buttons instead of manually calling `form.submit()`.
 
@@ -341,6 +424,8 @@ export interface FormHelpers<T> {
   isCurrentSubmission: (submissionId: string) => boolean;
   signal: AbortSignal; // aborts on force-reset / unmount; pass to fetch(url, { signal })
   markPristine: MarkPristine<T>; // re-baseline after a save; see "Dirty tracking"
+  setFocus: (path: (string | number)[]) => boolean; // focus a field; see "Focus management"
+  focusFirstError: () => (string | number)[] | null; // focus first errored field
 }
 ```
 

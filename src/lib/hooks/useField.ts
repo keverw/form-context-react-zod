@@ -1,5 +1,6 @@
-import { useContext, useSyncExternalStore } from 'react';
-import { FormFieldContext } from '../form-context';
+import { useContext, useCallback, useSyncExternalStore } from 'react';
+import { FormFieldContext, type Focusable } from '../form-context';
+import { serializePath } from '../utils';
 
 export function useField(path: (string | number)[]) {
   const fieldCtx = useContext(FormFieldContext);
@@ -7,11 +8,29 @@ export function useField(path: (string | number)[]) {
     throw new Error('useField must be used within a FormProvider');
   }
 
+  // A stable ref callback that registers this field's node for setFocus/
+  // focusFirstError. Memoized on the serialized path so the same callback identity
+  // persists across renders (a fresh callback each render would churn the registry).
+  // Spread/attach to your input: <input ref={field.ref} /> (or RN <TextInput>).
+  const serializedPath = serializePath(path);
+  const inputRef = useCallback(
+    (node: Focusable | null) => {
+      fieldCtx.registerFieldRef(JSON.parse(serializedPath), node);
+    },
+    // fieldCtx is stable; serializedPath identifies the field.
+    [fieldCtx, serializedPath]
+  );
+
   // Subscribe to just this field's slice. Because FormFieldContext is stable and we
   // read the field via useSyncExternalStore, the field re-renders only when its own
   // value/touched/errors change — not on every unrelated keystroke elsewhere.
-  const snapshot = useSyncExternalStore(fieldCtx.subscribeField, () =>
-    fieldCtx.getFieldSnapshot(path)
+  // The same reader is passed as getServerSnapshot (3rd arg): on the server the slice
+  // comes from refs seeded with initialValues, so SSR output matches client hydration.
+  const getSnapshot = () => fieldCtx.getFieldSnapshot(path);
+  const snapshot = useSyncExternalStore(
+    fieldCtx.subscribeField,
+    getSnapshot,
+    getSnapshot
   );
 
   const { value, isTouched, errors } = snapshot;
@@ -35,6 +54,11 @@ export function useField(path: (string | number)[]) {
       fieldCtx.setValue(path, newValue);
     },
     error,
+    // Attach to the input so setFocus/focusFirstError can reach this field:
+    // <input ref={field.inputRef} /> (or RN <TextInput ref={field.inputRef} />).
+    // Named inputRef (not `ref`) so consumers' react-hooks lint doesn't misread a
+    // `.ref` member access during render as a ref-value read.
+    inputRef,
     props: {
       value,
       onChange: (newValue: unknown) => fieldCtx.setValue(path, newValue),

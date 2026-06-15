@@ -91,10 +91,10 @@ describe('isDirty / dirtyFields', () => {
         <button
           data-testid="push"
           onClick={() =>
-            form.setValue(['items'], [
-              ...(form.getValue(['items']) as number[]),
-              3,
-            ])
+            form.setValue(
+              ['items'],
+              [...(form.getValue(['items']) as number[]), 3]
+            )
           }
         />
       );
@@ -171,10 +171,7 @@ describe('isDirty / dirtyFields', () => {
           data-testid="reorder"
           // Same items, swapped order — content unchanged, position changed.
           onClick={() =>
-            form.setValue(['rows'], [
-              { label: 'b' },
-              { label: 'a' },
-            ])
+            form.setValue(['rows'], [{ label: 'b' }, { label: 'a' }])
           }
         />
       );
@@ -462,9 +459,7 @@ describe('markPristine', () => {
           {/* The save returns the canonical record (normalized casing). */}
           <button
             data-testid="commit"
-            onClick={() =>
-              form.markPristine({ first: 'Jane', last: 'Doe' })
-            }
+            onClick={() => form.markPristine({ first: 'Jane', last: 'Doe' })}
           />
         </div>
       );
@@ -504,9 +499,7 @@ describe('markPristine', () => {
           {/* Only `first` matches what came back; `last` was still being edited. */}
           <button
             data-testid="commit"
-            onClick={() =>
-              form.markPristine({ first: 'Jane', last: 'Doe' })
-            }
+            onClick={() => form.markPristine({ first: 'Jane', last: 'Doe' })}
           />
         </div>
       );
@@ -756,7 +749,9 @@ describe('markPristine — edge cases', () => {
     );
 
     fireEvent.click(screen.getByTestId('edit'));
-    expect(screen.getByTestId('dirty:["user","name"]').textContent).toBe('true');
+    expect(screen.getByTestId('dirty:["user","name"]').textContent).toBe(
+      'true'
+    );
     fireEvent.click(screen.getByTestId('mark-user'));
     expect(screen.getByTestId('dirty:["user","name"]').textContent).toBe(
       'false'
@@ -847,10 +842,7 @@ describe('dirty reflects other mutation paths', () => {
     const Controls = () => {
       const form = useFormContext();
       return (
-        <button
-          data-testid="clear"
-          onClick={() => form.clearValue(['name'])}
-        />
+        <button data-testid="clear" onClick={() => form.clearValue(['name'])} />
       );
     };
     render(
@@ -873,10 +865,7 @@ describe('dirty reflects other mutation paths', () => {
     const Controls = () => {
       const form = useFormContext();
       return (
-        <button
-          data-testid="del"
-          onClick={() => form.deleteField(['b'])}
-        />
+        <button data-testid="del" onClick={() => form.deleteField(['b'])} />
       );
     };
     render(
@@ -921,7 +910,12 @@ describe('dirty reflects other mutation paths', () => {
         onSubmit={jest.fn()}
         validateOnChange={false}
       >
-        <Probe paths={[['user', 'name'], ['user', 'age']]} />
+        <Probe
+          paths={[
+            ['user', 'name'],
+            ['user', 'age'],
+          ]}
+        />
         <Controls />
       </FormProvider>
     );
@@ -932,7 +926,9 @@ describe('dirty reflects other mutation paths', () => {
     expect(screen.getByTestId('isDirty').textContent).toBe('true');
     expect(screen.getByTestId('name').textContent).toBe('GONE');
     // The untouched sibling stays clean (objects are key-precise).
-    expect(screen.getByTestId('dirty:["user","age"]').textContent).toBe('false');
+    expect(screen.getByTestId('dirty:["user","age"]').textContent).toBe(
+      'false'
+    );
     // reset() restores the deleted nested value — proving initialValues wasn't
     // mutated in place.
     fireEvent.click(screen.getByTestId('reset'));

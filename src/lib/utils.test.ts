@@ -546,9 +546,9 @@ describe('utils', () => {
       const v = { a: 1, b: { c: 2 } };
       expect(diffDirtyFields(v, v)).toEqual({});
       // structurally equal but different references -> still clean
-      expect(diffDirtyFields({ a: 1, b: { c: 2 } }, { a: 1, b: { c: 2 } })).toEqual(
-        {}
-      );
+      expect(
+        diffDirtyFields({ a: 1, b: { c: 2 } }, { a: 1, b: { c: 2 } })
+      ).toEqual({});
     });
 
     it('objects are key-precise (no sibling cascade)', () => {

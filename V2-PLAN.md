@@ -265,33 +265,38 @@ rough.
       (same shape as `touched`). New `deepEqual` + `flattenLeaves` utils back the diff. `reset()` /
       `resetWithValues(x)` move the baseline back to their target (clean after reset); they stay separate
       from the dirty baseline so the two can drift — `reset()` = "back to load", `markPristine()` =
-      "new saved-clean reference." **Decisions made while implementing:**
-      - **Objects key-precise, arrays cascade** (`diffDirtyFields`). Plain objects compare key by key
-        (editing `meta.a` leaves `meta.b` clean). A dirty array marks its own path AND **every field under
-        it recursively** — any edit/add/remove/**reorder** dirties the whole subtree up to the outermost
-        changed array. Chosen so a generic field component can always check its own path and get a sensible
-        answer even inside arrays; tradeoff is no per-item attribution (indices aren't stable identities —
-        a prepend would falsely flag every row). Per-item-by-id is left to the stable `arrayFieldIDs` and
-        the sub-form composition pattern. Reference-equality short-circuit keeps it O(path depth) per edit.
-        Decided with the user after weighing per-index/per-id alternatives.
-      - **Batch shape = nested partial** mirroring the values shape (the friendlier API), applied at the
-        **leaf** level so unmentioned sibling baselines survive (a clean field stays clean).
-      - **`markPristine` overloads:** `()` whole form, `(path)` field→current value, `(path, value)`
-        field→explicit persisted value, `(serverResult)` batch. Named function expression so it can read
-        `arguments.length` to distinguish `(path)` from `(path, undefined)`.
-      - **Exposed on `FormHelpers`** too (`helpers.markPristine`) — the primary flow is re-baselining to
-        the server's returned record inside `onSubmit`. Forwarded via `...args` to preserve arg count.
+      "new saved-clean reference." **Decisions made while implementing:** - **Objects key-precise, arrays cascade** (`diffDirtyFields`). Plain objects compare key by key
+      (editing `meta.a` leaves `meta.b` clean). A dirty array marks its own path AND **every field under
+      it recursively** — any edit/add/remove/**reorder** dirties the whole subtree up to the outermost
+      changed array. Chosen so a generic field component can always check its own path and get a sensible
+      answer even inside arrays; tradeoff is no per-item attribution (indices aren't stable identities —
+      a prepend would falsely flag every row). Per-item-by-id is left to the stable `arrayFieldIDs` and
+      the sub-form composition pattern. Reference-equality short-circuit keeps it O(path depth) per edit.
+      Decided with the user after weighing per-index/per-id alternatives. - **Batch shape = nested partial** mirroring the values shape (the friendlier API), applied at the
+      **leaf** level so unmentioned sibling baselines survive (a clean field stays clean). - **`markPristine` overloads:** `()` whole form, `(path)` field→current value, `(path, value)`
+      field→explicit persisted value, `(serverResult)` batch. Named function expression so it can read
+      `arguments.length` to distinguish `(path)` from `(path, undefined)`. - **Exposed on `FormHelpers`** too (`helpers.markPristine`) — the primary flow is re-baselining to
+      the server's returned record inside `onSubmit`. Forwarded via `...args` to preserve arg count.
       +14 tests (`useDirty.test.tsx`: derive/per-field/array-leaf/reset/all 4 overloads/batch-leaf-granularity/
       helpers-forwarding) + util tests; FormState debug panel shows a Dirty/Pristine chip + Dirty Fields
       section. Baseline-only: never touches values/errors/touched (bisected).
 
-- [ ] **`setFocus(path)` / `focusFirstError()`.** Needs a field-ref registry: `useField` spreads
-      props but doesn't register the input centrally (RHF focuses via `register()`'s captured ref).
-      Add a context `Map<serializedPath, { focus(): void }>` that `useField` populates, then walk
-      error paths and `.focus()` the first match. **Pairs with the React Native track:** type the
-      registry to `{ focus(): void }` (NOT `HTMLElement`) since RN `TextInput` refs expose
-      `.focus()`, and have `useField` **expose a `ref`** for the consumer to attach
-      (`<TextInput ref={field.ref} />`). Do it alongside RN field-wiring, not as a web-only add.
+- [x] **`setFocus(path)` / `focusFirstError()`.** Field-ref registry built RN-first: - `Focusable = { focus?(): void }` (NOT `HTMLElement`) — DOM `<input>`, RN `TextInput`, or any
+      node with `focus()` all satisfy it; the core imports no DOM types. - Registry is a `Map<serializedPath, Focusable>` in a provider ref. `FormFieldContext` gains a
+      stable `registerFieldRef(path, node|null)`; `useField` exposes an `inputRef` callback the
+      consumer attaches (`<input ref={inputRef} />` / `<TextInput ref={inputRef} />`). - `setFocus(path)` → `node.focus()` (+ feature-detected `scrollIntoView()` for web). Returns
+      whether a focusable was found. `focusFirstError()` scans the registry in **registration order**
+      (≈ mount/source order, NOT DOM position — identical on RN) and focuses the first path with an
+      error; returns the path or `null`. Both also on `FormHelpers` (guarded) for use in `onSubmit`. - Named `inputRef`, not `ref`: the react-hooks `refs` lint rule taints a `.ref` member access in
+      render; destructuring (`const { inputRef } = useField(...)`) keeps consumer code lint-clean.
+      +14 tests (`useFocus.test.tsx`: focus by path, unregistered→false, unmount unregister, first-error
+      ordering, skip-valid, none→null, helpers after a server error) — registry cleanup bisected. Docs:
+      "Focus management" section. Note: when code-splitting (§4), `setFocus`'s `scrollIntoView` stays
+      feature-detected so the core entry remains DOM-free.
+
+> **Non-goal: typed paths.** Sticking with string/array paths. Type-safe `Path<T>`/`PathValue<T,P>`
+> would be **type-only** (no runtime change, so fully additive later if ever wanted) — but **not easy**:
+> the recursive path types are gnarly, can slow `tsc`, and give ugly errors. Type-only ≠ trivial. Not planned.
 
 ## 4. Code splitting (Unirend-style multi-entry exports)
 
@@ -393,18 +398,27 @@ Feasible — field binding is via hooks (render-agnostic). Only DOM hard-deps:
       `testSetup.ts` now filters ONLY those known messages from console; everything else still prints.
 - Remaining red is scattered 1–3 line edge guards (stale-submission branches, error-path mismatches) + 2 defensive `utils` lines — diminishing returns. Overall **98% lines / ~96% funcs**, 100 tests.
 
-## 9. Hydration safety ✅ (verified — doc task only)
+## 9. Hydration safety
 
-Scanned the lib: **no hydration hazards found.**
+No hydration _mismatch_ hazards (values are deterministic):
 
 - `useReducer` initial state is deterministic ([form-context.tsx:174](src/lib/form-context.tsx#L174)).
 - `generateID()` (`Date.now()+Math.random()`) only runs at submit time
   ([form-context.tsx:1168](src/lib/form-context.tsx#L1168)), never during render.
 - No `useId` / `window` / `document` reads during render.
 
-- [ ] Add a short README "SSR/Hydration" note: hydration-safe as long as the caller passes
-      identical `initialValues` on server and client. (would go for the server errors warning stuff too)
-- [ ] (Optional) Add an SSR render test (`renderToString`) to lock it in.
+- [x] **SSR crash fix (`getServerSnapshot`).** The earlier "no hazards" scan looked for value
+      mismatches but MISSED that `useField`/`useArrayField` called `useSyncExternalStore` with only two
+      args. React **throws** `Missing getServerSnapshot, which is required for server-rendered content`
+      on any server render (Unirend uses `renderToString`) — so the lib could not SSR at all, not just
+      mismatch. The 3rd arg is an internal hook detail — consumers pass NOTHING extra; they just need to
+      hand the same `initialValues` to server and client (already required). Fixed by passing the same
+      ref-backed snapshot reader as the 3rd arg; on the server the refs already hold `initialValues`, so
+      SSR output == client hydration. +3 `renderToString` tests (`useSSR.test.tsx`: useField,
+      useArrayField, schema+validateOnMount); bisect reproduced the exact React error with the arg removed.
+- [x] Added a short README "SSR/Hydration" note: server-render safe (`renderToString` + streaming),
+      hydration-safe as long as the caller passes identical `initialValues` (and `initialServerErrors`)
+      on server and client.
 
 ## 10. Features (emerged while dogfooding the demo)
 

@@ -39,11 +39,15 @@ export function useArrayField(path: (string | number)[]) {
 
   // Subscribe to just this array's value via the stable context, so the array
   // component re-renders when its own items change — not on every unrelated edit.
-  const items = useSyncExternalStore(ctx.subscribeField, () => {
+  // The same reader is passed as getServerSnapshot: on the server the value comes
+  // straight from the ref seeded with initialValues, so SSR + hydration agree.
+  const getItems = () => {
     const value = ctx.getValue(path);
 
     return Array.isArray(value) ? (value as unknown[]) : EMPTY_ITEMS;
-  });
+  };
+
+  const items = useSyncExternalStore(ctx.subscribeField, getItems, getItems);
 
   const key = serializePath(path);
 

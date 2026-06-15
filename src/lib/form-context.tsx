@@ -73,6 +73,15 @@ export interface FormHelpers<T> {
    * See {@link FormContextValue.markPristine} for the overloads.
    */
   markPristine: MarkPristine<T>;
+  /**
+   * Focus a field by path. See {@link FormContextValue.setFocus}.
+   */
+  setFocus: (path: (string | number)[]) => boolean;
+  /**
+   * Focus the first errored field — call after validation fails inside
+   * `onSubmit`. See {@link FormContextValue.focusFirstError}.
+   */
+  focusFirstError: () => (string | number)[] | null;
 }
 
 export interface FormContextValue<T> {
@@ -208,6 +217,21 @@ export interface FormContextValue<T> {
    * STAYS dirty — so anything the user kept editing past the save is still flagged.
    */
   markPristine: MarkPristine<T>;
+  /**
+   * Imperatively focus a field by path (calls the registered node's `focus()`,
+   * and `scrollIntoView()` if the node has it). Requires the field to have
+   * registered a ref — `useField`'s `ref`, or a direct `registerFieldRef` call.
+   * Returns `true` if a focusable node was found and focused, `false` otherwise.
+   * Platform-agnostic: works with any node exposing `focus()` (DOM or RN).
+   */
+  setFocus: (path: (string | number)[]) => boolean;
+  /**
+   * Focus the first registered field that currently has an error, scanning in
+   * registration order (≈ mount/source order). Handy right after a failed submit
+   * (`submit()` touches every field first, so all errors are active). Returns the
+   * focused field's path, or `null` if no errored field had a registered ref.
+   */
+  focusFirstError: () => (string | number)[] | null;
 }
 
 /**
@@ -262,6 +286,18 @@ export interface FieldSnapshot {
  * flows through `subscribeField` + `getFieldSnapshot` via `useSyncExternalStore`.
  * The reactive `FormContext` is kept for whole-form consumers (FormState, etc.).
  */
+/**
+ * The minimal shape `setFocus`/`focusFirstError` need from a registered field
+ * node: anything with a `focus()` method. Deliberately structural and platform-
+ * agnostic — a DOM element (`<input>`), a React Native `TextInput` instance, or
+ * any custom component exposing `focus()` all satisfy it, so the core never
+ * depends on DOM types. Web-only extras (e.g. `scrollIntoView`) are
+ * feature-detected at call time, never required.
+ */
+export interface Focusable {
+  focus?: () => void;
+}
+
 export interface FormFieldContextValue {
   subscribeField: (listener: () => void) => () => void;
   getFieldSnapshot: (path: (string | number)[]) => FieldSnapshot;
@@ -277,6 +313,13 @@ export interface FormFieldContextValue {
   ) => void;
   deleteField: (path: (string | number)[]) => void;
   subscribeArrayStructure: (listener: ArrayStructureListener) => () => void;
+  /**
+   * Register (or, with `null`, unregister) the focusable node for a field path,
+   * powering `setFocus`/`focusFirstError`. `useField` wires this to its `ref`;
+   * raw-context fields can call it directly. Registration order ≈ mount/source
+   * order, which is the order `focusFirstError` scans.
+   */
+  registerFieldRef: (path: (string | number)[], node: Focusable | null) => void;
 }
 
 // Whether two error lists for the SAME path are equivalent (so a cached snapshot
@@ -1448,6 +1491,53 @@ export function FormProvider<T extends Record<string | number, unknown>>({
     };
   }, []);
 
+  // Registry of focusable field nodes for setFocus/focusFirstError. A Map keyed by
+  // serialized path; it preserves insertion order, so iteration follows the order
+  // fields registered (≈ mount/source order) — which is the order focusFirstError
+  // scans. Stores a structural Focusable (DOM element OR RN TextInput OR any node
+  // with focus()), never a DOM-typed reference, so the core stays platform-agnostic.
+  const fieldRefsRef = React.useRef<Map<string, Focusable>>(new Map());
+  const registerFieldRef = useCallback(
+    (path: (string | number)[], node: Focusable | null) => {
+      const key = serializePath(path);
+      if (node) {
+        fieldRefsRef.current.set(key, node);
+      } else {
+        fieldRefsRef.current.delete(key);
+      }
+    },
+    []
+  );
+
+  const setFocus = useCallback((path: (string | number)[]): boolean => {
+    const node = fieldRefsRef.current.get(serializePath(path));
+    if (!node || typeof node.focus !== 'function') return false;
+    node.focus();
+    // Web nicety, feature-detected so it's a no-op on platforms without it (RN):
+    // bring a focused field into view inside a scroll container.
+    const scrollable = node as { scrollIntoView?: (arg?: unknown) => void };
+    if (typeof scrollable.scrollIntoView === 'function') {
+      scrollable.scrollIntoView({ block: 'center' });
+    }
+    return true;
+  }, []);
+
+  const focusFirstError = useCallback((): (string | number)[] | null => {
+    // Scan registered fields in registration order; focus the first one that
+    // currently has an error of any source. errorsRef is the synchronous source
+    // of truth, so this is correct immediately after a submit/validate.
+    for (const [key, node] of fieldRefsRef.current) {
+      const hasError = errorsRef.current.some(
+        (e) => serializePath(e.path) === key
+      );
+      if (!hasError || typeof node.focus !== 'function') continue;
+      const path = deserializePath(key);
+      setFocus(path);
+      return path;
+    }
+    return null;
+  }, [setFocus]);
+
   // Per-path snapshot cache: getFieldSnapshot must return a STABLE reference when a
   // field's slice is unchanged, or useSyncExternalStore would loop / always render.
   const fieldSnapshotCacheRef = React.useRef<Map<string, FieldSnapshot>>(
@@ -1536,8 +1626,14 @@ export function FormProvider<T extends Record<string | number, unknown>>({
         liveFieldMethodsRef.current.deleteField(path);
       },
       subscribeArrayStructure,
+      registerFieldRef,
     }),
-    [subscribeField, getFieldSnapshot, subscribeArrayStructure]
+    [
+      subscribeField,
+      getFieldSnapshot,
+      subscribeArrayStructure,
+      registerFieldRef,
+    ]
   );
 
   const reset = useCallback(
@@ -1864,52 +1960,49 @@ export function FormProvider<T extends Record<string | number, unknown>>({
   // `markPristine(path)` (default to current value) from `markPristine(path, undefined)`
   // (explicitly baseline to undefined). See MarkPristine for the overloads. Defined
   // before submit() so it can be exposed on the FormHelpers passed to onSubmit.
-  const markPristine = useCallback(
-    function markPristine(
-      arg?: (string | number)[] | Partial<T>,
-      value?: unknown
-    ): void {
-      // No args: baseline the whole form to the current values.
-      if (arg === undefined) {
-        setBaseline(valuesRef.current);
+  const markPristine = useCallback(function markPristine(
+    arg?: (string | number)[] | Partial<T>,
+    value?: unknown
+  ): void {
+    // No args: baseline the whole form to the current values.
+    if (arg === undefined) {
+      setBaseline(valuesRef.current);
+      return;
+    }
+
+    // Path form: an array is a path; baseline that field/subtree.
+    if (Array.isArray(arg)) {
+      const path = arg;
+      const explicitValue = arguments.length >= 2;
+      const nextValue = explicitValue
+        ? value
+        : getValueAtPath(valuesRef.current, path);
+      // An empty path means the whole form.
+      if (path.length === 0) {
+        setBaseline(nextValue as T);
         return;
       }
-
-      // Path form: an array is a path; baseline that field/subtree.
-      if (Array.isArray(arg)) {
-        const path = arg;
-        const explicitValue = arguments.length >= 2;
-        const nextValue = explicitValue
-          ? value
-          : getValueAtPath(valuesRef.current, path);
-        // An empty path means the whole form.
-        if (path.length === 0) {
-          setBaseline(nextValue as T);
-          return;
-        }
-        setBaseline((prev) => {
-          const next = cloneAlongPath(prev, path);
-          setValueAtPath(next, path, nextValue);
-          return next;
-        });
-        return;
-      }
-
-      // Batch form: a partial object mirroring the values shape (e.g. the API's
-      // returned record). Move each provided leaf's baseline to its value.
-      const leaves = flattenLeaves(arg);
       setBaseline((prev) => {
-        let next = prev;
-        for (const [path, leafValue] of leaves) {
-          if (path.length === 0) continue;
-          next = cloneAlongPath(next, path);
-          setValueAtPath(next, path, leafValue);
-        }
+        const next = cloneAlongPath(prev, path);
+        setValueAtPath(next, path, nextValue);
         return next;
       });
-    },
-    []
-  ) as MarkPristine<T>;
+      return;
+    }
+
+    // Batch form: a partial object mirroring the values shape (e.g. the API's
+    // returned record). Move each provided leaf's baseline to its value.
+    const leaves = flattenLeaves(arg);
+    setBaseline((prev) => {
+      let next = prev;
+      for (const [path, leafValue] of leaves) {
+        if (path.length === 0) continue;
+        next = cloneAlongPath(next, path);
+        setValueAtPath(next, path, leafValue);
+      }
+      return next;
+    });
+  }, []) as MarkPristine<T>;
 
   const submit = useCallback(async () => {
     if (!onSubmit) return;
@@ -2070,6 +2163,18 @@ export function FormProvider<T extends Record<string | number, unknown>>({
               (markPristine as (...a: unknown[]) => void)(...args);
             }
           } as MarkPristine<T>,
+          setFocus: (path: (string | number)[]) => {
+            if (isCurrentSubmission(submissionId) && mountedRef.current) {
+              return setFocus(path);
+            }
+            return false;
+          },
+          focusFirstError: () => {
+            if (isCurrentSubmission(submissionId) && mountedRef.current) {
+              return focusFirstError();
+            }
+            return null;
+          },
         };
 
         await onSubmit(values, helpers);
@@ -2157,6 +2262,8 @@ export function FormProvider<T extends Record<string | number, unknown>>({
     setServerError,
     setError,
     markPristine,
+    setFocus,
+    focusFirstError,
     dispatch,
   ]);
 
@@ -2227,6 +2334,8 @@ export function FormProvider<T extends Record<string | number, unknown>>({
       isDirty,
       dirtyFields,
       markPristine,
+      setFocus,
+      focusFirstError,
     }),
     [
       values,
@@ -2270,6 +2379,8 @@ export function FormProvider<T extends Record<string | number, unknown>>({
       isDirty,
       dirtyFields,
       markPristine,
+      setFocus,
+      focusFirstError,
     ]
   );
 
