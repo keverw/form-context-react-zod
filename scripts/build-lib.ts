@@ -94,24 +94,37 @@ async function build() {
       main: './core/index.cjs',
       module: './core/index.js',
       types: './core/index.d.ts',
+      // Per-condition `types` (not a single top-level one) so node16/nodenext
+      // resolution hands CJS consumers the `.d.cts` and ESM consumers the
+      // `.d.ts` — otherwise the shipped `.d.cts` files are dead weight and attw
+      // flags an ESM/CJS type masquerade.
       exports: {
         '.': {
-          types: './core/index.d.ts',
-          import: './core/index.js',
-          require: './core/index.cjs',
+          import: { types: './core/index.d.ts', default: './core/index.js' },
+          require: { types: './core/index.d.cts', default: './core/index.cjs' },
         },
         './devtools': {
-          types: './devtools/index.d.ts',
-          import: './devtools/index.js',
-          require: './devtools/index.cjs',
+          import: {
+            types: './devtools/index.d.ts',
+            default: './devtools/index.js',
+          },
+          require: {
+            types: './devtools/index.d.cts',
+            default: './devtools/index.cjs',
+          },
         },
         // Shared React contexts. Kept as a real subpath so every entry resolves
         // to ONE instance at runtime (see tsup.config.ts). Mostly internal, but
         // exported so the redirect target resolves for consumers.
         './context': {
-          types: './context/index.d.ts',
-          import: './context/index.js',
-          require: './context/index.cjs',
+          import: {
+            types: './context/index.d.ts',
+            default: './context/index.js',
+          },
+          require: {
+            types: './context/index.d.cts',
+            default: './context/index.cjs',
+          },
         },
       },
       // Explicit per-entry files (no sourcemaps in the published tarball).
@@ -132,9 +145,12 @@ async function build() {
         'FORM-API.md',
         'ZOD-HELPERS.md',
       ],
-      // Peers come from root package.json (validated by check-deps). zod stays
-      // ^3 until the Zod 4 migration (Track 2) flips it there.
+      // Peers come from root package.json (validated by check-deps). react-dom
+      // is an OPTIONAL peer — no published bundle imports it (the core is
+      // DOM-free / RN-friendly; FormState renders host elements the consumer's
+      // renderer provides), so React Native consumers aren't told to install it.
       peerDependencies: rootPkg.peerDependencies,
+      peerDependenciesMeta: rootPkg.peerDependenciesMeta,
       dependencies: {},
     };
 

@@ -30,7 +30,9 @@ const sharedContextPlugin: Plugin = {
 
       const resolveDir = args.resolveDir.replaceAll('\\', '/');
       // Only our own source modules import the shared context relatively.
-      if (resolveDir.includes('/src/lib')) {
+      // Match the dir boundary (`/src/lib` or `/src/lib/...`) so a sibling like
+      // `src/lib-extra` can't accidentally match.
+      if (/\/src\/lib(\/|$)/.test(resolveDir)) {
         return { path: SHARED_CONTEXT, external: true };
       }
     });
