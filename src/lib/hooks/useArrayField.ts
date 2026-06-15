@@ -1,6 +1,19 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useFormContext } from './useFormContext';
+import {
+  useCallback,
+  useContext,
+  useEffect,
+  useState,
+  useSyncExternalStore,
+} from 'react';
+import { FormFieldContext } from '../form-context';
 import { deserializePath, generateID, serializePath } from '../utils';
+
+// A single frozen empty array, shared by every useArrayField instance. getSnapshot
+// must return a STABLE reference for an unchanged value or useSyncExternalStore loops
+// forever (a fresh `[]` each call is `!==` the previous), so when the path holds no
+// array we always hand back this one constant. It's frozen (and never written to) so
+// sharing it across forms is safe — nothing can mutate it.
+const EMPTY_ITEMS: readonly unknown[] = Object.freeze([]);
 
 /**
  * Ergonomic helpers for an array field. The reorder ops (move/swap/insert/
@@ -15,14 +28,23 @@ import { deserializePath, generateID, serializePath } from '../utils';
  * array changes: the context broadcasts every structural change (with the old->new
  * index map for reorders/inserts/removes, or a re-mint signal for a wholesale
  * `setValue`/`reset`), and this hook applies it. So even a direct
- * `form.deleteField([...path, i])` from elsewhere keeps the ids aligned.
+ * `ctx.deleteField([...path, i])` from elsewhere keeps the ids aligned.
  */
 export function useArrayField(path: (string | number)[]) {
-  const form = useFormContext();
-  const items = useMemo(() => {
-    const value = form.getValue(path);
-    return Array.isArray(value) ? value : [];
-  }, [form, path]);
+  const ctx = useContext(FormFieldContext);
+
+  if (!ctx) {
+    throw new Error('useArrayField must be used within a FormProvider');
+  }
+
+  // Subscribe to just this array's value via the stable context, so the array
+  // component re-renders when its own items change — not on every unrelated edit.
+  const items = useSyncExternalStore(ctx.subscribeField, () => {
+    const value = ctx.getValue(path);
+
+    return Array.isArray(value) ? (value as unknown[]) : EMPTY_ITEMS;
+  });
+
   const key = serializePath(path);
 
   // Stable ids parallel to `items`. Updated by the structural-change subscription
@@ -39,7 +61,7 @@ export function useArrayField(path: (string | number)[]) {
 
   // Subscribe to structural array changes so ids follow items regardless of which
   // mutation path (hook op OR a direct context call) changed the array.
-  const { subscribeArrayStructure } = form;
+  const { subscribeArrayStructure } = ctx;
   useEffect(() => {
     // Derive our path from `key` (the stable dep) rather than closing over the
     // `path` array, whose reference changes every render.
@@ -100,18 +122,18 @@ export function useArrayField(path: (string | number)[]) {
   // path would signal a full re-mint).
   const add = useCallback(
     (item: unknown) => {
-      form.reindexArray(path, [...items, item], (j) => j);
+      ctx.reindexArray(path, [...items, item], (j) => j);
     },
-    [form, items, path]
+    [ctx, items, path]
   );
 
   // Remove the item at `index`. deleteField handles the array splice + metadata
   // and broadcasts the removal so the ids follow.
   const remove = useCallback(
     (index: number) => {
-      form.deleteField([...path, index]);
+      ctx.deleteField([...path, index]);
     },
-    [form, path]
+    [ctx, path]
   );
 
   // Move one item; intermediate items shift to fill the gap.
@@ -129,14 +151,14 @@ export function useArrayField(path: (string | number)[]) {
       const newItems = [...items];
       const [item] = newItems.splice(from, 1);
       newItems.splice(to, 0, item);
-      form.reindexArray(path, newItems, (j) => {
+      ctx.reindexArray(path, newItems, (j) => {
         if (j === from) return to;
         if (from < to && j > from && j <= to) return j - 1;
         if (from > to && j >= to && j < from) return j + 1;
         return j;
       });
     },
-    [form, items, path]
+    [ctx, items, path]
   );
 
   // Insert at `index` (clamped to [0, length]); items at/after it shift up.
@@ -144,9 +166,9 @@ export function useArrayField(path: (string | number)[]) {
     (index: number, item: unknown) => {
       const i = Math.max(0, Math.min(index, items.length));
       const newItems = [...items.slice(0, i), item, ...items.slice(i)];
-      form.reindexArray(path, newItems, (j) => (j >= i ? j + 1 : j));
+      ctx.reindexArray(path, newItems, (j) => (j >= i ? j + 1 : j));
     },
-    [form, items, path]
+    [ctx, items, path]
   );
 
   // Insert at the front.
@@ -160,9 +182,9 @@ export function useArrayField(path: (string | number)[]) {
       }
       const newItems = [...items];
       [newItems[a], newItems[b]] = [newItems[b], newItems[a]];
-      form.reindexArray(path, newItems, (j) => (j === a ? b : j === b ? a : j));
+      ctx.reindexArray(path, newItems, (j) => (j === a ? b : j === b ? a : j));
     },
-    [form, items, path]
+    [ctx, items, path]
   );
 
   // Replace the whole array. The old per-index metadata no longer corresponds to
@@ -170,9 +192,9 @@ export function useArrayField(path: (string | number)[]) {
   // the ids — and validation regenerates errors as fields are touched.
   const replace = useCallback(
     (newItems: unknown[]) => {
-      form.reindexArray(path, newItems, () => null);
+      ctx.reindexArray(path, newItems, () => null);
     },
-    [form, path]
+    [ctx, path]
   );
 
   // Replace a single item in place. Sugar for setValue at the item path — setValue
@@ -181,9 +203,9 @@ export function useArrayField(path: (string | number)[]) {
   const update = useCallback(
     (index: number, item: unknown) => {
       if (index < 0 || index >= items.length) return;
-      form.setValue([...path, index], item);
+      ctx.setValue([...path, index], item);
     },
-    [form, items, path]
+    [ctx, items, path]
   );
 
   return {

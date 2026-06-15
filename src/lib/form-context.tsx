@@ -181,9 +181,60 @@ export type ArrayStructureChange =
 
 export type ArrayStructureListener = (change: ArrayStructureChange) => void;
 
+/**
+ * A single field's reactive slice, returned by `getFieldSnapshot`. Kept stable by
+ * reference (cached per path) so `useField`'s `useSyncExternalStore` only re-renders
+ * the field when ITS slice changes — not on every unrelated keystroke elsewhere.
+ */
+export interface FieldSnapshot {
+  value: unknown;
+  isTouched: boolean;
+  errors: ValidationError[];
+}
+
+/**
+ * Stable, never-changing companion context consumed by `useField`. Because its
+ * identity never changes, subscribing to it (unlike the reactive `FormContext`)
+ * doesn't re-render the field on unrelated form changes; field reactivity instead
+ * flows through `subscribeField` + `getFieldSnapshot` via `useSyncExternalStore`.
+ * The reactive `FormContext` is kept for whole-form consumers (FormState, etc.).
+ */
+export interface FormFieldContextValue {
+  subscribeField: (listener: () => void) => () => void;
+  getFieldSnapshot: (path: (string | number)[]) => FieldSnapshot;
+  getValue: <V = unknown>(path: (string | number)[]) => V;
+  setValue: <V = unknown>(path: (string | number)[], value: V) => void;
+  handleBlur: (path: (string | number)[]) => void;
+  setFieldTouched: (path: (string | number)[], value?: boolean) => void;
+  // Also used by useArrayField so it, too, reads off the stable context.
+  reindexArray: (
+    arrayPath: (string | number)[],
+    newItems: unknown[],
+    indexMap: (oldIndex: number) => number | null
+  ) => void;
+  deleteField: (path: (string | number)[]) => void;
+  subscribeArrayStructure: (listener: ArrayStructureListener) => () => void;
+}
+
+// Whether two error lists for the SAME path are equivalent (so a cached snapshot
+// can be reused). Paths match by construction; compare message + source in order.
+function sameErrors(a: ValidationError[], b: ValidationError[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (a[i].message !== b[i].message || a[i].source !== b[i].source) {
+      return false;
+    }
+  }
+  return true;
+}
+
 // Create a context with a more specific type
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export const FormContext = createContext<FormContextValue<any> | null>(null);
+
+export const FormFieldContext = createContext<FormFieldContextValue | null>(
+  null
+);
 
 /**
  * Handler for FormProvider's `onSubmit`. Declare the value type once and both
@@ -550,49 +601,40 @@ export function FormProvider<T extends Record<string | number, unknown>>({
       // Update touched state to mark this path
       touchedRef.current = markPathAsTouched(touchedRef.current, path);
 
-      // Filter out errors at this path AND anything under it: assigning a value
-      // replaces the whole subtree, so a stale error on a child field (any source)
-      // no longer applies. For a leaf path this is just the field itself; for an
-      // object/array path it also clears descendants (re-validation below re-adds
-      // the path's own error, and child errors resurface as those fields validate).
+      // Assigning a value replaces the whole subtree, so a server/manual error at
+      // the edited path (or under it) is stale. Drop those from the server-error
+      // baseline so a later setServerError can't rebuild them from a stale baseline.
       const atOrUnderPath = (errorPath: (string | number)[]) =>
         errorPath.length >= path.length &&
         path.every((val, idx) => errorPath[idx] === val);
-      errorsRef.current = errorsRef.current.filter(
-        (error) => !atOrUnderPath(error.path)
-      );
-      
-      // Keep the server-error baseline in sync too (it's a separate canonical
-      // store). Otherwise a later setServerError()/setServerErrors() rebuilds the
-      // combined errors from a stale baseline and resurrects a server error we just
-      // cleared here. (Manual errors need no equivalent — they live only in
-      // errorsRef, already handled above.)
       serverErrorsRef.current = serverErrorsRef.current.filter(
         (error) => !atOrUnderPath(error.path)
       );
 
-      // Create a validation result if needed
       let newCanSubmit = canSubmitRef.current;
-      let newErrors = [...errorsRef.current];
+      let newErrors: ValidationError[];
 
       if (validateOnChange && schema) {
         const result = validate(schema, newValues);
-        // Update canSubmit based on validation result
         newCanSubmit = result.valid;
-        // Update canSubmitRef immediately
         canSubmitRef.current = newCanSubmit;
 
-        if (!result.valid && result.errors) {
-          // Only add new validation errors for the updated path
-          const pathErrors = result.errors.filter(
-            (error) =>
-              error.path.length === path.length &&
-              error.path.every((val, idx) => path[idx] === val)
-          );
-          newErrors = [...newErrors, ...pathErrors];
-          errorsRef.current = newErrors; // Update the ref
-        }
+        // Recompute ALL Zod ('client') errors from the full-form result — not just
+        // the edited path — so a cross-field refine that flags a SIBLING updates
+        // live too. Keep server/manual errors (they're owned elsewhere and aren't
+        // recomputed), except any under the edited subtree, which are now stale.
+        // Display stays touch-gated, so untouched siblings still don't show an error.
+        const preserved = errorsRef.current.filter(
+          (e) => e.source !== 'client' && !atOrUnderPath(e.path)
+        );
+        const freshClient = result.valid ? [] : (result.errors ?? []);
+        newErrors = [...preserved, ...freshClient];
+      } else {
+        // No revalidation: just drop the edited subtree's now-stale errors (any
+        // source); other fields' errors are left untouched.
+        newErrors = errorsRef.current.filter((e) => !atOrUnderPath(e.path));
       }
+      errorsRef.current = newErrors;
 
       // Dispatch a single update with all changes using functional update
       dispatch({
@@ -1306,6 +1348,111 @@ export function FormProvider<T extends Record<string | number, unknown>>({
     [getError, touched, hasField]
   );
 
+  // --- Per-field subscriptions (re-render isolation) -----------------------
+  // useField subscribes here instead of reading the reactive FormContext, so it
+  // only re-renders when its own value/touched/errors change — not on every
+  // unrelated keystroke. Reads come straight from the refs (the synchronous source
+  // of truth); the notify effect below pings subscribers after each commit.
+  const fieldSubscribersRef = React.useRef<Set<() => void>>(new Set());
+  const subscribeField = useCallback((listener: () => void) => {
+    fieldSubscribersRef.current.add(listener);
+    return () => {
+      fieldSubscribersRef.current.delete(listener);
+    };
+  }, []);
+
+  // Per-path snapshot cache: getFieldSnapshot must return a STABLE reference when a
+  // field's slice is unchanged, or useSyncExternalStore would loop / always render.
+  const fieldSnapshotCacheRef = React.useRef<Map<string, FieldSnapshot>>(
+    new Map()
+  );
+  const getFieldSnapshot = useCallback(
+    (path: (string | number)[]): FieldSnapshot => {
+      const key = serializePath(path);
+      const value = getValueAtPath(valuesRef.current, path);
+      const isTouched = !!touchedRef.current[key];
+      const errors = errorsRef.current.filter(
+        (e) =>
+          e.path.length === path.length &&
+          e.path.every((val, idx) => path[idx] === val)
+      );
+      const cached = fieldSnapshotCacheRef.current.get(key);
+      if (
+        cached &&
+        cached.value === value &&
+        cached.isTouched === isTouched &&
+        sameErrors(cached.errors, errors)
+      ) {
+        return cached;
+      }
+      const snap: FieldSnapshot = { value, isTouched, errors };
+      fieldSnapshotCacheRef.current.set(key, snap);
+      return snap;
+    },
+    []
+  );
+
+  // Notify field subscribers after each commit whose value/touched/errors changed.
+  // The mutators update the refs synchronously (so getFieldSnapshot already sees the
+  // new data); this effect just tells useSyncExternalStore consumers to re-read.
+  // Driving it off the reactive state means we can't forget a mutation site.
+  React.useEffect(() => {
+    for (const listener of fieldSubscribersRef.current) listener();
+  }, [values, touched, errors]);
+
+  // Stable value for FormFieldContext: its identity must stay fixed (that's what
+  // keeps subscribed fields from re-rendering). The reactive parts (subscribeField,
+  // getFieldSnapshot) are themselves stable; the mutators are routed through a ref
+  // refreshed in an effect, and read at call time (not during render).
+  const liveFieldMethodsRef = React.useRef({
+    getValue,
+    setValue,
+    handleBlur,
+    setFieldTouched,
+    reindexArray,
+    deleteField,
+  });
+  React.useEffect(() => {
+    liveFieldMethodsRef.current = {
+      getValue,
+      setValue,
+      handleBlur,
+      setFieldTouched,
+      reindexArray,
+      deleteField,
+    };
+  });
+  const fieldContextValue = useMemo<FormFieldContextValue>(
+    () => ({
+      subscribeField,
+      getFieldSnapshot,
+      getValue<V = unknown>(path: (string | number)[]): V {
+        return liveFieldMethodsRef.current.getValue<V>(path);
+      },
+      setValue<V = unknown>(path: (string | number)[], value: V): void {
+        liveFieldMethodsRef.current.setValue<V>(path, value);
+      },
+      handleBlur(path: (string | number)[]): void {
+        liveFieldMethodsRef.current.handleBlur(path);
+      },
+      setFieldTouched(path: (string | number)[], value?: boolean): void {
+        liveFieldMethodsRef.current.setFieldTouched(path, value);
+      },
+      reindexArray(
+        arrayPath: (string | number)[],
+        newItems: unknown[],
+        indexMap: (oldIndex: number) => number | null
+      ): void {
+        liveFieldMethodsRef.current.reindexArray(arrayPath, newItems, indexMap);
+      },
+      deleteField(path: (string | number)[]): void {
+        liveFieldMethodsRef.current.deleteField(path);
+      },
+      subscribeArrayStructure,
+    }),
+    [subscribeField, getFieldSnapshot, subscribeArrayStructure]
+  );
+
   const reset = useCallback(
     (force?: boolean): boolean => {
       // Prevent resetting while submitting unless forced
@@ -1943,13 +2090,15 @@ export function FormProvider<T extends Record<string | number, unknown>>({
   return (
     // Use type assertion to make TypeScript happy with the context value
     <FormContext.Provider value={contextValue}>
-      {useFormTag ? (
-        <form onSubmit={handleSubmit} noValidate {...formProps}>
-          {children}
-        </form>
-      ) : (
-        children
-      )}
+      <FormFieldContext.Provider value={fieldContextValue}>
+        {useFormTag ? (
+          <form onSubmit={handleSubmit} noValidate {...formProps}>
+            {children}
+          </form>
+        ) : (
+          children
+        )}
+      </FormFieldContext.Provider>
     </FormContext.Provider>
   );
 }

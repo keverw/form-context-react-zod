@@ -84,7 +84,7 @@ The `useFormTag` prop allows wrapping the form content in a native HTML `<form>`
 Value operations:
 
 - `getValue(path)`: Get value at specific path
-- `setValue(path, value)`: Set value at specific path. Marks the path touched, clears existing errors at that path **and any descendant paths** (all sources — assigning a value replaces the whole subtree), and re-validates when `validateOnChange` is on.
+- `setValue(path, value)`: Set value at specific path. Marks the path touched and clears stale server/manual errors at that path **and any descendant paths** (assigning a value replaces the whole subtree). When `validateOnChange` is on it re-runs the **whole** schema and refreshes every field's Zod error — not just the edited field's — so a cross-field rule (e.g. a `.refine()` "passwords must match" whose error lands on a sibling) updates **live** as you type. Display stays touch-gated, so an _untouched_ sibling still won't show its error until it's touched/blurred/submitted.
 - `getValue<K extends keyof T>([key]: [K]): T[K]`: Get value at a top-level key with type safety.
 - `getValue(path: (string|number)[]): unknown`: Get value at any specific path.
 - `setValue<K extends keyof T>([key]: [K], value: T[K])`: Set value at a top-level key with type safety.
@@ -109,12 +109,12 @@ Error operations:
 
 Every `ValidationError` carries a `source` that controls its lifecycle:
 
-| `source`               | Set by                        | Survives re-validation? | Shown when untouched? | Cleared by                                  |
-| ---------------------- | ----------------------------- | ----------------------- | --------------------- | ------------------------------------------- |
-| `client`               | Zod schema validation         | No — recomputed each validate | No              | recomputed every validate; edit clears path |
-| `server`               | `setServerError(s)`           | Yes                     | Yes                   | editing the field, submit start, reset      |
-| `manual`               | `setError`                    | Yes                     | Yes                   | editing the field, submit start, reset      |
-| `client-form-handler`  | `setClientSubmissionError`    | n/a (form-level)        | n/a                   | submit start, `clearClientSubmissionError`  |
+| `source`              | Set by                     | Survives re-validation?       | Shown when untouched? | Cleared by                                  |
+| --------------------- | -------------------------- | ----------------------------- | --------------------- | ------------------------------------------- |
+| `client`              | Zod schema validation      | No — recomputed each validate | No                    | recomputed every validate; edit clears path |
+| `server`              | `setServerError(s)`        | Yes                           | Yes                   | editing the field, submit start, reset      |
+| `manual`              | `setError`                 | Yes                           | Yes                   | editing the field, submit start, reset      |
+| `client-form-handler` | `setClientSubmissionError` | n/a (form-level)              | n/a                   | submit start, `clearClientSubmissionError`  |
 
 `manual` is deliberately parallel to `server` — same rules, a different label so you can tell a server-reported error from a client-set one and own each channel independently. The only difference is plumbing: `server` errors also live in an internal canonical store (used by `setServerErrors` replace-all), whereas `manual` errors live only in the main error list. Like server errors, a `manual` error does **not** gate `canSubmit` (which is schema-only). But setting one from inside `onSubmit` **does** mark the attempt as failed — `submitSucceeded` stays `false`, the same as `setServerError`/`setClientSubmissionError` — so a client-side check that rejects a submit reads correctly.
 
@@ -440,6 +440,12 @@ Features:
 - Touch tracking
 - Error management (server errors automatically clear on edit)
 - Type-safe props for input components
+- **Re-render isolation** — `useField` subscribes to only its own field's slice
+  (value/touched/errors) via `useSyncExternalStore`, so editing one field doesn't
+  re-render the others. This is internal and changes nothing about the API; on large
+  forms it just means a keystroke re-renders one field instead of all of them.
+  (Whole-form consumers like `FormState` still read the reactive context and update
+  on any change, as intended.)
 
 Example:
 
@@ -477,10 +483,21 @@ const {
 } = useArrayField(path);
 ```
 
+Like `useField`, `useArrayField` is **re-render isolated** — it subscribes to only
+its own array's value (via the stable field context), so editing an unrelated field
+elsewhere doesn't re-render the array. Internal optimization; the API is unchanged.
+
 Array operations. The reordering ops re-index the errors and touched markers under
 the array so they follow their items:
 
 - `items`: the current array value (always an array; `[]` if the path isn't one).
+  Treat it as **read-only** — change the array only through the ops below (or
+  `setValue`/`replace`), never by mutating it in place. This is the same
+  immutability contract React itself relies on: updates are driven by a **new**
+  array reference plus a dispatch, so an in-place `items.push(...)` mutates the
+  state invisibly — no re-render, no validation, and (because the reference didn't
+  change) the array won't even pick the change up later. The returned type is
+  `readonly`, so TypeScript flags a direct mutation for you.
 - `arrayFieldIDs`: a stable id per item, parallel to `items`. Use it as the React
   `key` instead of the array index — see "Stable keys" below.
 - `add(item)`: append an item to the end.

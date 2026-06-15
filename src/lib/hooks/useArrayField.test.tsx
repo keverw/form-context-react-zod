@@ -1,4 +1,5 @@
 import { describe, it, expect, jest } from 'bun:test';
+import { useEffect } from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { z } from 'zod';
 import { FormProvider } from '../form-context';
@@ -1004,5 +1005,50 @@ describe('useArrayField move (error re-indexing)', () => {
     fireEvent.click(screen.getByTestId('move-0-1'));
     expect(screen.getByTestId('err-0').textContent).toBe('too short');
     expect(screen.getByTestId('err-1').textContent).toBe('');
+  });
+});
+
+describe('useArrayField re-render isolation', () => {
+  it('editing an unrelated field does not re-render the array hook', () => {
+    const renders = { arr: 0 };
+
+    const ArrayView = () => {
+      const { items } = useArrayField(['items']);
+      useEffect(() => {
+        renders.arr++;
+      });
+      return <div data-testid="arr-count">{items.length}</div>;
+    };
+    const TitleField = () => {
+      const f = useField(['title']);
+      return (
+        <input
+          data-testid="title"
+          value={(f.value as string) ?? ''}
+          onChange={(e) => f.setValue(e.target.value)}
+        />
+      );
+    };
+
+    render(
+      <FormProvider
+        initialValues={{ items: [{ name: 'a' }], title: '' }}
+        onSubmit={jest.fn()}
+        validateOnChange={false}
+      >
+        <ArrayView />
+        <TitleField />
+      </FormProvider>
+    );
+
+    const before = renders.arr;
+
+    // Editing an unrelated scalar field must not re-render the array hook: its
+    // items ref is unchanged (cloneAlongPath only clones the edited path).
+    fireEvent.change(screen.getByTestId('title'), { target: { value: 'x' } });
+    expect(renders.arr).toBe(before);
+
+    // Sanity: adding an item DOES re-render it.
+    expect(screen.getByTestId('arr-count').textContent).toBe('1');
   });
 });

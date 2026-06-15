@@ -140,6 +140,65 @@ function SubmitButton() {
   );
 }
 
+describe('useField re-render isolation', () => {
+  it('editing one field does not re-render another field', () => {
+    const renders = { a: 0, b: 0 };
+
+    // Count via an effect (runs once per committed render) — a field that doesn't
+    // re-render never re-runs, so its effect doesn't fire.
+    const FieldA = () => {
+      const f = useField(['a']);
+      React.useEffect(() => {
+        renders.a++;
+      });
+      return (
+        <input
+          data-testid="a"
+          value={(f.value as string) ?? ''}
+          onChange={(e) => f.setValue(e.target.value)}
+        />
+      );
+    };
+    const FieldB = () => {
+      const f = useField(['b']);
+      React.useEffect(() => {
+        renders.b++;
+      });
+      return (
+        <input
+          data-testid="b"
+          value={(f.value as string) ?? ''}
+          onChange={(e) => f.setValue(e.target.value)}
+        />
+      );
+    };
+
+    render(
+      <FormProvider
+        initialValues={{ a: '', b: '' }}
+        onSubmit={jest.fn()}
+        validateOnChange={false}
+      >
+        <FieldA />
+        <FieldB />
+      </FormProvider>
+    );
+
+    const aBefore = renders.a;
+    const bBefore = renders.b;
+
+    fireEvent.change(screen.getByTestId('a'), { target: { value: 'x' } });
+
+    // A re-rendered (its own value changed); B did NOT (its slice is unchanged, and
+    // it subscribes to the stable FormFieldContext rather than the reactive one).
+    expect(renders.a).toBeGreaterThan(aBefore);
+    expect(renders.b).toBe(bBefore);
+
+    // Sanity: the edit actually took effect.
+    expect((screen.getByTestId('a') as HTMLInputElement).value).toBe('x');
+  });
+});
+
 describe('FormProvider', () => {
   beforeEach(() => {
     jest.useFakeTimers();
@@ -792,9 +851,7 @@ describe('FormProvider', () => {
       const form = useFormContext();
       return (
         <div>
-          <span data-testid="val">
-            {String(form.getValue(['name']) ?? '')}
-          </span>
+          <span data-testid="val">{String(form.getValue(['name']) ?? '')}</span>
           <span data-testid="err">
             {form.getError(['name'])[0]?.message ?? 'none'}
           </span>
@@ -804,10 +861,7 @@ describe('FormProvider', () => {
           >
             set error
           </button>
-          <button
-            data-testid="clear"
-            onClick={() => form.clearValue(['name'])}
-          >
+          <button data-testid="clear" onClick={() => form.clearValue(['name'])}>
             clear
           </button>
         </div>
@@ -2198,7 +2252,9 @@ describe('FormProvider', () => {
           <span data-testid="first">{errs[0]?.message ?? 'none'}</span>
           <button
             data-testid="set"
-            onClick={() => form.setError(['code'], ['Too short', 'Already used'])}
+            onClick={() =>
+              form.setError(['code'], ['Too short', 'Already used'])
+            }
           >
             Set
           </button>
@@ -2300,6 +2356,111 @@ describe('FormProvider', () => {
     expect(screen.getByTestId('error-nickname').textContent).toBe(
       'That one is reserved'
     );
+  });
+
+  it('editing one field live-updates a cross-field (.refine) error on a touched sibling', async () => {
+    const schema = z
+      .object({ password: z.string(), confirm: z.string() })
+      .refine((d) => d.password === d.confirm, {
+        path: ['confirm'],
+        message: 'must match',
+      });
+
+    const TestComponent = () => {
+      const form = useFormContext();
+      const pw = useField(['password']);
+      const confirm = useField(['confirm']);
+      return (
+        <div>
+          <input
+            data-testid="pw"
+            value={(pw.value as string) ?? ''}
+            onChange={(e) => pw.setValue(e.target.value)}
+          />
+          <span data-testid="confirm-err">
+            {(confirm.error as string) ?? 'none'}
+          </span>
+          <button
+            data-testid="touch-confirm"
+            onClick={() => form.handleBlur(['confirm'])}
+          >
+            touch confirm
+          </button>
+        </div>
+      );
+    };
+
+    render(
+      <TestForm
+        schema={schema as unknown as z.ZodType<Record<string, unknown>>}
+        initialValues={{ password: 'secret', confirm: 'secret' }}
+      >
+        <TestComponent />
+      </TestForm>
+    );
+
+    // confirm is touched and currently matches -> no error.
+    fireEvent.click(screen.getByTestId('touch-confirm'));
+    await advanceTimers();
+    expect(screen.getByTestId('confirm-err').textContent).toBe('none');
+
+    // Editing PASSWORD (not confirm) now makes them mismatch. The cross-field
+    // error lives on `confirm`, which is touched, so it surfaces live.
+    fireEvent.change(screen.getByTestId('pw'), {
+      target: { value: 'changed' },
+    });
+    await advanceTimers();
+    expect(screen.getByTestId('confirm-err').textContent).toBe('must match');
+
+    // Fixing password back clears confirm's error live too.
+    fireEvent.change(screen.getByTestId('pw'), {
+      target: { value: 'secret' },
+    });
+    await advanceTimers();
+    expect(screen.getByTestId('confirm-err').textContent).toBe('none');
+  });
+
+  it('a cross-field error stays hidden on an UNtouched sibling (touch-gated)', async () => {
+    const schema = z
+      .object({ password: z.string(), confirm: z.string() })
+      .refine((d) => d.password === d.confirm, {
+        path: ['confirm'],
+        message: 'must match',
+      });
+
+    const TestComponent = () => {
+      const pw = useField(['password']);
+      const confirm = useField(['confirm']);
+      return (
+        <div>
+          <input
+            data-testid="pw"
+            value={(pw.value as string) ?? ''}
+            onChange={(e) => pw.setValue(e.target.value)}
+          />
+          <span data-testid="confirm-err">
+            {(confirm.error as string) ?? 'none'}
+          </span>
+        </div>
+      );
+    };
+
+    render(
+      <TestForm
+        schema={schema as unknown as z.ZodType<Record<string, unknown>>}
+        initialValues={{ password: 'secret', confirm: 'secret' }}
+      >
+        <TestComponent />
+      </TestForm>
+    );
+
+    // confirm is never touched: even though editing password makes the form
+    // invalid, confirm's error stays hidden (display is touch-gated).
+    fireEvent.change(screen.getByTestId('pw'), {
+      target: { value: 'changed' },
+    });
+    await advanceTimers();
+    expect(screen.getByTestId('confirm-err').textContent).toBe('none');
   });
 
   it('validateField surfaces only that field and returns its validity', async () => {
@@ -2411,10 +2572,7 @@ describe('FormProvider', () => {
       return (
         <div>
           <span data-testid="a-err">{(fa.error as string) ?? 'none'}</span>
-          <button
-            data-testid="blur"
-            onClick={() => form.handleBlur(['a'])}
-          >
+          <button data-testid="blur" onClick={() => form.handleBlur(['a'])}>
             blur
           </button>
           <button

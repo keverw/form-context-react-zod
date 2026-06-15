@@ -1,13 +1,20 @@
-import { useCallback } from 'react';
-import { useFormContext } from './useFormContext';
-import { serializePath } from '../utils';
+import { useContext, useSyncExternalStore } from 'react';
+import { FormFieldContext } from '../form-context';
 
 export function useField(path: (string | number)[]) {
-  const form = useFormContext();
-  const value = form.getValue(path);
-  const pathKey = serializePath(path);
-  const isTouched = form.touched[pathKey];
-  const errors = form.getError(path);
+  const fieldCtx = useContext(FormFieldContext);
+  if (!fieldCtx) {
+    throw new Error('useField must be used within a FormProvider');
+  }
+
+  // Subscribe to just this field's slice. Because FormFieldContext is stable and we
+  // read the field via useSyncExternalStore, the field re-renders only when its own
+  // value/touched/errors change — not on every unrelated keystroke elsewhere.
+  const snapshot = useSyncExternalStore(fieldCtx.subscribeField, () =>
+    fieldCtx.getFieldSnapshot(path)
+  );
+
+  const { value, isTouched, errors } = snapshot;
 
   // Get all applicable errors - show server/manual errors regardless of touched state
   const fieldErrors = errors
@@ -21,27 +28,20 @@ export function useField(path: (string | number)[]) {
   // Use array of messages if multiple, single string if one, null if none
   const error = fieldErrors.length > 1 ? fieldErrors : fieldErrors[0] || null;
 
-  const setTouched = useCallback(() => {
-    if (!isTouched) {
-      // Use the new setFieldTouched method directly
-      form.setFieldTouched(path, true);
-    }
-  }, [form, isTouched, path]);
-
   return {
     value,
     setValue: (newValue: unknown) => {
-      form.setValue(path, newValue);
-      setTouched();
+      // setValue marks the field touched itself, so no separate touch call is needed.
+      fieldCtx.setValue(path, newValue);
     },
     error,
     props: {
       value,
-      onChange: (newValue: unknown) => form.setValue(path, newValue),
+      onChange: (newValue: unknown) => fieldCtx.setValue(path, newValue),
       errorText: error,
       // Delegate to the context's blur handler: marks touched and validates when
       // validateOnBlur is enabled. Centralized so raw-context fields behave the same.
-      onBlur: () => form.handleBlur(path),
+      onBlur: () => fieldCtx.handleBlur(path),
     },
   };
 }

@@ -233,34 +233,25 @@ rough.
       now-valid field's stale error — the per-field reconcile handles that. **Not** gated on
       `validateOnBlur`/`validateOnChange` (unlike `handleBlur`) and returns a boolean. Context-only (not
       an onSubmit helper). FORM-API entry + `validateField` vs `handleBlur` note + 2 tests.
-- [ ] **Per-field subscriptions (re-render isolation).** _Biggest competitive gap._ Done on `v2`
-      as a normal list item, built incrementally (see build order below). Today state lives in a
-      `useReducer` whose memoized context value changes on every
-      `values`/`errors`/`touched` update, so **every** `useField` consumer re-renders on every
-      keystroke (React context has no per-subscriber granularity). Fine at 5 fields, felt at 100.
-      Plan (the foundation already exists — refs are the source of truth, and `subscribeArrayStructure`
-      is a working pub/sub precedent):
-      - **Two contexts.** A _stable_ one carrying just the methods + a subscription store (never changes
-        identity → consumers stop re-rendering on unrelated changes), and the existing _reactive_ one
-        for whole-form reads (`FormState`, `form.isValid`, etc.) so existing code keeps working — **no
-        big migration.**
-      - `useField` swaps its reactive reads for
-        `useSyncExternalStore(subscribe, () => getSnapshot(path))`, re-rendering only when its own slice
-        changes.
-      - A `notify()` after each ref mutation (~10–15 sites: `setValue`, `setFieldTouched`,
-        `reindexArray`, `deleteField`, the error setters, `reset`, …) — same pattern already used for
-        `notifyArrayStructure`.
-      Real cost drivers (not the mechanism): (1) **snapshot identity** — `getSnapshot` must return a
-      stable ref for unchanged slices or `useSyncExternalStore` infinite-loops, so error-array/touched
-      slices need per-path caching; (2) **reliability** — a missed `notify` = silently stale UI, needs
-      its own subscription-focused test suite; (3) keep the reactive context alongside for back-compat.
-      Est: core ~1–2 days, correct + migration-safe + tested ~1 week. **Build order** (land
-      incrementally on `v2`, keeping the suite green at each step): (1) wire just `useField`'s _value_
-      through a subscription + the stable context, and measure the re-render drop on the demo's big form
-      as a checkpoint; (2) extend the same mechanism to `errors`/`touched` with per-path snapshot
-      caching; (3) add the subscription-focused test suite (every `notify` site, no stale UI, snapshot
-      identity). Pairs with **typed field paths** as the two things that most move the "competitive with
-      RHF/TanStack at scale" needle.
+- [x] **Per-field subscriptions (re-render isolation).** Was the biggest scale gap: React context
+      re-renders every consumer on any change, so all fields re-rendered on every keystroke (fine at 5
+      fields, felt at 100+). Fixed by adding a stable companion `FormFieldContext` (methods via an
+      effect-refreshed ref + stable `useMemo`, so its identity never changes) with `subscribeField` +
+      a per-path-cached `getFieldSnapshot`; `useField` and `useArrayField` now read their own slice via
+      `useSyncExternalStore`, so editing one field re-renders only that field. A 50-field form drops from
+      ~50 field re-renders per keystroke to 1. Reactive `FormContext` untouched (whole-form consumers
+      unchanged) — internal only, just a docs blurb. Covered by a dedicated subscription suite (every
+      mutation path + unmount cleanup) and bisected isolation tests. _Skipped:_ a real-browser benchmark
+      (render-count test already quantifies it). _Deprioritized: typed field paths_ — `(string|number)[]`
+      is fine for dogfooding our own SaaS; the autocomplete/refactor payoff is mostly for external users.
+- [x] **Cross-field revalidation on change.** `setValue` used to recompute the full schema but only
+      write back the **edited field's** Zod error, so a `.refine()` landing on a _sibling_ (classic
+      "passwords must match") didn't update until that sibling was blurred/submitted. Now `setValue`
+      replaces **all** Zod ('client') errors form-wide from the fresh result (server/manual preserved,
+      except stale ones under the edited subtree), so cross-field errors update live. Display stays
+      touch-gated (untouched siblings stay quiet), and it pairs with the subscription work so only the
+      affected sibling re-renders. +2 bisected tests (live update on a touched sibling; stays hidden when
+      untouched).
 - [ ] **`AbortSignal` on the `onSubmit` helpers.** Today `reset(force)` only _invalidates_ a
       submission (flips `isSubmitting`, clears the submission ID so `helpers.*` writes no-op via
       `isCurrentSubmission`) — it does **not** abort the user's network call, and there's no signal
