@@ -8,18 +8,23 @@ const SHARED_CONTEXT = 'form-context-react-zod/context';
 // Shared-context singleton (the whole reason this build is multi-entry-aware).
 //
 // `src/lib/context.ts` creates the two React contexts (FormContext +
-// FormFieldContext). Every entry that touches a context — `.` via FormProvider/
-// hooks, `./devtools` via FormState — imports it relatively (`./context` from
-// src/lib, `../context` from src/lib/hooks). If esbuild inlined that module into
-// each bundle, each entry would get its OWN createContext() result, and a
-// consumer reading the context (FormState, useField) would see `null` instead of
-// the value FormProvider published.
+// FormFieldContext) and is its OWN published entry (`./context`) — the single
+// home for those context instances. Every OTHER entry only *uses* them: `.`
+// (core), `./web`, `./devtools/web`, and `./devtools/native`. In source those
+// entries import context.ts relatively (`./context` from src/lib, `../context`
+// from src/lib/hooks).
 //
-// So we intercept those relative imports and rewrite them to the EXTERNAL
-// subpath `form-context-react-zod/context`. Node then resolves every entry to
-// the one published `./context` module, guaranteeing a single instance. This is
-// a runtime JS singleton concern (esbuild), not a type concern — the `.d.ts`
-// side is structural, so inlined/duplicated declarations stay compatible.
+// The trap: if esbuild inlined context.ts into each bundle, every entry — core
+// included — would get its OWN createContext() result, and a consumer reading the
+// context (FormState, useField) would see `null` instead of the value
+// FormProvider published, because they'd be looking at different context objects.
+//
+// So we rewrite those relative imports to the EXTERNAL subpath
+// `form-context-react-zod/context`. No entry bundles the contexts (not even
+// core); they all import the one published `./context` module, so there is
+// exactly one instance. This is a runtime JS singleton concern (esbuild), not a
+// type concern — the `.d.ts` side is structural, so duplicated declarations stay
+// compatible.
 // Mirrors unirend's tsup.config.ts (keverw/unirend).
 const sharedContextPlugin: Plugin = {
   name: 'externalize-shared-context',
@@ -57,7 +62,7 @@ const shared: Options = {
   minify: true,
   sourcemap: true,
   target: 'es2019',
-  external: ['react', 'react-dom', 'zod', SHARED_CONTEXT],
+  external: ['react', 'react-dom', 'react-native', 'zod', SHARED_CONTEXT],
   esbuildOptions(options) {
     options.jsx = 'automatic';
   },
@@ -66,13 +71,25 @@ const shared: Options = {
 
 // Output basename is `index` in each folder, so `./core/index.js` etc.
 export default defineConfig([
-  // Core (`.`) — DOM-free, RN friendly.
-  { ...shared, entry: { index: 'src/lib/index.ts' }, outDir: 'dist_module/core' },
-  // Opt-in web debug tooling (DOM).
+  // Core (`.`) — DOM-free, RN friendly. FormProvider renders no host elements.
   {
     ...shared,
-    entry: { index: 'src/lib/devtools.ts' },
-    outDir: 'dist_module/devtools',
+    entry: { index: 'src/lib/index.ts' },
+    outDir: 'dist_module/core',
+  },
+  // Web (`./web`) — core + a FormProvider that adds the opt-in <form> element.
+  { ...shared, entry: { index: 'src/lib/web.ts' }, outDir: 'dist_module/web' },
+  // Opt-in debug tooling — symmetric web/native subpaths. Each is its own
+  // subfolder of dist_module/devtools/, so the two passes' `clean` don't collide.
+  {
+    ...shared,
+    entry: { index: 'src/lib/devtools/web.ts' },
+    outDir: 'dist_module/devtools/web',
+  },
+  {
+    ...shared,
+    entry: { index: 'src/lib/devtools/native.ts' },
+    outDir: 'dist_module/devtools/native',
   },
   // Shared contexts — their own entry so they stay a single instance.
   {

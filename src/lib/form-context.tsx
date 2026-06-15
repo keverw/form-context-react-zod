@@ -350,7 +350,7 @@ export type FormSubmitHandler<T> = (
   helpers: FormHelpers<T>
 ) => Promise<void> | void;
 
-interface FormProviderProps<T> {
+export interface FormProviderProps<T> {
   initialValues: T;
   /**
    * Server errors to seed at mount, before any submission. Each entry is
@@ -378,14 +378,6 @@ interface FormProviderProps<T> {
    * Defaults to true.
    */
   validateOnBlur?: boolean;
-  /**
-   * Whether to wrap the form in a <form> HTML tag
-   */
-  useFormTag?: boolean;
-  /**
-   * HTML form attributes to pass to the form element when useFormTag is true
-   */
-  formProps?: React.FormHTMLAttributes<HTMLFormElement>;
   children: React.ReactNode | React.ReactNode[];
 }
 
@@ -488,8 +480,6 @@ export function FormProvider<T extends Record<string | number, unknown>>({
   touchAllOnMount = false,
   validateOnChange = true,
   validateOnBlur = true,
-  useFormTag = false,
-  formProps = {},
   children,
 }: FormProviderProps<T>) {
   // Normalize seeded server errors. We tag them `source: 'server'` so callers
@@ -2382,27 +2372,13 @@ export function FormProvider<T extends Record<string | number, unknown>>({
     ]
   );
 
-  // Handle form submission with preventDefault
-  const handleSubmit = useCallback(
-    (e: React.FormEvent<HTMLFormElement>) => {
-      e.preventDefault();
-      submit();
-    },
-    [submit]
-  );
-
-  // Conditionally wrap in form tag based on useFormTag prop
+  // DOM-free core: render only the context providers + children. No host
+  // elements, so this works on web and React Native alike. The web entry
+  // (./web) wraps this with a <form> element (`useFormTag`, on by default).
   return (
-    // Use type assertion to make TypeScript happy with the context value
     <FormContext.Provider value={contextValue}>
       <FormFieldContext.Provider value={fieldContextValue}>
-        {useFormTag ? (
-          <form onSubmit={handleSubmit} noValidate {...formProps}>
-            {children}
-          </form>
-        ) : (
-          children
-        )}
+        {children}
       </FormFieldContext.Provider>
     </FormContext.Provider>
   );

@@ -1,5 +1,6 @@
 // Core entry (`.`) — DOM-free, React Native friendly.
-// The FormState debug component lives in the opt-in `./devtools` entry.
+// The FormState debug component lives in the opt-in `./devtools/web` (DOM) and
+// `./devtools/native` (React Native) entries.
 export * from './form-context';
 export * from './zod-helpers';
 export * from './hooks/useFormContext';

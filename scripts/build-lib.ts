@@ -47,9 +47,12 @@ async function build() {
       console.log('Running tsup with config file...');
       // No --out-dir: each entry sets its own outDir (dist_module/<entry>), so
       // every pass can clean its own folder without clobbering siblings.
-      execSync('bunx tsup --config tsup.config.ts --tsconfig tsconfig.lib.json', {
-        stdio: 'inherit',
-      });
+      execSync(
+        'bunx tsup --config tsup.config.ts --tsconfig tsconfig.lib.json',
+        {
+          stdio: 'inherit',
+        }
+      );
 
       console.log('✅ Library built successfully with tsup');
     } catch (error) {
@@ -103,14 +106,28 @@ async function build() {
           import: { types: './core/index.d.ts', default: './core/index.js' },
           require: { types: './core/index.d.cts', default: './core/index.cjs' },
         },
-        './devtools': {
+        './web': {
+          import: { types: './web/index.d.ts', default: './web/index.js' },
+          require: { types: './web/index.d.cts', default: './web/index.cjs' },
+        },
+        './devtools/web': {
           import: {
-            types: './devtools/index.d.ts',
-            default: './devtools/index.js',
+            types: './devtools/web/index.d.ts',
+            default: './devtools/web/index.js',
           },
           require: {
-            types: './devtools/index.d.cts',
-            default: './devtools/index.cjs',
+            types: './devtools/web/index.d.cts',
+            default: './devtools/web/index.cjs',
+          },
+        },
+        './devtools/native': {
+          import: {
+            types: './devtools/native/index.d.ts',
+            default: './devtools/native/index.js',
+          },
+          require: {
+            types: './devtools/native/index.d.cts',
+            default: './devtools/native/index.cjs',
           },
         },
         // Shared React contexts. Kept as a real subpath so every entry resolves
@@ -133,10 +150,18 @@ async function build() {
         'core/index.cjs',
         'core/index.d.ts',
         'core/index.d.cts',
-        'devtools/index.js',
-        'devtools/index.cjs',
-        'devtools/index.d.ts',
-        'devtools/index.d.cts',
+        'web/index.js',
+        'web/index.cjs',
+        'web/index.d.ts',
+        'web/index.d.cts',
+        'devtools/web/index.js',
+        'devtools/web/index.cjs',
+        'devtools/web/index.d.ts',
+        'devtools/web/index.d.cts',
+        'devtools/native/index.js',
+        'devtools/native/index.cjs',
+        'devtools/native/index.d.ts',
+        'devtools/native/index.d.cts',
         'context/index.js',
         'context/index.cjs',
         'context/index.d.ts',
@@ -218,12 +243,12 @@ The \`FormState\` component is a developer tool for inspecting the current form 
 **Usage:**
 
 \`\`\`tsx
-import { FormState } from '${PACKAGE_CONFIG.name}/devtools';
+import { FormState } from '${PACKAGE_CONFIG.name}/devtools/web';
 
 <FormState showToggle />
 \`\`\`
 
-- Imported from the \`${PACKAGE_CONFIG.name}/devtools\` subpath so the core entry stays DOM-free.
+- Imported from the \`${PACKAGE_CONFIG.name}/devtools/web\` subpath (or \`/devtools/native\` on React Native) so the core entry stays DOM-free.
 - Use the \`showToggle\` prop to allow switching between light and dark mode.
 - This component is intended for development and debugging purposes.
 

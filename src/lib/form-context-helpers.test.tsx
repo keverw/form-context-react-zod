@@ -8,6 +8,7 @@ import {
 } from '@testing-library/react';
 import { z } from 'zod';
 import { FormProvider, FormHelpers } from './form-context';
+import { WebFormProvider } from './form-provider-web';
 import { useFormContext } from './hooks/useFormContext';
 import { useField } from './hooks/useField';
 import { serializePath } from './utils';
@@ -518,14 +519,14 @@ describe('useFormTag native submit', () => {
   it('preventDefaults and submits when the form element fires submit', async () => {
     const onSubmit = jest.fn();
     render(
-      <FormProvider
+      <WebFormProvider
         initialValues={{ name: 'a' }}
         useFormTag
         formProps={{ 'data-testid': 'form' } as Record<string, unknown>}
         onSubmit={onSubmit}
       >
         <button type="submit">go</button>
-      </FormProvider>
+      </WebFormProvider>
     );
     fireEvent.submit(screen.getByTestId('form'));
     await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));

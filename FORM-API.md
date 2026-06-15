@@ -20,12 +20,23 @@ interface FormProviderProps<T> {
   touchAllOnMount?: boolean; // With validateOnMount, mark ALL fields touched to reveal every error on load. Default: false
   validateOnChange?: boolean; // Whether to run validation on every change. Default: true
   validateOnBlur?: boolean; // Whether leaving a field (blur) runs validation. Default: true
-
-  useFormTag?: boolean; // Whether to wrap children in a <form> HTML tag. Default: false
-  formProps?: React.FormHTMLAttributes<HTMLFormElement>; // HTML attributes for the form element. Default: undefined
   children: React.ReactNode | React.ReactNode[]; // Required. Accepts a single child or multiple children.
 }
 ```
+
+> **Entry points.** The core `FormProvider` above (`form-context-react-zod`)
+> renders no host elements, so it works on web and React Native. The web entry
+> `form-context-react-zod/web` exports **`WebFormProvider`** — the same provider
+> plus two extra props for an HTML `<form>` element (on by default):
+>
+> ```ts
+> import { WebFormProvider } from 'form-context-react-zod/web';
+>
+> interface WebFormProviderProps<T> extends FormProviderProps<T> {
+>   useFormTag?: boolean; // Wrap children in a <form> tag (preventDefault + Enter-to-submit). Default: true
+>   formProps?: React.FormHTMLAttributes<HTMLFormElement>; // Attributes for the <form>. Default: undefined
+> }
+> ```
 
 Provides context with:
 
@@ -300,7 +311,7 @@ const onSubmit: FormSubmitHandler<FormValues> = async (values, helpers) => {
 - `setFocus` returns `false` (and `focusFirstError` returns `null`) when no matching registered,
   focusable field exists — e.g. the field is unmounted or never attached an `inputRef`.
 
-The `useFormTag` prop allows wrapping the form content in a native HTML `<form>` tag with automatic `preventDefault` handling on submit events. When enabled, you can use standard HTML submit buttons instead of manually calling `form.submit()`.
+`WebFormProvider` (from `form-context-react-zod/web`) wraps the form content in a native HTML `<form>` tag — on by default (`useFormTag`) — with automatic `preventDefault` handling on submit events, so you can use standard HTML submit buttons instead of manually calling `form.submit()`. Set `useFormTag={false}` to opt out. The core provider (`form-context-react-zod`) has no `<form>` — on React Native, trigger submission with a button's `onPress={() => form.submit()}`.
 
 Value operations:
 
@@ -1488,16 +1499,18 @@ function UserForm({ onSubmit }) {
 
 ### Using the Native HTML Form Tag
 
-The FormProvider can now automatically wrap your form in a native HTML `<form>` tag, handling the `preventDefault` behavior for you:
+Use `WebFormProvider` from the **web** entry to wrap your form in a native HTML `<form>` tag, handling the `preventDefault` behavior for you. The `<form>` is on by default — pass `useFormTag={false}` to opt out:
 
 ```tsx
+import { WebFormProvider } from 'form-context-react-zod/web';
+
 function ContactForm() {
   return (
-    <FormProvider
+    <WebFormProvider
       initialValues={{ name: '', email: '' }}
       schema={contactSchema}
       onSubmit={handleSubmit}
-      useFormTag={true} // Enable the form tag wrapper
+      // useFormTag defaults to true here; set false to render no <form>.
       formProps={{
         className: 'my-form-styles',
         id: 'contact-form',
@@ -1509,7 +1522,7 @@ function ContactForm() {
 
       {/* Use a regular HTML submit button */}
       <button type="submit">Submit Form</button>
-    </FormProvider>
+    </WebFormProvider>
   );
 }
 ```

@@ -303,7 +303,7 @@ rough.
 Unirend uses conditional exports with separate entries, each emitting types/import/require.
 Apply the same so the core is DOM-free and RN-friendly; debug tooling is opt-in.
 
-- [x] Define entry points: - `.` — core (`FormProvider`, hooks, zod-helpers) — **no DOM imports**. - `./devtools` — web `FormState` debug component (DOM). - `./devtools/native` — React Native debug component equivalent (see the React Native track). _`.` + `./devtools` shipped; `./devtools/native` follows the same pattern under the RN track._
+- [x] Define entry points: - `.` — core (`FormProvider`, hooks, zod-helpers) — **no DOM imports**. - `./devtools` — web `FormState` debug component (DOM). - `./devtools/native` — React Native debug component equivalent (see the React Native track). _Shipped: `.` (DOM-free core) + `./web` (adds `<form>`/`useFormTag`, exports `WebFormProvider`) + symmetric `./devtools/web` & `./devtools/native` debug panels + internal `./context`. (Renamed the web debug entry from bare `./devtools` → `./devtools/web` for symmetry with `/native`.)_
 - [x] Update tsup config for multiple entries; update generated `package.json` `exports`/`files`. _Object `entry` (index/devtools/context), `splitting: false`; generated `exports`/`files` updated (incl. a glob for the hashed shared dts chunk)._
 - [x] Move `FormState` out of the root `index.ts` barrel into the `devtools` entry. _New `src/lib/devtools.ts` barrel; now `import { FormState } from 'form-context-react-zod/devtools'`._
 - [x] ⚠️ **Singleton concern: the contexts must be ONE instance across entries.** NOTE: there are
@@ -349,15 +349,7 @@ Remaining 13 findings:
       cleared by moving the non-component exports (`useToastContext`, `showToast`, types, global decl)
       into a JSX-free `src/components/ToastContext.ts`. Lint is now **0 warnings**.
 
-## 6. Code review / scan
-
-Done before Cursor had review tooling — re-run now.
-
-- [ ] Run `/code-review high` on the working tree once changes are staged.
-- [ ] Manual pass over `form-context.tsx` (1420 lines — the ref + reducer hybrid is the riskiest area for race conditions).
-- [ ] Lint clean (`bun run lint`) and typecheck under the new Zod.
-
-## 7. React Native support
+## 6. React Native support
 
 Feasible — field binding is via hooks (render-agnostic). Only DOM hard-deps:
 
@@ -365,15 +357,33 @@ Feasible — field binding is via hooks (render-agnostic). Only DOM hard-deps:
    confirm it can be fully disabled (RN has no `<form>`).
 2. `FormState` debug component (web-only) — replaced by a native equivalent via code splitting.
 
-- [ ] Confirm `FormProvider` works with no `<form>` wrapper.
-- [ ] Build a **React Native debug component** (the RN equivalent of `FormState`),
-      shipped under `./devtools/native` (the code-splitting track).
-- [ ] **Ship an Expo example.** For local dev, have users clone the repo and run a command
-      that links the package locally (`bun link` / local file path) into the Expo app —
-      no need to publish to test.
-- [ ] Decide `react-native` export condition if RN needs a distinct core build.
+- [x] Confirm `FormProvider` works with no `<form>` wrapper. _Refactored: the `<form>` is gone
+      from the core entirely. The DOM-free base `FormProvider` lives in [form-context.tsx](src/lib/form-context.tsx)
+      (renders only the context providers + children); the `<form>`/`useFormTag`/`formProps` moved to a
+      **web** `FormProvider` in [form-provider-web.tsx](src/lib/form-provider-web.tsx), shipped from the
+      new `./web` entry. `.` is now truly DOM-free (verified: no `"form"` host element in the core bundle).
+      Web users who want the tag import from `form-context-react-zod/web`._
+- [x] Build a **React Native debug component** (the RN equivalent of `FormState`),
+      shipped under `./devtools/native`. _[FormStateNative.tsx](src/lib/components/FormStateNative.tsx)
+      (View/Text/ScrollView), barrel [devtools/native.ts](src/lib/devtools/native.ts), 5th tsup entry
+      → `dist_module/devtools/native` (sibling of `devtools/web`). `react-native` added as a devDep + optional peer, marked external
+      in the build. Verified: native bundle `require("react-native")`, shares the context singleton, dts
+      references RN types. The Expo demo consumes the **published** entry (dogfooded), not a local copy._
+- [x] **Ship an Expo example.** _[examples/native](examples/native) — a runnable Expo app (SDK 54,
+      RN 0.81, React 19.1) that depends on the **built** package via `file:../../dist_module`, so it
+      exercises the real published entries (incl. `./devtools/native` + the `./context` singleton). Two
+      screens (Basic, Array), a TextInput adapter ([RNFormInput](examples/native/src/RNFormInput.tsx)),
+      and the published native `FormState`. **Verified by actually bundling** — `npx expo export --platform
+      ios` succeeds (660 modules) and the demo type-checks. Pinned to SDK 54 (not the latest 56) so the
+      dev build runs on Xcode 16.x — SDK 56/RN 0.85 needs Swift 6.2 / Xcode 26. SDK 54's older Metro needs
+      a small [metro.config.js](examples/native/metro.config.js) (watchFolders + `exports` + peer pinning)
+      to consume the `file:`-linked package. Run: `bun run build:lib` then `cd examples/native &&
+      npm install && npm start`._
+- [x] Decide `react-native` export condition if RN needs a distinct core build. _Not needed: the core
+      (`.`) is DOM-free and works as-is on RN, so no `react-native` condition / distinct build. `react-dom`
+      is an optional peer. (A `react-native` condition would only come into play for `./devtools` web-vs-native.)_
 
-## 8. Test coverage
+## 7. Test coverage
 
 - [x] Audit coverage. Found the hooks (`useArrayField`, and pre-validateOnBlur `useField`) and
       `FormState` had **zero** direct tests — they weren't even imported by the suite.
@@ -408,7 +418,7 @@ Feasible — field binding is via hooks (render-agnostic). Only DOM hard-deps:
       `testSetup.ts` now filters ONLY those known messages from console; everything else still prints.
 - Remaining red is scattered 1–3 line edge guards (stale-submission branches, error-path mismatches) + 2 defensive `utils` lines — diminishing returns. Overall **98% lines / ~96% funcs**, 100 tests.
 
-## 9. Hydration safety
+## 8. Hydration safety
 
 No hydration _mismatch_ hazards (values are deterministic):
 
@@ -430,7 +440,7 @@ No hydration _mismatch_ hazards (values are deterministic):
       hydration-safe as long as the caller passes identical `initialValues` (and `initialServerErrors`)
       on server and client.
 
-## 10. Features (emerged while dogfooding the demo)
+## 9. Features (emerged while dogfooding the demo)
 
 - [x] **`validateOnBlur` (default true).** ✅ Found while playing with the demo: focusing a
       required field and leaving it empty did nothing — touched but never validated, so no error
@@ -457,9 +467,12 @@ No hydration _mismatch_ hazards (values are deterministic):
       `reset()`. Seeds reducer state + `errorsRef` + `serverErrorsRef`. Prefilled demo gained a 4th
       sub-tab ("Server errors at mount") with a root + two field errors. Tests + FORM-API.md updated.
 
-## 11. Release
+## 10. Release
 
+- [ ] Reconsidering merging the reads me and moving the other docs to a separate doc folder
+- [ ] Then should do a overall code review/docs review - I have a prompt I like to use for this..... and readme consinstsity tasks
 - [ ] Bump root `package.json` to `2.0.0` (single source of truth; everything syncs from it).
 - [ ] CHANGELOG / release notes covering the Zod 4 break + the new APIs (§3).
 - [ ] `bun run build:lib` and verify `dist_module/`.
-- [ ] Publish.
+- [ ] Delete the old plan so less noise
+- [ ] Publish both package and updated github pages (bun run deploy)?

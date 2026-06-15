@@ -49,24 +49,52 @@ npm install form-context-react-zod
 
 > **Requires React 19 and Zod 4.** Need React 18 / Zod 3? Install `form-context-react-zod@^1`.
 
+## Demos
+
+Two runnable demos live in this repo:
+
+- **Web** — a Vite app that exercises every feature: nested objects, array fields
+  (add / remove / reorder), client + server validation, async validation, focus
+  management, and the `FormState` debugger. Run it locally with `npm run dev`, or
+  open the [live demo](https://keverw.github.io/form-context-react-zod/).
+- **React Native** — an Expo app in [`examples/native`](./examples/native) that
+  proves the **same** core runs on native: Zod validation, `useArrayField`, a
+  `TextInput` adapter, and the published `devtools/native` `FormState` panel. It
+  depends on the built package via a `file:` link, so it exercises the real
+  published entry points. See its [README](./examples/native/README.md) to run it.
+
 ## Entry points
 
 The package ships as conditional exports so you only pull in what you use:
 
-| Import                                    | Contents                                                                 |
-| ----------------------------------------- | ------------------------------------------------------------------------ |
-| `form-context-react-zod`                  | Core — `FormProvider`, `useForm`/`useFormContext`, `useField`, `useArrayField`, zod helpers. **No DOM imports.** |
-| `form-context-react-zod/devtools`         | The `FormState` debug panel (web/DOM). Opt-in, keep it out of production bundles. |
+| Import                                   | Contents                                                                                                                                                                  |
+| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `form-context-react-zod`                 | **Core** — `FormProvider`, `useFormContext`, `useField`, `useArrayField`, zod helpers. Renders **no host elements** (no `<form>`), so it works on web _and_ React Native. |
+| `form-context-react-zod/web`             | Adds `WebFormProvider` — the core provider plus an HTML `<form>` wrapper (on by default) for native browser submit + Enter-to-submit.                                     |
+| `form-context-react-zod/devtools/web`    | The `FormState` debug panel (web/DOM). Opt-in, keep it out of production bundles.                                                                                         |
+| `form-context-react-zod/devtools/native` | The `FormState` debug panel for React Native (View/Text). Needs `react-native` (an optional peer).                                                                        |
 
 ```tsx
+// Cross-platform core (web or React Native):
 import { FormProvider, useField } from 'form-context-react-zod';
-import { FormState } from 'form-context-react-zod/devtools'; // debug only
+
+// Web app that wants a real <form> element (renders <form> by default):
+import { WebFormProvider } from 'form-context-react-zod/web';
+import { FormState } from 'form-context-react-zod/devtools/web'; // web debug only
+
+// React Native:
+import { FormState } from 'form-context-react-zod/devtools/native'; // RN debug only
 ```
 
+The core `FormProvider` is the shared base (no `<form>`). `WebFormProvider` is the
+same provider plus the `<form>` wrapper (`useFormTag`, on by default). On React
+Native you use the core `FormProvider`; see [`examples/native`](./examples/native)
+for a runnable Expo demo.
+
 The two React contexts are published as an internal `./context` subpath and shared
-across every entry, so a `FormState` rendered from `/devtools` reads the same form
-state your `FormProvider` populated. Keeping the core DOM-free is also what makes the
-React Native track possible.
+across every entry, so a `FormState` rendered from `/devtools/web` (or `/devtools/native`)
+reads the same form state your `FormProvider` populated. Keeping the core DOM-free is also
+what makes the React Native track possible.
 
 ## SSR / Hydration
 

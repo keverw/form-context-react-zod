@@ -1,6 +1,7 @@
 // Shared React contexts — DELIBERATELY isolated in their own module/entry.
 //
-// The library ships multiple entry points (`.`, `./devtools`, …). Both of the
+// The library ships multiple entry points (`.`, `./web`, `./devtools/web`,
+// `./devtools/native`, …). Both of the
 // contexts below MUST be a single shared instance across every entry: if one
 // bundle inlined its own `createContext()` call, a consumer reading the context
 // (e.g. `FormState` via `useFormContext`, or `useField` via `FormFieldContext`)

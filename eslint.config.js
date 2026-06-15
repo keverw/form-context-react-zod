@@ -7,7 +7,9 @@ import jsxA11y from 'eslint-plugin-jsx-a11y';
 import tseslint from 'typescript-eslint';
 
 export default tseslint.config(
-  { ignores: ['dist', 'dist_module', 'coverage'] },
+  // examples/native is a standalone Expo app with its own toolchain/config; the
+  // root lint shouldn't try to parse its React Native sources.
+  { ignores: ['dist', 'dist_module', 'coverage', 'examples'] },
   {
     extends: [
       js.configs.recommended,

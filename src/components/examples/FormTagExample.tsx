@@ -1,5 +1,6 @@
 import { z } from 'zod';
-import { FormProvider } from '../../lib/form-context';
+// WebFormProvider — the core provider plus the <form> element (on by default).
+import { WebFormProvider } from '../../lib/form-provider-web';
 import { useField } from '../../lib/hooks/useField';
 import FormInput from '../FormInput';
 
@@ -73,13 +74,14 @@ export default function FormTagExample() {
         </ul>
       </div>
 
-      <FormProvider
+      <WebFormProvider
         initialValues={{
           name: '',
           email: '',
         }}
         schema={formSchema}
         onSubmit={handleSubmit}
+        // useFormTag defaults to true on WebFormProvider; shown here for clarity.
         useFormTag={true}
         formProps={{
           className: 'space-y-4 border border-gray-200 rounded-md p-4',
@@ -101,7 +103,7 @@ export default function FormTagExample() {
             Submit Form
           </button>
         </div>
-      </FormProvider>
+      </WebFormProvider>
 
       <div className="mt-8 p-4 bg-blue-50 border border-blue-100 rounded-md">
         <h3 className="text-sm font-medium text-blue-800 mb-2">
