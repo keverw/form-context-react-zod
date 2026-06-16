@@ -365,7 +365,7 @@ Value operations:
   Paths are untyped, so the result is `unknown` unless you pass a type argument (`form.getValue<string>(['name'])`).
 - `setValue<V = unknown>(path: (string|number)[], value: V): void`: Set the value at any path.
 - `clearValue(path)`: Reset field to an empty value based on its type. A thin wrapper over `setValue(path, <empty>)`, so it has the same side effects: marks touched, clears the field's errors (whole subtree, all sources), and re-validates.
-- `deleteField(path)`: Remove field at path. For an array item, later items' metadata (touched + errors, all sources) re-indexes down to follow them, instead of being wiped.
+- `deleteField(path)`: Remove field at path. For an array item, later items' metadata (touched + errors, all sources) re-indexes down to follow them, instead of being wiped. Like `setValue`, when `validateOnChange` is on it re-runs the **whole** schema and refreshes every field's Zod error, so a cross-field rule (e.g. a `.refine()` on a sibling, or an array-level `z.array().min`) updates live when an item is removed.
 - `reindexArray(arrayPath, newItems, indexMap)`: Low-level primitive that replaces an array and atomically re-indexes its item metadata (touched, validation + server errors) via `indexMap` (old index → new index, or `null` to drop). Prefer the [`useArrayField`](#usearrayfield) helpers, which wrap it.
 - `hasField(path)`: Check if field exists
 - `getValuePaths(path?: (string|number)[]): (string|number)[][]`: Get all value paths under the given path — every node, including intermediate object/array-item containers, not just leaf fields
@@ -705,13 +705,25 @@ Each public mutator (e.g. `setValue`, `setFieldTouched`, `setServerError`) colle
 const {
   value,
   setValue,
-  error,
+  error, // Display message(s), touch-gated for Zod errors. string | string[] | null
+  errors, // Raw ValidationError[] at this path — all sources, NOT touch-gated
+  isTouched, // Whether the field has been blurred or edited
   inputRef, // Ref callback — attach to your input so setFocus/focusFirstError can reach it
-  props, // Typed props for input components
+  props, // Props for input components (value/onChange/onBlur/errorText)
 } = useField(path);
 ```
 
 See [Focus Management](#focus-management) for `inputRef`.
+
+**`error` vs `errors`.** `error` is the **display** value: Zod (`client`) messages are gated
+on `isTouched`, server/manual messages always show. It's a single `string` for one message,
+a `string[]` when a field has **several** messages (e.g. `setServerError(path, ['a', 'b'])`
+or a multi-issue Zod field), and `null` when there's nothing to show. If you render it
+directly, handle the array case — a custom input can map an array to a list (think a
+password-rules checklist). `errors` is the **raw** `ValidationError[]` (every source, not
+touch-gated), parallel to `getFieldState`'s `errors`; reach for it when you want full control
+over which messages to render and when. Gate on `isTouched` yourself if you only want to
+reveal them after interaction.
 
 Path can be specified using:
 
@@ -721,9 +733,11 @@ Path can be specified using:
 Features:
 
 - Value getting/setting
-- Touch tracking
-- Error management (server errors automatically clear on edit)
-- Type-safe props for input components
+- Touch tracking — read via `isTouched`
+- Error management (server errors automatically clear on edit); display `error` plus raw `errors`
+- Ready-to-spread `props` for input components (`value`/`onChange`/`onBlur`/`errorText`). Note the
+  values are untyped (`unknown`) since paths aren't typed against the schema — pass a type argument
+  to `getValue`/`setValue` on the context if you need the value narrowed.
 - **Re-render isolation**: `useField` subscribes to only its own field's slice
   (value/touched/errors) via `useSyncExternalStore`, so editing one field doesn't
   re-render the others. This is internal and changes nothing about the API. On large

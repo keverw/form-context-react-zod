@@ -55,6 +55,15 @@ export function useField(path: (string | number)[]) {
       fieldCtx.setValue(path, newValue);
     },
     error,
+    // Whether this field has been touched (blurred or edited). Mirrors
+    // FieldState.isTouched — useful when you want to gate UI on interaction without
+    // reaching for getFieldState/the raw context.
+    isTouched,
+    // Raw errors at this path: every source (client/server/manual), NOT touch-gated.
+    // `error` above is the display string (touch-gated for Zod errors); `errors` is
+    // the full list, parallel to FieldState.errors — render it directly if you want
+    // to show every message (e.g. a password-rules checklist).
+    errors,
     // Attach to the input so setFocus/focusFirstError can reach this field:
     // <input ref={field.inputRef} /> (or RN <TextInput ref={field.inputRef} />).
     // Named inputRef (not `ref`) so consumers' react-hooks lint doesn't misread a

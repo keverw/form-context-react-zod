@@ -2464,6 +2464,54 @@ describe('FormProvider', () => {
     expect(screen.getByTestId('confirm-err').textContent).toBe('none');
   });
 
+  it('deleteField live-updates a cross-field (.refine) error on a sibling', async () => {
+    // The refine lands its error on `minCount`, but depends on `items.length`.
+    // Removing an array item must refresh that sibling error — deleteField now
+    // recomputes the whole schema like setValue, not just errors under the path.
+    const schema = z
+      .object({ items: z.array(z.string()), minCount: z.string() })
+      .refine((d) => d.items.length >= 2, {
+        path: ['minCount'],
+        message: 'need 2+',
+      });
+
+    const TestComponent = () => {
+      const form = useFormContext();
+      // Raw read (not touch-gated) so we assert the underlying error list refreshes.
+      const minCountErr = form.getError(['minCount'])[0]?.message ?? 'none';
+      return (
+        <div>
+          <span data-testid="min-err">{minCountErr}</span>
+          <button
+            data-testid="del-item"
+            onClick={() => form.deleteField(['items', 0])}
+          >
+            delete item 0
+          </button>
+        </div>
+      );
+    };
+
+    render(
+      <TestForm
+        schema={schema as unknown as z.ZodType<Record<string, unknown>>}
+        initialValues={{ items: ['a', 'b'], minCount: '' }}
+      >
+        <TestComponent />
+      </TestForm>
+    );
+
+    // Two items -> refine passes -> no sibling error.
+    await advanceTimers();
+    expect(screen.getByTestId('min-err').textContent).toBe('none');
+
+    // Removing an item drops length to 1 -> the cross-field error on `minCount`
+    // surfaces live, even though it's nowhere near the deleted path.
+    fireEvent.click(screen.getByTestId('del-item'));
+    await advanceTimers();
+    expect(screen.getByTestId('min-err').textContent).toBe('need 2+');
+  });
+
   it('validateField surfaces only that field and returns its validity', async () => {
     const schema = z.object({
       a: z.string().min(3, 'a too short'),

@@ -1129,10 +1129,11 @@ export function FormProvider<T extends Record<string | number, unknown>>({
           indexMap
         );
 
-        // Refresh the array-level validation error (e.g. z.array().min) — the
-        // array path's own Zod error can't be remapped from item metadata, so drop
-        // the stale one and re-add a fresh one from the new value. Server/manual
-        // errors at the array path are left as-is.
+        // Recompute ALL Zod ('client') errors from the new full-form result, mirroring
+        // setValue: removing an item can change errors anywhere (the array-level
+        // z.array().min, but also a cross-field .refine landing on a sibling), and the
+        // remap above only moved item metadata, not the array's own or cross-field
+        // errors. Keep the already-remapped server/manual errors (owned elsewhere).
         let finalErrors = newErrors;
         let newCanSubmit = canSubmit;
 
@@ -1140,19 +1141,9 @@ export function FormProvider<T extends Record<string | number, unknown>>({
           const result = validate(schema, newValues);
           newCanSubmit = result.valid;
 
-          const atArrayPath = (p: (string | number)[]) =>
-            p.length === parentPath.length &&
-            parentPath.every((val, idx) => p[idx] === val);
-          const withoutStaleArrayLevel = newErrors.filter(
-            (e) =>
-              e.source === 'server' ||
-              e.source === 'manual' ||
-              !atArrayPath(e.path)
-          );
-          const freshArrayLevel = result.valid
-            ? []
-            : (result.errors ?? []).filter((e) => atArrayPath(e.path));
-          finalErrors = [...withoutStaleArrayLevel, ...freshArrayLevel];
+          const preserved = newErrors.filter((e) => e.source !== 'client');
+          const freshClient = result.valid ? [] : (result.errors ?? []);
+          finalErrors = [...preserved, ...freshClient];
           errorsRef.current = finalErrors;
         }
 
@@ -1264,7 +1255,11 @@ export function FormProvider<T extends Record<string | number, unknown>>({
             .every((val, idx) => path[idx] === val);
         });
 
-        // Validate the form after deletion
+        // Validate the form after deletion. Recompute ALL Zod ('client') errors from
+        // the new full-form result, mirroring setValue — a deletion can change a
+        // cross-field .refine error on an unrelated sibling, not just errors under the
+        // deleted path. Keep the server/manual errors already filtered above (the
+        // deleted subtree's were dropped); only client errors are regenerated.
         let finalErrors = newErrors;
         let newCanSubmit = canSubmit;
 
@@ -1274,27 +1269,10 @@ export function FormProvider<T extends Record<string | number, unknown>>({
           // Update canSubmit based on validation result
           newCanSubmit = result.valid;
 
-          if (!result.valid && result.errors) {
-            // Only add new validation errors for the parent path
-            const parentErrors = result.errors.filter(
-              (error) =>
-                error.path.length >= parentPath.length &&
-                error.path
-                  .slice(0, parentPath.length)
-                  .every((val, idx) => parentPath[idx] === val)
-            );
-
-            // Merge with existing errors, avoiding duplicates
-            const existingPaths = newErrors.map((e) => serializePath(e.path));
-            const newParentErrors = parentErrors.filter(
-              (e) => !existingPaths.includes(serializePath(e.path))
-            );
-
-            finalErrors = [...newErrors, ...newParentErrors];
-
-            // Update errorsRef again if we have new validation errors
-            errorsRef.current = finalErrors;
-          }
+          const preserved = newErrors.filter((e) => e.source !== 'client');
+          const freshClient = result.valid ? [] : (result.errors ?? []);
+          finalErrors = [...preserved, ...freshClient];
+          errorsRef.current = finalErrors;
         }
 
         // Dispatch a single update with all changes
