@@ -56,7 +56,7 @@ interface FormHelpers {
   clearClientSubmissionError: () => void;
   getClientSubmissionError: () => string[];
   setValue: <V = unknown>(path: (string | number)[], value: V) => void;
-  clearValue: (path: (string | number)[]) => void;
+  clearValue: (path: (string | number)[]) => boolean;
   deleteField: (path: (string | number)[]) => void;
   validate: (force?: boolean) => boolean;
   hasField: (path: (string | number)[]) => boolean;
@@ -978,6 +978,37 @@ describe('FormProvider', () => {
     await advanceTimers();
     expect(screen.getByTestId('val').textContent).toBe('');
     expect(screen.getByTestId('err').textContent).toBe('none');
+  });
+
+  it('clearValue returns true when the field exists, false when it does not', async () => {
+    const results: { existing?: boolean; missing?: boolean } = {};
+
+    const TestComponent = () => {
+      const form = useFormContext();
+      return (
+        <button
+          data-testid="clear"
+          onClick={() => {
+            results.existing = form.clearValue(['name']);
+            results.missing = form.clearValue(['nope']);
+          }}
+        >
+          clear
+        </button>
+      );
+    };
+
+    render(
+      <TestForm initialValues={{ name: 'John' }}>
+        <TestComponent />
+      </TestForm>
+    );
+
+    fireEvent.click(screen.getByTestId('clear'));
+    await advanceTimers();
+
+    expect(results.existing).toBe(true);
+    expect(results.missing).toBe(false);
   });
 
   it('setValue does not resurrect a cleared server error on a later setServerError', async () => {

@@ -81,7 +81,7 @@ import { z } from 'zod';
 
 const schema = z.object({
   name: z.string().min(2),
-  email: z.string().email(),
+  email: z.email(),
 });
 
 type Values = z.infer<typeof schema>;
@@ -233,7 +233,10 @@ import { FormState } from 'form-context-react-zod/devtools/native';
 
 - Imported from the `form-context-react-zod/devtools/web` subpath (or
   `/devtools/native` on React Native) so the core entry stays DOM-free.
-- Use the `showToggle` prop to allow switching between light and dark mode.
+- Use the `showToggle` prop to render a light/dark toggle so you can switch at runtime.
+- Use the `mode` prop (`'light' | 'dark'`, default `'light'`) to set the theme.
+  `mode` is only honored when `showToggle` is `false` — with the toggle on, the
+  internal toggle state wins.
 - This component is intended for development and debugging purposes.
 
 ## Demos

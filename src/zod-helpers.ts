@@ -48,7 +48,7 @@ export interface ValidationResult<T> {
 
 export type ValidationSchema<T> = z.ZodType<T>;
 
-interface ValidationOptions {
+export interface ValidationOptions {
   isServer?: boolean;
   rootMessages?: string | string[];
 }

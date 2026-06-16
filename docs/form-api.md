@@ -93,7 +93,7 @@ Provides context with:
 State getters:
 
 - `isSubmitting`: Boolean indicating submission state
-- `isValid`: Boolean. `true` when the form currently has **no errors at all** (of any source — Zod, server, or manual) **and** a validation has run (`lastValidated !== null`, or there's no `schema`). It reflects the **whole** form, not just touched fields — any error anywhere makes it `false`. It is _not_ the touched-gated "is what I've filled so far OK" signal; for that, read a field's own error via [`useField`](#usefield)/`getFieldState`. Note it stays `false` until the first validation runs (on a schema form with `validateOnChange`, that's the first edit). Use `canSubmit` to gate the submit button.
+- `isValid`: Boolean. `true` when the form currently has **no errors at all** (of any source — Zod, server, manual, or client-submission) **and** a validation has run (`lastValidated !== null`, or there's no `schema`). It reflects the **whole** form, not just touched fields — any error anywhere makes it `false`. It is _not_ the touched-gated "is what I've filled so far OK" signal; for that, read a field's own error via [`useField`](#usefield)/`getFieldState`. Note it stays `false` until the first validation runs (on a schema form with `validateOnChange`, that's the first edit). Use `canSubmit` to gate the submit button.
 - `canSubmit`: Boolean indicating if the entire form passes Zod schema validation, regardless of which fields have been touched. A form with **no `schema`** is vacuously submittable, so `canSubmit` is `true` for it.
 - `submitAttempted`: Boolean. `true` once the user has tried to submit at all, pass or fail. Stays `true` for the duration of the submission and after it settles, then cleared by `reset`/`resetWithValues`. Use it _alongside_ `touched` to reveal errors. Gate on `touched[field] || submitAttempted` so each field shows its error once the user has interacted with it **or** has hit submit, which surfaces errors on fields they skipped. `submit()` also marks every field touched, so on its own `touched` covers this. `submitAttempted` is the cleaner signal if you'd rather key the "reveal everything" moment off the attempt itself.
 - `submitSucceeded`: Boolean. `true` only if the **most recent** attempt completed cleanly: validation passed, `onSubmit` resolved without throwing, **and** the handler set no submission errors (no `setServerError(s)` / `setClientSubmissionError`). It's `false` while a submit is in flight and flips to its final value when the attempt settles.
@@ -364,7 +364,7 @@ Value operations:
 - `getValue<V = unknown>(path: (string|number)[]): V`: Get the value at any path.
   Paths are untyped, so the result is `unknown` unless you pass a type argument (`form.getValue<string>(['name'])`).
 - `setValue<V = unknown>(path: (string|number)[], value: V): void`: Set the value at any path.
-- `clearValue(path)`: Reset field to an empty value based on its type. A thin wrapper over `setValue(path, <empty>)`, so it has the same side effects: marks touched, clears the field's errors (whole subtree, all sources), and re-validates.
+- `clearValue(path): boolean`: Reset field to an empty value based on its type. A thin wrapper over `setValue(path, <empty>)`, so it has the same side effects: marks touched, clears the field's errors (whole subtree, all sources), and re-validates. Returns `true` if a field existed at `path` and was cleared, `false` if the path doesn't exist (nothing to clear). The empty value is chosen by type: `string → ''`, `number → 0`, `boolean → false`, `array → []`, and an object is rebuilt with each property recursively emptied (so a `Date`, being an object, comes back as `{}` — `clearValue` is meant for primitive/collection fields, not `Date`s).
 - `deleteField(path)`: Remove field at path. For an array item, later items' metadata (touched + errors, all sources) re-indexes down to follow them, instead of being wiped. Like `setValue`, when `validateOnChange` is on it re-runs the **whole** schema and refreshes every field's Zod error, so a cross-field rule (e.g. a `.refine()` on a sibling, or an array-level `z.array().min`) updates live when an item is removed.
 - `reindexArray(arrayPath, newItems, indexMap)`: Low-level primitive that replaces an array and atomically re-indexes its item metadata (touched, validation + server errors) via `indexMap` (old index → new index, or `null` to drop). Prefer the [`useArrayField`](#usearrayfield) helpers, which wrap it.
 - `hasField(path)`: Check if field exists
@@ -384,12 +384,12 @@ Error operations:
 
 Every `ValidationError` carries a `source` that controls its lifecycle:
 
-| `source`              | Set by                     | Survives re-validation?      | Shown when untouched? | Cleared by                                  |
-| --------------------- | -------------------------- | ---------------------------- | --------------------- | ------------------------------------------- |
-| `client`              | Zod schema validation      | No, recomputed each validate | No                    | recomputed every validate, edit clears path |
-| `server`              | `setServerError(s)`        | Yes                          | Yes                   | editing the field, submit start, reset      |
-| `manual`              | `setError`                 | Yes                          | Yes                   | editing the field, submit start, reset      |
-| `client-form-handler` | `setClientSubmissionError` | n/a (form-level)             | n/a                   | submit start, `clearClientSubmissionError`  |
+| `source`              | Set by                     | Survives re-validation?      | Shown when untouched? | Cleared by                                        |
+| --------------------- | -------------------------- | ---------------------------- | --------------------- | ------------------------------------------------- |
+| `client`              | Zod schema validation      | No, recomputed each validate | No                    | recomputed every validate, edit clears path       |
+| `server`              | `setServerError(s)`        | Yes                          | Yes                   | editing the field, submit start, reset            |
+| `manual`              | `setError`                 | Yes                          | Yes                   | editing the field, submit start, reset            |
+| `client-form-handler` | `setClientSubmissionError` | n/a (form-level)             | n/a                   | submit start, `clearClientSubmissionError`, reset |
 
 `manual` is deliberately parallel to `server`. Same rules, a different label so you can tell a server-reported error from a client-set one and own each channel independently. The only difference is plumbing: `server` errors also live in an internal canonical store (used by `setServerErrors` replace-all), whereas `manual` errors live only in the main error list. Like server errors, a `manual` error does **not** gate `canSubmit` (which is schema-only). But setting one from inside `onSubmit` **does** mark the attempt as failed. `submitSucceeded` stays `false`, the same as `setServerError`/`setClientSubmissionError`, so a client-side check that rejects a submit reads correctly.
 
@@ -465,7 +465,7 @@ export interface FormHelpers<T> {
   clearClientSubmissionError: () => void;
   getClientSubmissionError: () => string[];
   setValue: <V = unknown>(path: (string | number)[], value: V) => void;
-  clearValue: (path: (string | number)[]) => void;
+  clearValue: (path: (string | number)[]) => boolean;
   deleteField: (path: (string | number)[]) => void;
   validate: (force?: boolean) => boolean;
   hasField: (path: (string | number)[]) => boolean;
@@ -935,7 +935,7 @@ The `helpers` object (`FormHelpers<T>`, see the [full interface](#formhelpers-in
 - `setError`: Set (or clear, with `null`) a manual error at a path
 - `setClientSubmissionError` / `clearClientSubmissionError` / `getClientSubmissionError`: Manage form-level client submission errors
 - `setValue`: Update field value
-- `clearValue`: Reset field to empty value
+- `clearValue`: Reset field to empty value (returns `true` if the field existed and was cleared, `false` otherwise)
 - `deleteField`: Remove field
 - `validate`: Manually trigger validation
 - `hasField`: Check if field exists
@@ -1407,7 +1407,15 @@ function MyForm() {
   const form = useFormContext();
 
   return (
-    <form onSubmit={form.submit}>
+    // Raw <form> wiring: prevent the native submit (page reload) and call submit()
+    // yourself. On web you can skip this entirely with WebFormProvider, which renders
+    // the <form> and handles preventDefault for you.
+    <form
+      onSubmit={(e) => {
+        e.preventDefault();
+        form.submit();
+      }}
+    >
       {/* Form fields */}
 
       <button
@@ -1621,8 +1629,11 @@ function ContactForm() {
 }
 ```
 
-Benefits of using the native form tag:
+Benefits of the `WebFormProvider` wrapper (native `<form>` tag):
 
+- **Handles `preventDefault` for you** — the wrapper's `onSubmit` calls
+  `e.preventDefault()` before `form.submit()`, so a submit button (or Enter) never
+  triggers a native full-page reload. Nothing to wire up, nothing to forget.
 - Works with browser's built-in form submission (Enter key submits the form)
 - Allows using standard HTML form attributes
 - Improves accessibility with proper form semantics

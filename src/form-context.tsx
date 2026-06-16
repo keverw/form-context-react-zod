@@ -49,7 +49,11 @@ export interface FormHelpers<T> {
    */
   getClientSubmissionError: () => string[];
   setValue: <V = unknown>(path: (string | number)[], value: V) => void;
-  clearValue: (path: (string | number)[]) => void;
+  /**
+   * Clear a field to its type-appropriate empty value. Returns `true` if a field
+   * existed at `path` and was cleared, `false` if the path doesn't exist.
+   */
+  clearValue: (path: (string | number)[]) => boolean;
   deleteField: (path: (string | number)[]) => void;
   validate: (force?: boolean) => boolean;
   hasField: (path: (string | number)[]) => boolean;
@@ -120,7 +124,14 @@ export interface FormContextValue<T> {
   validateField: (path: (string | number)[]) => boolean;
   getValue: <V = unknown>(path: (string | number)[]) => V;
   setValue: <V = unknown>(path: (string | number)[], value: V) => void;
-  clearValue: (path: (string | number)[]) => void;
+  /**
+   * Clear a field to its type-appropriate empty value (string → `''`, number → `0`,
+   * boolean → `false`, array → `[]`, object → recursively emptied). Marks the path
+   * touched, clears the field's errors (whole subtree, all sources), and re-validates.
+   * Returns `true` if a field existed at `path` and was cleared, `false` if the path
+   * doesn't exist.
+   */
+  clearValue: (path: (string | number)[]) => boolean;
   deleteField: (path: (string | number)[]) => void;
   /**
    * Low-level primitive used by `useArrayField`'s reorder ops. Replaces the array
@@ -1016,10 +1027,12 @@ export function FormProvider<T extends Record<string | number, unknown>>({
     [values]
   );
 
-  // Implement the clearValue function to set a field to an empty value
+  // Implement the clearValue function to set a field to an empty value.
+  // Returns true if a field existed at `path` and was cleared, false if the path
+  // doesn't exist (nothing to clear).
   const clearValue = useCallback(
-    (path: (string | number)[]) => {
-      if (!hasField(path)) return;
+    (path: (string | number)[]): boolean => {
+      if (!hasField(path)) return false;
 
       // Clearing is just assigning the field its type-appropriate empty value, so
       // delegate to setValue. That keeps the behavior consistent: the field's
@@ -1027,6 +1040,7 @@ export function FormProvider<T extends Record<string | number, unknown>>({
       // touched, and validation re-runs — instead of leaving stale errors behind.
       const emptyValue = getEmptyValue(getValue(path));
       setValue(path, emptyValue);
+      return true;
     },
     [getValue, hasField, setValue]
   );
@@ -2055,10 +2069,11 @@ export function FormProvider<T extends Record<string | number, unknown>>({
               setValue(path, value);
             }
           },
-          clearValue: (path: (string | number)[]) => {
+          clearValue: (path: (string | number)[]): boolean => {
             if (isCurrentSubmission(submissionId) && mountedRef.current) {
-              clearValue(path);
+              return clearValue(path);
             }
+            return false;
           },
           deleteField: (path: (string | number)[]) => {
             if (isCurrentSubmission(submissionId) && mountedRef.current) {
