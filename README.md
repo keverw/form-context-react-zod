@@ -47,14 +47,14 @@ This repository contains:
 2.0 is a ground-up modernization. Highlights:
 
 - **Requires React 19 and Zod 4.** Need React 18 / Zod 3? Stay on `form-context-react-zod@^1`.
-- **React Native support.** The core is DOM-free and runs on web _and_ RN; the HTML `<form>` wrapper moved to the opt-in `form-context-react-zod/web` entry (`WebFormProvider`).
-- **Multi-entry exports.** Conditional exports so you pull in only what you use — core (`.`), `web`, and `devtools/web` / `devtools/native` debug panels. See [Entry Points](#entry-points).
+- **React Native support.** The core is DOM-free and runs on web _and_ RN. The HTML `<form>` wrapper moved to the opt-in `form-context-react-zod/web` entry (`WebFormProvider`).
+- **Multi-entry exports.** Conditional exports so you pull in only what you use: core (`.`), `web`, and `devtools/web` / `devtools/native` debug panels. See [Entry Points](#entry-points).
 - **Array fields, leveled up.** `useArrayField` gains `insert`/`prepend`/`swap`/`replace`/`update`, plus **stable item IDs** (`arrayFieldIDs`) so focus/cursor survive reorders.
 - **Dirty tracking.** `isDirty` / `dirtyFields` plus `markPristine(...)` to re-baseline after a save.
-- **Focus management.** `setFocus(path)` / `focusFirstError()` (platform-agnostic — works on RN too).
+- **Focus management.** `setFocus(path)` / `focusFirstError()` (platform-agnostic, works on RN too).
 - **Richer error & validation API.** Manual errors (`setError`), per-field validation (`validateField`), a one-call `getFieldState(path)`, submit-attempt flags (`submitAttempted` / `submitSucceeded` / `submitCount`), and an `AbortSignal` on the `onSubmit` helpers.
 - **Per-field re-render isolation.** Editing one field no longer re-renders the whole form.
-- **SSR-safe.** Works with `renderToString` and streaming; see [SSR / Hydration](#ssr--hydration).
+- **SSR-safe.** Works with `renderToString` and streaming. See [SSR / Hydration](#ssr--hydration).
 
 ## Installation
 
@@ -166,7 +166,7 @@ function TextField({
 ```
 
 Write that adapter once and every field is just `<TextField {...field.props} />`.
-This is the intended pattern and what both [demos](#demos) use — see
+This is the intended pattern and what both [demos](#demos) use. See
 [`examples/web/components/FormInput.tsx`](./examples/web/components/FormInput.tsx)
 for a fuller version (labels, accessibility, textarea/checkbox variants). On
 React Native the same value-based shape maps 1:1 onto `<TextInput onChangeText>`
@@ -253,7 +253,7 @@ import { FormState } from 'form-context-react-zod/devtools/native';
   `/devtools/native` on React Native) so the core entry stays DOM-free.
 - Use the `showToggle` prop to render a light/dark toggle so you can switch at runtime.
 - Use the `mode` prop (`'light' | 'dark'`, default `'light'`) to set the theme.
-  `mode` always sets the **initial** theme; when `showToggle` is `false` it stays
+  `mode` always sets the **initial** theme. When `showToggle` is `false` it stays
   fixed at `mode`, and when the toggle is on it just seeds the starting state and
   the toggle takes over from there.
 - This component is intended for development and debugging purposes.
@@ -339,7 +339,7 @@ the demo app's copies.
 
 ## Development
 
-This repo uses [Bun](https://bun.sh) as its toolchain — the test runner, build
+This repo uses [Bun](https://bun.sh) as its toolchain. The test runner, build
 scripts, and lockfile are all Bun-based. Install Bun, then:
 
 ```bash

@@ -116,10 +116,12 @@ function Section({
   );
 }
 
-type FormStateProps = {
+export interface FormStateProps {
+  /** Color scheme. Defaults to 'light'. */
   mode?: 'light' | 'dark';
+  /** Render an in-panel switch to toggle light/dark. Defaults to false. */
   showToggle?: boolean;
-};
+}
 
 export function FormState({
   mode = 'light',
