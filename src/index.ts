@@ -9,13 +9,13 @@ export {
 } from './utils';
 // Explicit named re-export (NOT `export *`) so the public core surface stays
 // curated. The advanced / type-erased internals — `FormFieldContextValue`,
-// `Focusable`, `FieldSnapshot`, `ArrayStructureChange`/`ArrayStructureListener`,
-// and `MarkPristine` — are deliberately NOT surfaced here. They stay exported
-// from ./form-context so sibling modules import them directly (context.ts and
-// useField already do); the dts bundler inlines them wherever a public signature
-// (the context values, `useField().inputRef`, `markPristine`) references them, so
-// consumer type-checking is unaffected. Add a name here only if it becomes part
-// of the documented public API.
+// `Focusable`, `FieldSnapshot`, and `ArrayStructureChange`/`ArrayStructureListener`
+// — are deliberately NOT surfaced here. They stay exported from ./form-context so
+// sibling modules import them directly (context.ts and useField already do); the
+// dts bundler inlines them wherever a public signature (the context values,
+// `useField().inputRef`) references them, so consumer type-checking is unaffected.
+// Add a name here only if it becomes part of the documented public API.
+
 export {
   FormProvider,
   FormContext,
@@ -24,6 +24,7 @@ export {
   type FormContextValue,
   type FormProviderProps,
   type FormSubmitHandler,
+  type MarkPristine,
 } from './form-context';
 export * from './zod-helpers';
 export * from './hooks/useFormContext';

@@ -172,6 +172,12 @@ for a fuller version (labels, accessibility, textarea/checkbox variants). On
 React Native the same value-based shape maps 1:1 onto `<TextInput onChangeText>`
 (see [`examples/native/src/RNFormInput.tsx`](./examples/native/src/RNFormInput.tsx)).
 
+`useField` also returns an `inputRef` callback (separate from `props`). Forwarding
+it to your input — `<input ref={inputRef} />` (or `<TextInput ref={inputRef} />`
+on RN) — is what opts a field into `setFocus(path)` / `focusFirstError()`; a field
+that never attaches `inputRef` simply isn't focusable. See
+[Focus Management](./docs/form-api.md#focus-management) for the full pattern.
+
 ### React Native
 
 Use the core `FormProvider` on native. There is no `<form>`, so submit from a
@@ -231,6 +237,17 @@ function NativeContactFormFields() {
   );
 }
 ```
+
+There's no `<form>` on native, so the web's automatic Enter-to-submit doesn't
+apply (that's an affordance of `WebFormProvider`'s `<form>`, not the core). The
+suggested pattern is a small custom input adapter (the value-based one above),
+and that adapter is a natural home for return-key submission too: forward
+`onSubmitEditing` through to the underlying `TextInput` and pass
+`onSubmitEditing={() => form.submit()}` at the call site, or read `submit` from
+`useFormContext()` inside the adapter. The same wiring also catches the Enter key
+from a hardware / Bluetooth keyboard on a focused single-line field; multi-line
+inputs (where Enter inserts a newline) and any global/app-wide shortcuts stay
+your call.
 
 ## Debugging
 

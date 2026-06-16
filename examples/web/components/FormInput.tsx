@@ -11,6 +11,9 @@ interface FormInputProps<T = string> extends Omit<
   touched?: boolean;
   label?: string;
   multiline?: boolean;
+  // Forwarded to the underlying control so the form's setFocus/focusFirstError
+  // can reach this field. Pass useField(...).inputRef here.
+  inputRef?: React.Ref<HTMLInputElement | HTMLTextAreaElement>;
 }
 
 const FormInput = <T extends string | number | unknown>({
@@ -24,6 +27,7 @@ const FormInput = <T extends string | number | unknown>({
   className = '',
   label,
   multiline,
+  inputRef,
   ...props
 }: FormInputProps<T>) => {
   const handleInput = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -67,6 +71,7 @@ const FormInput = <T extends string | number | unknown>({
       {multiline ? (
         <textarea
           {...(props as React.TextareaHTMLAttributes<HTMLTextAreaElement>)}
+          ref={inputRef as React.Ref<HTMLTextAreaElement>}
           value={inputValue}
           onChange={handleTextArea}
           onBlur={onBlur}
@@ -77,6 +82,7 @@ const FormInput = <T extends string | number | unknown>({
       ) : (
         <input
           {...props}
+          ref={inputRef}
           value={inputValue}
           onChange={handleInput}
           onBlur={onBlur}

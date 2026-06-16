@@ -1424,33 +1424,27 @@ export function FormProvider<T extends Record<string | number, unknown>>({
         indexMap
       );
 
-      // 4. Re-validate (when validating on change). Reindexing only moves the
-      // item-level metadata; it can't refresh an error attached to the array path
-      // ITSELF — e.g. `z.array(...).min(1)` produces an error at `['items']`, and
-      // inserting an item should clear it. Mirror setValue(arrayPath, …): drop the
-      // stale validation error(s) at exactly arrayPath, then re-add fresh ones (if
-      // still invalid) from the new value. Server- and manual-sourced errors at
-      // arrayPath are left as-is (only Zod 'client' errors are refreshed here).
+      // 4. Re-validate (when validating on change). Recompute ALL validation-owned
+      // errors (Zod 'client' + untagged) from the new full-form result, mirroring
+      // setValue/deleteField — NOT just the array-path error. Reindexing only moved
+      // the item-level metadata, but reshaping an array can change validation
+      // anywhere: the array-level rule (`z.array(...).min(1)` at arrayPath), an
+      // item's own error, AND a cross-field `.refine()` that lands on an unrelated
+      // sibling. Keeping the already-remapped externally-owned errors (server/
+      // manual/client-form-handler) preserved, regenerate the rest so any cross-
+      // referencing refine updates live, the same as a plain setValue.
       let newCanSubmit = canSubmitRef.current;
       if (validateOnChange && schema) {
         const result = validate(schema, newValues);
         newCanSubmit = result.valid;
         canSubmitRef.current = newCanSubmit;
 
-        const atArrayPath = (p: (string | number)[]) =>
-          p.length === arrayPath.length &&
-          arrayPath.every((val, idx) => p[idx] === val);
-
-        const withoutStaleArrayLevel = errorsRef.current.filter(
-          (e) =>
-            e.source === 'server' ||
-            e.source === 'manual' ||
-            !atArrayPath(e.path)
+        const preserved = errorsRef.current.filter(
+          (e) => !isValidationOwnedError(e)
         );
-        const freshArrayLevel = result.valid
-          ? []
-          : (result.errors ?? []).filter((e) => atArrayPath(e.path));
-        errorsRef.current = [...withoutStaleArrayLevel, ...freshArrayLevel];
+
+        const freshClient = result.valid ? [] : (result.errors ?? []);
+        errorsRef.current = [...preserved, ...freshClient];
       }
 
       // 5. Single dispatch.

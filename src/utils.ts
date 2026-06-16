@@ -168,7 +168,13 @@ export function cloneAlongPath<T extends Record<string | number, unknown>>(
 }
 
 export function getEmptyValue(value: unknown): unknown {
-  if (Array.isArray(value)) {
+  if (value === null || value === undefined) {
+    // No runtime type to infer an empty value from, so keep it nullish rather
+    // than fabricating a wrong-typed primitive (e.g. '' for what may be a number
+    // or boolean field). Consistent with how a Date — also a terminal leaf with
+    // no meaningful "empty primitive" — clears to null below.
+    return null;
+  } else if (Array.isArray(value)) {
     // For arrays, simply return an empty array
     return [];
   } else if (value instanceof Date) {

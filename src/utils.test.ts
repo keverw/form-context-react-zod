@@ -308,9 +308,9 @@ describe('utils', () => {
       expect(getEmptyValue('')).toBe('');
     });
 
-    it('should return empty string for null and undefined', () => {
-      expect(getEmptyValue(null)).toBe('');
-      expect(getEmptyValue(undefined)).toBe('');
+    it('should return null for null and undefined (no runtime type to infer)', () => {
+      expect(getEmptyValue(null)).toBe(null);
+      expect(getEmptyValue(undefined)).toBe(null);
     });
 
     it('should return an empty object with the same structure for object values', () => {
