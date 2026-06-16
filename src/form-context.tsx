@@ -144,9 +144,11 @@ export interface FormContextValue<T> {
   getErrorPaths: (path?: (string | number)[]) => (string | number)[][];
   /**
    * Convenience snapshot of one field's state in a single call:
-   * `{ errors, error, isTouched, invalid }`. A pure read over the existing
-   * `getError(path)` + `touched` lookup — handy for raw-context fields that want
-   * a field's error/touched/validity without wiring up `useField`.
+   * `{ errors, error, isTouched, invalid, exists }`. A pure read over the existing
+   * `getError(path)` + `touched` lookup + `hasField(path)` — handy for raw-context
+   * fields that want a field's error/touched/validity/presence without wiring up
+   * `useField`. Errors are raw (not touched-gated). `exists` reflects presence in
+   * `values` only and is independent of `invalid`.
    */
   getFieldState: (path: (string | number)[]) => FieldState;
   hasField: (path: (string | number)[]) => boolean;

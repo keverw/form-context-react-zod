@@ -108,13 +108,54 @@ function ContactFormFields() {
 
   return (
     <>
-      <input {...name.props} placeholder="Name" />
-      <input {...email.props} placeholder="Email" />
+      <TextField {...name.props} placeholder="Name" />
+      <TextField {...email.props} placeholder="Email" />
       <button type="submit">Submit</button>
     </>
   );
 }
 ```
+
+`useField` is **value-based** by design: `field.props.onChange` hands you the new
+**value**, not a DOM event (and `field.props.errorText` is the error, not a DOM
+attribute). So you don't spread `{...field.props}` onto a raw `<input>`. The suggestion is that you
+build one small **custom input** that speaks the value-based shape using your design system styles, then spread a
+field onto it anywhere:
+
+```tsx
+function TextField({
+  value,
+  onChange,
+  onBlur,
+  errorText,
+  placeholder,
+}: {
+  value: unknown;
+  onChange: (value: unknown) => void;
+  onBlur: () => void;
+  errorText?: string | string[] | null;
+  placeholder?: string;
+}) {
+  return (
+    <>
+      <input
+        value={(value as string) ?? ''}
+        onChange={(e) => onChange(e.target.value)}
+        onBlur={onBlur}
+        placeholder={placeholder}
+      />
+      {errorText && <span>{errorText}</span>}
+    </>
+  );
+}
+```
+
+Write that adapter once and every field is just `<TextField {...field.props} />`.
+This is the intended pattern and what both [demos](#demos) use — see
+[`examples/web/components/FormInput.tsx`](./examples/web/components/FormInput.tsx)
+for a fuller version (labels, accessibility, textarea/checkbox variants). On
+React Native the same value-based shape maps 1:1 onto `<TextInput onChangeText>`
+(see [`examples/native/src/RNFormInput.tsx`](./examples/native/src/RNFormInput.tsx)).
 
 ### React Native
 
@@ -202,7 +243,7 @@ Two runnable demos live in this repo:
 - **Web**: A Vite app in [`examples/web`](./examples/web) that exercises every
   feature: nested objects, array fields (add / remove / reorder), client + server
   validation, async validation, focus management, and the `FormState` debugger.
-  Run it locally with `npm run demo:web`, or open the
+  Run it locally with `bun run demo:web`, or open the
   [live demo](https://keverw.github.io/form-context-react-zod/).
 - **React Native**: An Expo app in [`examples/native`](./examples/native) that
   proves the **same** core runs on native: Zod validation, `useArrayField`, a
@@ -213,38 +254,38 @@ Both demos are standalone packages that depend on the built library via a
 points** rather than the source. The root `demo:*` commands run
 `bun run build:lib` first, so the demo always picks up your latest library
 changes. Vite's dev server still gives the web demo full HMR for its own UI.
-After editing the **library**, re-run `npm run demo:web` to rebuild it.
+After editing the **library**, re-run `bun run demo:web` to rebuild it.
 
 First, install each demo's dependencies once (each is its own package). These
 build the library first, so the `file:../../dist_module` link resolves even on a
 fresh clone (`dist_module` is generated, not committed):
 
 ```bash
-npm run demo:web:install
-npm run demo:native:install
+bun run demo:web:install
+bun run demo:native:install
 ```
 
 Then run either demo from the repo root:
 
 ```bash
 # Web demo (Vite)
-npm run demo:web         # builds the library, then starts the Vite dev server
+bun run demo:web         # builds the library, then starts the Vite dev server
 
 # React Native / Expo demo
-npm run demo:native:ios      # builds iOS, launches the app, and starts Metro
-npm run demo:native:android  # builds Android, launches the app, and starts Metro
-npm run demo:native          # starts Metro for Expo Go or an installed dev build
-npm run demo:native:clear    # same as above, with a cleared Metro cache
+bun run demo:native:ios      # builds iOS, launches the app, and starts Metro
+bun run demo:native:android  # builds Android, launches the app, and starts Metro
+bun run demo:native          # starts Metro for Expo Go or an installed dev build
+bun run demo:native:clear    # same as above, with a cleared Metro cache
 ```
 
 The native demo defaults to a **development build** (it depends on `expo-dev-client`),
 which mirrors how a real shipped Expo app runs. Expo Go is still available as a
-fallback: run `npm run demo:native`, press `s` to switch to Expo Go, then press
+fallback: run `bun run demo:native`, press `s` to switch to Expo Go, then press
 `i` / `a` or scan the QR code.
 
-You do not need to run `npm run demo:native` before `npm run demo:native:ios` or
-`npm run demo:native:android`. The build commands start Metro themselves. Use
-`npm run demo:native` after the first dev build is installed, or when using Expo
+You do not need to run `bun run demo:native` before `bun run demo:native:ios` or
+`bun run demo:native:android`. The build commands start Metro themselves. Use
+`bun run demo:native` after the first dev build is installed, or when using Expo
 Go.
 
 ### Native Demo Details
@@ -260,10 +301,10 @@ See [`examples/native/src/RNFormInput.tsx`](./examples/native/src/RNFormInput.ts
 for the small input adapter. Each native tab renders the published `FormState`
 from `form-context-react-zod/devtools/native`.
 
-For iOS, install Xcode and CocoaPods, then run `npm run demo:native:ios`. A free
+For iOS, install Xcode and CocoaPods, then run `bun run demo:native:ios`. A free
 Apple ID can sign a real-device build for about 7 days. For Android, install
 Android Studio, create or launch an emulator, ensure JDK 17 is available, then
-run `npm run demo:native:android`.
+run `bun run demo:native:android`.
 
 This demo pins Expo SDK 54 / React Native 0.81 so it builds on Xcode 16.x.
 [`examples/native/metro.config.js`](./examples/native/metro.config.js) lets SDK
@@ -272,46 +313,48 @@ package exports, and pin shared peers (`react`, `react-native`, and `zod`) to
 the demo app's copies.
 
 > Rebuilt the library? The root native demo commands run `bun run build:lib`
-> first. If Metro still has stale output, restart it with `npm run demo:native:clear`.
+> first. If Metro still has stale output, restart it with `bun run demo:native:clear`.
 
 ## Development
 
+This repo uses [Bun](https://bun.sh) as its toolchain — the test runner, build
+scripts, and lockfile are all Bun-based. Install Bun, then:
+
 ```bash
 # Install repo dependencies
-npm install
+bun install
 
 # Check types, lint, and tests
-npm run type-check
-npm run lint
-npm test
+bun run type-check
+bun run lint
+bun test
 
 # Build the published package, and the web demo
-npm run build:lib
-npm run build:web
+bun run build:lib
+bun run build:web
 
 # Publish the web demo to GitHub Pages
-npm run deploy
+bun run deploy
 ```
 
 | Command               | Description                                                   |
 | --------------------- | ------------------------------------------------------------- |
-| `npm run type-check`  | Run TypeScript without emitting                               |
-| `npm run lint`        | Run ESLint                                                    |
-| `npm test`            | Run the test suite                                            |
-| `npm run build:lib`   | Build the package into `dist_module`                          |
-| `npm run build:web`   | Build the library, then the web demo into `examples/web/dist` |
-| `npm run preview`     | Preview the built web demo                                    |
-| `npm run deploy`      | Build and publish the web demo to GitHub Pages                |
-| `npm run publish:lib` | Publish `dist_module` to npm, then redeploy the demo to Pages |
+| `bun run type-check`  | Run TypeScript without emitting                               |
+| `bun run lint`        | Run ESLint                                                    |
+| `bun test`            | Run the test suite                                            |
+| `bun run build:lib`   | Build the package into `dist_module`                          |
+| `bun run build:web`   | Build the library, then the web demo into `examples/web/dist` |
+| `bun run preview`     | Preview the built web demo                                    |
+| `bun run deploy`      | Build and publish the web demo to GitHub Pages                |
+| `bun run publish:lib` | Publish `dist_module` to npm, then redeploy the demo to Pages |
 
-`npm run deploy` is manual. npm automatically runs `predeploy` first, so the
-actual flow is `npm run build:web` followed by `gh-pages -d examples/web/dist`.
-The `gh-pages` package pushes the built folder to the repository's `gh-pages`
-branch. GitHub Pages updates from that branch when the repo is configured to
-serve it.
+`bun run deploy` is manual. Bun runs the `predeploy` script first, so the actual
+flow is `bun run build:web` followed by `gh-pages -d examples/web/dist`. The
+`gh-pages` package pushes the built folder to the repository's `gh-pages` branch.
+GitHub Pages updates from that branch when the repo is configured to serve it.
 
-`npm run publish:lib` runs the checks + build, publishes `dist_module` to npm,
-then runs `npm run deploy` so the live demo on GitHub Pages is refreshed for the
+`bun run publish:lib` runs the checks + build, publishes `dist_module` to npm,
+then runs `bun run deploy` so the live demo on GitHub Pages is refreshed for the
 new release.
 
 ## Entry Points
@@ -367,10 +410,16 @@ server and client the same array.
 
 ## Library Structure
 
-The core library code is located in:
+All library source lives under [`src/`](./src):
 
-- `src/form-context.tsx` - Form context and hooks
-- `src/zod-helpers.ts` - Zod validation utilities
+- [`src/form-context.tsx`](./src/form-context.tsx) - `FormProvider` and the form context
+- [`src/hooks/`](./src/hooks) - `useFormContext`, `useField`, `useArrayField`
+- [`src/zod-helpers.ts`](./src/zod-helpers.ts) - Zod validation helpers
+- [`src/utils.ts`](./src/utils.ts) - path/value utilities (`getValueAtPath`, `serializePath`, …)
+- [`src/web.ts`](./src/web.ts) / [`src/form-provider-web.tsx`](./src/form-provider-web.tsx) - the web entry and `WebFormProvider`
+- [`src/devtools/`](./src/devtools) + [`src/components/`](./src/components) - the opt-in `FormState` panels
+
+The published entry points are described under [Entry Points](#entry-points).
 
 ## License
 

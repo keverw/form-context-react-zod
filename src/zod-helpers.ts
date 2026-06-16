@@ -22,7 +22,7 @@ export interface ValidationError {
  * state changes. Don't stash the returned object expecting it to update itself.
  */
 export interface FieldState {
-  /** All errors at this exact path (validation + server), unfiltered. */
+  /** All errors at this exact path (any source — client/server/manual), unfiltered. */
   errors: ValidationError[];
   /** The first error message, or null if the field has no errors. */
   error: string | null;

@@ -91,6 +91,22 @@ async function validateAsync<T>(
 
 Run a Zod schema against values and return a `ValidationResult`. `validate` is synchronous, while `validateAsync` supports schemas with async refinements.
 
+> **Note:** The form provider's built-in validation (`validateOnChange`,
+> `validateOnBlur`, `submit()`, etc.) runs the **synchronous** `validate` only —
+> it never awaits async refinements. So rather than baking async checks into the
+> schema with `.refine(async …)`, the simplest pattern is two steps: validate the
+> **shape/format synchronously** first, then — only if it passed — run any
+> **async/business checks** (e.g. "is this username taken?", a DB lookup).
+>
+> - **Client:** do the async step in `onSubmit` (or an effect) and surface its
+>   result through `helpers.setServerError` / `setError`. See
+>   [Handling Async Validation](./form-api.md#handling-async-validation).
+> - **Server:** re-validate before writing to your database — never trust the
+>   client. Run the **same schema** with `validate` (the helpers are isomorphic,
+>   so it's the exact schema you use on the client), then run the uniqueness/DB
+>   checks only once it's valid. Pass `isServer: true` so the errors come back
+>   tagged `source: 'server'`, ready to hand to the form.
+
 #### Options
 
 - `isServer`: Tag all errors as `source: 'server'` instead of `'client'`
@@ -116,9 +132,22 @@ function setValueAtPath(
   path: (string | number)[],
   value: unknown
 ): void;
+function serializePath(path: (string | number)[]): string;
+function deserializePath(serialized: string): (string | number)[];
 ```
 
 Utilities for reading and writing values at nested paths. `setValueAtPath` automatically creates intermediate objects or arrays as needed.
+
+`serializePath` / `deserializePath` convert a path array to and from the stable string key the form uses internally. The form's `touched` and `dirtyFields` maps are keyed by this serialized path, so reach for `serializePath` when reading them directly:
+
+```typescript
+import { serializePath } from 'form-context-react-zod';
+
+const emailDirty = form.dirtyFields[serializePath(['email'])];
+const emailTouched = form.touched[serializePath(['email'])];
+```
+
+(It is `JSON.stringify` under the hood, but importing the helper keeps you decoupled from that detail.)
 
 ## Usage Examples
 

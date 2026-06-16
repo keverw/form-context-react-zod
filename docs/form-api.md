@@ -5,6 +5,42 @@
 - [Overview](#overview)
 - [Core Components](#core-components)
   - [FormProvider](#formprovider)
+  - [Dirty Tracking](#dirty-tracking)
+    - [Baselines: `reset` vs `markPristine`](#baselines-reset-vs-markpristine)
+  - [Focus Management](#focus-management)
+    - [Error Sources](#error-sources)
+      - [Form-Level Errors: `setError([])` vs `setClientSubmissionError`](#form-level-errors-seterror-vs-setclientsubmissionerror)
+  - [FormSubmitHandler](#formsubmithandler)
+  - [FormHelpers Interface](#formhelpers-interface)
+  - [Error Types in the Form System](#error-types-in-the-form-system)
+    - [Client Submission Error Handling](#client-submission-error-handling)
+  - [Performance Optimizations](#performance-optimizations)
+  - [Hooks](#hooks)
+    - [useField](#usefield)
+    - [useArrayField](#usearrayfield)
+- [Form Submission](#form-submission)
+  - [Error Clearing on Resubmission](#error-clearing-on-resubmission)
+  - [Resetting the Form](#resetting-the-form)
+  - [Resetting With New Values](#resetting-with-new-values)
+  - [Submission ID Tracking](#submission-id-tracking)
+- [Best Practices](#best-practices)
+  - [Form Input Components](#form-input-components)
+  - [Handling Async Validation](#handling-async-validation)
+- [Validation](#validation)
+  - [Schema Definition](#schema-definition)
+  - [Server-Side Errors](#server-side-errors)
+- [Form State Management](#form-state-management)
+  - [Error Handling](#error-handling)
+  - [Form Validation States](#form-validation-states)
+    - [Error Priority](#error-priority)
+  - [Strict Mode Validation](#strict-mode-validation)
+- [Example Usage](#example-usage)
+  - [Basic Form](#basic-form)
+  - [Nested Objects](#nested-objects)
+  - [Dynamic Arrays](#dynamic-arrays)
+  - [Form With Server Validation](#form-with-server-validation)
+  - [Using the Native HTML Form Tag](#using-the-native-html-form-tag)
+  - [Multiple Children in FormProvider](#multiple-children-in-formprovider)
 
 <!-- tocstop -->
 
@@ -36,15 +72,15 @@ interface FormProviderProps<T> {
 > renders no host elements, so it works on web and React Native. The web entry
 > `form-context-react-zod/web` exports **`WebFormProvider`**, the same provider
 > plus two extra props for an HTML `<form>` element (on by default):
->
-> ```ts
-> import { WebFormProvider } from 'form-context-react-zod/web';
->
-> interface WebFormProviderProps<T> extends FormProviderProps<T> {
->   useFormTag?: boolean; // Wrap children in a <form> tag (preventDefault + Enter-to-submit). Default: true
->   formProps?: React.FormHTMLAttributes<HTMLFormElement>; // Attributes for the <form>. Default: undefined
-> }
-> ```
+
+```ts
+import { WebFormProvider } from 'form-context-react-zod/web';
+
+interface WebFormProviderProps<T> extends FormProviderProps<T> {
+  useFormTag?: boolean; // Wrap children in a <form> tag (preventDefault + Enter-to-submit). Default: true
+  formProps?: React.FormHTMLAttributes<HTMLFormElement>; // Attributes for the <form>. Default: undefined
+}
+```
 
 Provides context with:
 
@@ -332,7 +368,7 @@ Value operations:
 - `deleteField(path)`: Remove field at path. For an array item, later items' metadata (touched + errors, all sources) re-indexes down to follow them, instead of being wiped.
 - `reindexArray(arrayPath, newItems, indexMap)`: Low-level primitive that replaces an array and atomically re-indexes its item metadata (touched, validation + server errors) via `indexMap` (old index → new index, or `null` to drop). Prefer the [`useArrayField`](#usearrayfield) helpers, which wrap it.
 - `hasField(path)`: Check if field exists
-- `getValuePaths(path?: (string|number)[]): (string|number)[][]`: Get all value paths under given path
+- `getValuePaths(path?: (string|number)[]): (string|number)[][]`: Get all value paths under the given path — every node, including intermediate object/array-item containers, not just leaf fields
 
 Error operations:
 
@@ -551,22 +587,12 @@ Important Server Error Behaviors
 
 2. `setServerError(path: (string | number)[], message: string | string[] | null)`:
 
-   - **Scope**: Affects only the server errors for the _exact_ `path` specified.
+   - **Scope**: Affects only the server errors for the _exact_ `path` specified. Server errors at other paths, and all client/manual errors, are left untouched.
    - **Action with message(s)**: If `message` is a string or an array of strings, it replaces any existing server errors _only at that specific path_ with the new message(s).
    - **Action with `null`**: If `message` is `null`, it clears all server errors _only for that specific path_.
-   - Replaces ALL existing server errors
-   - Preserves validation errors
-   - Ignores errors for non-existent paths
-   - Root errors (empty path) always allowed
-
-3. `setServerError`:
-   - Replaces server errors at the SAME path level only
-   - Accepts single message or array of messages
-   - Ignores non-existent paths (except root)
-   - Preserves server errors at other paths
-   - Preserves all validation errors
-   - Pass `null` to clear all server errors at the specified path
-   - Use `setServerErrors([])` to clear all server errors while preserving validation errors
+   - Accepts a single message or an array of messages for the path.
+   - Unlike `setServerErrors`, it does **not** check path existence — the message is set at whatever `path` you pass. (`setServerErrors` filters out non-existent paths; `setServerError` does not.)
+   - To clear a single path, pass `null`; to clear all server errors at once, use `setServerErrors([])` (which preserves validation errors).
 
 ```tsx
 // Direct value operations
@@ -582,9 +608,13 @@ const isValid = form.validate();
 // Force validation and mark all fields as touched
 const isValidForced = form.validate(true);
 
-// Get all value paths under todos
+// Get all value paths under todos. This includes the intermediate
+// container nodes (each array item object), not just the leaves:
 const todoPaths = form.getValuePaths(['todos']);
-// Returns: [['todos', 0, 'text'], ['todos', 0, 'completed'], ...]
+// Returns: [
+//   ['todos', 0], ['todos', 0, 'text'], ['todos', 0, 'completed'],
+//   ['todos', 1], ['todos', 1, 'text'], ['todos', 1, 'completed'], ...
+// ]
 
 // Get errors at specific level
 const errors = form.getError(['todos', 0]);
@@ -607,7 +637,7 @@ const state = form.getFieldState(['email']);
 
 ```tsx
 export interface FieldState {
-  /** All errors at this exact path (validation + server), unfiltered. */
+  /** All errors at this exact path (any source — client/server/manual), unfiltered. */
   errors: ValidationError[];
   /** The first error message, or null if the field has no errors. */
   error: string | null;
@@ -649,14 +679,22 @@ The form library includes several performance optimizations:
 
 Each public mutator (e.g. `setValue`, `setFieldTouched`, `setServerError`) collects all its internal state tweaks into one dispatch() call, so one re-render happens per operation, no matter how many bits of state it changes.
 
-2. Optimized validation:
+2. Per-field re-render isolation:
 
-   - Validation only runs when needed
-   - Cache timestamps of last validation
-   - Only validate changed fields when possible
+   - `useField` and `useArrayField` subscribe to only their own field's slice
+     (value/touched/errors) via `useSyncExternalStore`, so editing one field
+     re-renders just that field instead of every field on the form. On a large
+     form a keystroke re-renders one input, not all of them. (Whole-form
+     consumers like `FormState` still read the reactive context and update on any
+     change, as intended.)
+   - Note that validation itself always runs the **whole** schema — there is no
+     partial/field-scoped validation (Zod validates the whole object, so
+     cross-field `.refine()` rules work). What's optimized is the _re-rendering_,
+     not the validation pass.
 
 3. Efficient state management:
    - Uses React's useReducer for state management
+   - `lastValidated` timestamps each validation pass
    - Only rerenders when relevant state changes
 
 ### Hooks
@@ -862,24 +900,26 @@ When using the `onSubmit` prop, it receives the form values and a set of helper 
 When a form is submitted, the library automatically clears:
 
 - All server errors (`source: 'server'`)
-- All client error slot messages (`source: 'client-form-handler'`)
+- All manual errors (`source: 'manual'`, set via `setError`)
+- All client submission errors (`source: 'client-form-handler'`)
 
-This provides a clean slate for each submission attempt, ensuring old error messages don't persist when the user tries again. Validation errors are rechecked during submission and will still appear if validation fails.
+This provides a clean slate for each submission attempt, ensuring old error messages don't persist when the user tries again. Validation errors (`source: 'client'`) are rechecked during submission and will still appear if validation fails.
 
 ```tsx
 // This happens automatically on form submission:
-// 1. Clear all server errors
-// 2. Clear client error slot
-// 3. Perform validation
-// 4. Submit if valid
+// 1. Clear all server, manual, and client submission errors
+// 2. Perform validation
+// 3. Submit if valid
 form.submit();
 ```
 
-The `helpers` object provides access to:
+The `helpers` object (`FormHelpers<T>`, see the [full interface](#formhelpers-interface)) provides access to:
 
 - `setErrors`: Set all errors
 - `setServerErrors`: Replace all server errors
 - `setServerError`: Set server error for specific path
+- `setError`: Set (or clear, with `null`) a manual error at a path
+- `setClientSubmissionError` / `clearClientSubmissionError` / `getClientSubmissionError`: Manage form-level client submission errors
 - `setValue`: Update field value
 - `clearValue`: Reset field to empty value
 - `deleteField`: Remove field
@@ -891,6 +931,9 @@ The `helpers` object provides access to:
 - `resetWithValues`: Reset form with new values
 - `currentSubmissionID`: The ID of the current submission
 - `isCurrentSubmission`: Function to check if a submission ID is current
+- `signal`: `AbortSignal` for this submission — aborts on force-reset / unmount (pass to `fetch`)
+- `markPristine`: Re-baseline the dirty state after a save (see [Dirty Tracking](#dirty-tracking))
+- `setFocus` / `focusFirstError`: Move focus imperatively (see [Focus Management](#focus-management))
 
 ### Resetting the Form
 
@@ -1299,7 +1342,12 @@ Server errors should be structured to match form fields and can be set using the
 interface ValidationError {
   path: (string | number)[];
   message: string;
-  source?: 'client' | 'server';
+  // 'client' — Zod schema validation (recomputed each validate)
+  // 'server' — setServerError(s)
+  // 'manual' — setError
+  // 'client-form-handler' — setClientSubmissionError (form-level)
+  // See "Error Sources" for the full lifecycle of each.
+  source?: 'client' | 'server' | 'manual' | 'client-form-handler';
 }
 
 // Example server errors
@@ -1364,9 +1412,18 @@ This pattern ensures the submit button is only enabled when the entire form is v
 
 #### Error Priority
 
-1. Server errors (cleared on edit)
-2. Zod validation errors (if field touched or form submitted)
-3. Required field errors (if field touched or form submitted)
+Errors differ in **when they show**, not in a ranked precedence — `getError(path)`
+returns every error at a path regardless of source. The practical display rules
+(see the [Error Sources](#error-sources) table for the full lifecycle) are:
+
+- **Server (`server`) and manual (`manual`) errors** show immediately, regardless
+  of `touched`, and clear when the field is edited (or on submit/reset).
+- **Zod validation errors (`client`)** are recomputed on every validate and, via
+  `useField`, display only once the field is touched or the form has been
+  submitted. (Required-field errors are ordinary Zod `client` errors — there's no
+  separate category.)
+- **Client submission errors (`client-form-handler`)** are form-level (path `[]`),
+  read via `getClientSubmissionError()`, and cleared at submit start.
 
 ### Strict Mode Validation
 
@@ -1392,8 +1449,6 @@ const error = {
 
 ```tsx
 function BasicForm() {
-  const form = useFormContext();
-
   return (
     <FormProvider
       initialValues={{ name: '', email: '' }}
@@ -1405,20 +1460,35 @@ function BasicForm() {
         await submitToServer(values);
       }}
     >
-      <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          form.submit();
-        }}
-      >
-        <NameField />
-        <EmailField />
-        <SubmitButton />
-      </form>
+      {/* `useFormContext` must be called from a component INSIDE the provider,
+          so the <form> + submit live in their own child component. */}
+      <BasicFormBody />
     </FormProvider>
   );
 }
+
+function BasicFormBody() {
+  const form = useFormContext();
+
+  return (
+    <form
+      onSubmit={(e) => {
+        e.preventDefault();
+        form.submit();
+      }}
+    >
+      <NameField />
+      <EmailField />
+      <SubmitButton />
+    </form>
+  );
+}
 ```
+
+(This is a **web** example. The `<form>` + `preventDefault` wiring is DOM-only —
+on the web you can skip it entirely with [`WebFormProvider`](#formprovider) from
+`form-context-react-zod/web`, which renders the `<form>` for you. On React Native
+there is no `<form>`; just call `form.submit()` from a button's `onPress`.)
 
 ### Nested Objects
 
@@ -1541,8 +1611,12 @@ Benefits of using the native form tag:
 
 - Works with browser's built-in form submission (Enter key submits the form)
 - Allows using standard HTML form attributes
-- Supports native HTML form validation alongside Zod validation
 - Improves accessibility with proper form semantics
+
+> The `<form>` is rendered with `noValidate`, so the browser's own constraint
+> validation is **off** by default and Zod is the single source of truth (this
+> avoids the two validators disagreeing). If you specifically want native
+> constraint validation back, pass `formProps={{ noValidate: false }}`.
 
 ### Multiple Children in FormProvider
 
