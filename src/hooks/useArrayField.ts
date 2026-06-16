@@ -140,9 +140,10 @@ export function useArrayField(path: (string | number)[]) {
     [ctx, path]
   );
 
-  // Move one item; intermediate items shift to fill the gap.
+  // Move one item; intermediate items shift to fill the gap. Returns `false`
+  // (a no-op) if either index is out of range or `from === to`, `true` if it moved.
   const move = useCallback(
-    (from: number, to: number) => {
+    (from: number, to: number): boolean => {
       if (
         from < 0 ||
         from >= items.length ||
@@ -150,7 +151,7 @@ export function useArrayField(path: (string | number)[]) {
         to >= items.length ||
         from === to
       ) {
-        return;
+        return false;
       }
       const newItems = [...items];
       const [item] = newItems.splice(from, 1);
@@ -161,11 +162,13 @@ export function useArrayField(path: (string | number)[]) {
         if (from > to && j >= to && j < from) return j + 1;
         return j;
       });
+      return true;
     },
     [ctx, items, path]
   );
 
-  // Insert at `index` (clamped to [0, length]); items at/after it shift up.
+  // Insert at `index` (clamped to [0, length]); items at/after it shift up. The
+  // index is clamped rather than rejected, so this always inserts (no no-op case).
   const insert = useCallback(
     (index: number, item: unknown) => {
       const i = Math.max(0, Math.min(index, items.length));
@@ -178,15 +181,17 @@ export function useArrayField(path: (string | number)[]) {
   // Insert at the front.
   const prepend = useCallback((item: unknown) => insert(0, item), [insert]);
 
-  // Swap two items; their metadata (and ids) follow them.
+  // Swap two items; their metadata (and ids) follow them. Returns `false` (a no-op)
+  // if either index is out of range or `a === b`, `true` if it swapped.
   const swap = useCallback(
-    (a: number, b: number) => {
+    (a: number, b: number): boolean => {
       if (a === b || a < 0 || b < 0 || a >= items.length || b >= items.length) {
-        return;
+        return false;
       }
       const newItems = [...items];
       [newItems[a], newItems[b]] = [newItems[b], newItems[a]];
       ctx.reindexArray(path, newItems, (j) => (j === a ? b : j === b ? a : j));
+      return true;
     },
     [ctx, items, path]
   );
@@ -201,13 +206,17 @@ export function useArrayField(path: (string | number)[]) {
     [ctx, path]
   );
 
-  // Replace a single item in place. Sugar for setValue at the item path — setValue
-  // already clears that field's own errors and (with validateOnChange)
+  // Replace an EXISTING item in place. Sugar for setValue at the item path —
+  // setValue already clears that field's own errors and (with validateOnChange)
   // re-validates. The item keeps its id (same slot; not a structural change).
+  // Unlike a raw `setValue`, it only targets an in-range index: it returns `false`
+  // (a no-op) for an out-of-range index rather than creating/extending the array,
+  // and `true` when it updated an existing item.
   const update = useCallback(
-    (index: number, item: unknown) => {
-      if (index < 0 || index >= items.length) return;
+    (index: number, item: unknown): boolean => {
+      if (index < 0 || index >= items.length) return false;
       ctx.setValue([...path, index], item);
+      return true;
     },
     [ctx, items, path]
   );

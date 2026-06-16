@@ -1,5 +1,5 @@
 import { describe, it, expect, jest } from 'bun:test';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { z } from 'zod';
 import { FormProvider } from '../form-context';
@@ -1062,5 +1062,89 @@ describe('useArrayField re-render isolation', () => {
 
     // Sanity: adding an item DOES re-render it.
     expect(screen.getByTestId('arr-count').textContent).toBe('1');
+  });
+});
+
+// move/swap/update report whether they actually did something: a valid call
+// returns true, an out-of-range/equal-index no-op returns false (mirroring
+// reset/clearValue/setFocus). The last return value is surfaced via a testid.
+describe('useArrayField move/swap/update return a boolean', () => {
+  function ReturnProbe() {
+    const { items, move, swap, update } = useArrayField(['todos']);
+    // useState (not useRef) so a NO-OP call — which doesn't change the array and
+    // so wouldn't otherwise re-render — still surfaces its recorded return value.
+    const [last, setLast] = useState<boolean | null>(null);
+    const run = (fn: () => boolean) => {
+      setLast(fn());
+    };
+    return (
+      <div>
+        <div data-testid="count">{items.length}</div>
+        <div data-testid="last">{String(last)}</div>
+        <button data-testid="move-ok" onClick={() => run(() => move(0, 2))}>
+          move ok
+        </button>
+        <button data-testid="move-eq" onClick={() => run(() => move(1, 1))}>
+          move equal
+        </button>
+        <button data-testid="move-oob" onClick={() => run(() => move(0, 99))}>
+          move out of range
+        </button>
+        <button data-testid="swap-ok" onClick={() => run(() => swap(0, 1))}>
+          swap ok
+        </button>
+        <button data-testid="swap-eq" onClick={() => run(() => swap(2, 2))}>
+          swap equal
+        </button>
+        <button
+          data-testid="update-ok"
+          onClick={() => run(() => update(1, 'z'))}
+        >
+          update ok
+        </button>
+        <button
+          data-testid="update-oob"
+          onClick={() => run(() => update(9, 'z'))}
+        >
+          update out of range
+        </button>
+      </div>
+    );
+  }
+
+  const renderProbe = () =>
+    render(
+      <FormProvider initialValues={{ todos: ['a', 'b', 'c'] }} onSubmit={jest.fn()}>
+        <ReturnProbe />
+      </FormProvider>
+    );
+
+  it('move returns true on success, false on no-op', () => {
+    renderProbe();
+    fireEvent.click(screen.getByTestId('move-ok'));
+    expect(screen.getByTestId('last').textContent).toBe('true');
+    fireEvent.click(screen.getByTestId('move-eq'));
+    expect(screen.getByTestId('last').textContent).toBe('false');
+    fireEvent.click(screen.getByTestId('move-oob'));
+    expect(screen.getByTestId('last').textContent).toBe('false');
+  });
+
+  it('swap returns true on success, false on equal indices', () => {
+    renderProbe();
+    fireEvent.click(screen.getByTestId('swap-ok'));
+    expect(screen.getByTestId('last').textContent).toBe('true');
+    fireEvent.click(screen.getByTestId('swap-eq'));
+    expect(screen.getByTestId('last').textContent).toBe('false');
+  });
+
+  it('update returns true for an in-range index, false out of range', () => {
+    renderProbe();
+    fireEvent.click(screen.getByTestId('update-ok'));
+    expect(screen.getByTestId('last').textContent).toBe('true');
+    // Out-of-range update is a no-op: false, and the array length is unchanged
+    // (it does not extend the array the way a raw setValue would).
+    fireEvent.click(screen.getByTestId('update-oob'));
+    expect(screen.getByTestId('last').textContent).toBe('false');
+    expect(screen.getByTestId('count').textContent).toBe('3');
   });
 });

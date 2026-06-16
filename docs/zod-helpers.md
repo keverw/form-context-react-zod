@@ -91,6 +91,8 @@ async function validateAsync<T>(
 
 Run a Zod schema against values and return a `ValidationResult`. `validate` is synchronous, while `validateAsync` supports schemas with async refinements.
 
+`ValidationSchema<T>` (the `schema` parameter's type) is just an alias for Zod's `z.ZodType<T>`, exported from the package root for convenience when you want to annotate a schema variable.
+
 > **Note:** The form provider's built-in validation (`validateOnChange`,
 > `validateOnBlur`, `submit()`, etc.) runs the **synchronous** `validate` only.
 > It never awaits async refinements. So rather than baking async checks into the
@@ -151,6 +153,19 @@ const emailTouched = form.touched[serializePath(['email'])];
 ```
 
 (It is `JSON.stringify` under the hood, but importing the helper keeps you decoupled from that detail.)
+
+> **`serializePath` is only for direct map reads.** You need it solely when
+> indexing the `touched` / `dirtyFields` records yourself. Every API that takes a
+> `path` — `getValue`, `setValue`, `getError`, `setError`, `getFieldState`,
+> `setFocus`, `useField`, `useArrayField`, etc. — takes the **raw path array**
+> (e.g. `['email']` for a top-level field, or `['todos', 0, 'text']` for a nested
+> one), never the serialized string. Don't pass a `serializePath(...)` result into
+> those.
+>
+> In practice [`useField`](./form-api.md#usefield) sidesteps this entirely: pass it
+> the path array and it gives you `isTouched` (and the touch-gated `error`) for that
+> field directly, so you never index the serialized maps. Reach for `serializePath`
+> only when reading `touched` / `dirtyFields` from the raw context yourself.
 
 ## Usage Examples
 

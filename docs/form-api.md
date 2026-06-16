@@ -95,7 +95,7 @@ State getters:
 - `isSubmitting`: Boolean indicating submission state
 - `isValid`: Boolean. `true` when the form currently has **no errors at all** from any source, including Zod, server, manual, or client-submission errors, **and** a validation has run (`lastValidated !== null`, or there's no `schema`). It reflects the **whole** form, not just touched fields. Any error anywhere makes it `false`. It is _not_ the touched-gated "is what I've filled so far OK" signal. For that, read a field's own error via [`useField`](#usefield)/`getFieldState`. Note it stays `false` until the first validation runs (on a schema form with `validateOnChange`, that's the first edit). Use `canSubmit` to gate the submit button.
 - `canSubmit`: Boolean indicating if the entire form passes Zod schema validation, regardless of which fields have been touched. A form with **no `schema`** is vacuously submittable, so `canSubmit` is `true` for it. **Caveat (schema forms): `canSubmit` starts `false` and only becomes accurate after the first validation pass runs.** Like `isValid`, it stays `false` until something triggers validation, such as the first edit/blur (with the default `validateOnChange`/`validateOnBlur`), a `submit()`, or a manual `validate()`. So a form rendered with **valid `initialValues` that the user hasn't touched yet** reads `canSubmit === false`, which means a submit button wired as `disabled={!form.canSubmit}` is disabled even though the data is valid. If you prefill a form and want the button enabled on load, pass [`validateOnMount`](#formprovider) (which runs a validation pass at mount) or call `form.validate()` yourself.
-- `submitAttempted`: Boolean. `true` once the user has tried to submit at all, pass or fail. Stays `true` for the duration of the submission and after it settles, then cleared by `reset`/`resetWithValues`. Use it _alongside_ `touched` to reveal errors. Gate on `touched[field] || submitAttempted` so each field shows its error once the user has interacted with it **or** has hit submit, which surfaces errors on fields they skipped. `submit()` also marks every field touched, so on its own `touched` covers this. `submitAttempted` is the cleaner signal if you'd rather key the "reveal everything" moment off the attempt itself.
+- `submitAttempted`: Boolean. `true` once the user has tried to submit at all, pass or fail. Stays `true` for the duration of the submission and after it settles, then cleared by `reset`/`resetWithValues`. Use it _alongside_ `touched` to reveal errors. Gate on `touched[serializePath(fieldPath)] || submitAttempted` so each field shows its error once the user has interacted with it **or** has hit submit, which surfaces errors on fields they skipped. (`touched` is keyed by the serialized path — even a single top-level field is `serializePath(['email'])`, i.e. `'["email"]'`, not the bare `'email'` — so always look it up through `serializePath`.) `submit()` also marks every field touched, so on its own `touched` covers this. `submitAttempted` is the cleaner signal if you'd rather key the "reveal everything" moment off the attempt itself.
 - `submitSucceeded`: Boolean. `true` only if the **most recent** attempt completed cleanly: validation passed, `onSubmit` resolved without throwing, **and** no submission error is present when it settles. "Submission error" is defined by `source`. Any `server`, `manual`, or `client-form-handler` error left behind by the handler flips it `false`, regardless of which setter created it (`setServerError(s)`, `setError`, `setClientSubmissionError`, or a raw `setErrors` carrying one of those sources). It's `false` while a submit is in flight and flips to its final value when the attempt settles.
 - `submitCount`: Number. Running count of submit attempts (bumped at the start of each `submit()`, including ones that fail validation). Reset to `0` by `reset`/`resetWithValues`.
 - `errors`: Current validation/server errors
@@ -380,7 +380,7 @@ Value operations:
   > **Other non-plain objects:** a `Date` is treated as a terminal leaf and clears to `null` (consistent with how the library treats Dates elsewhere). Other non-plain objects (`Map`, `Set`, class instances, etc.) still fall through the recursive object rule, which walks enumerable own properties. They have none, so they come back as `{}`, **not** a cleared instance. `clearValue` is meant for primitive/collection (and `Date`) fields. For any other non-plain object, clear it yourself with `setValue(path, null)` (or whatever your schema's "empty" is) rather than relying on `clearValue`.
 
 - `deleteField(path)`: Remove field at path. For an array item, later items' metadata (touched + errors, all sources) re-indexes down to follow them, instead of being wiped. Like `setValue`, when `validateOnChange` is on it re-runs the **whole** schema and refreshes every field's Zod error, so a cross-field rule (e.g. a `.refine()` on a sibling, or an array-level `z.array().min`) updates live when an item is removed.
-- `reindexArray(arrayPath, newItems, indexMap)`: Low-level primitive that replaces an array and atomically re-indexes its item metadata (touched, validation + server errors) via `indexMap` (old index → new index, or `null` to drop). Prefer the [`useArrayField`](#usearrayfield) helpers, which wrap it.
+- `reindexArray(arrayPath, newItems, indexMap)`: Low-level primitive that replaces an array and atomically re-indexes its item metadata (touched markers and errors of **every** source — validation, server, and manual) via `indexMap` (old index → new index, or `null` to drop). Prefer the [`useArrayField`](#usearrayfield) helpers, which wrap it.
 - `hasField(path)`: Check if field exists
 - `getValuePaths(path?: (string|number)[]): (string|number)[][]`: Get all value paths under the given path, including every node and intermediate object/array-item container, not just leaf fields
 
@@ -434,6 +434,11 @@ different `source`, lifecycle, and a dedicated getter:
 - `setError([], msg)` → a `source: 'manual'` error at path `[]`. It's a
   _field-style_ error that happens to live at the root, and it persists like other
   field errors, survives re-validation, and is cleared on submit start / reset.
+  Note the "manual errors clear when the field is edited" rule (see the
+  [Error Sources](#error-sources) table) is **per-path**: editing some field at
+  `['name']` does not clear a root error at `[]` (its path isn't at or under the
+  edited path). A root `manual` error clears on submit start / reset, or via
+  `setError([], null)`.
 - `setClientSubmissionError(msg)` → a `source: 'client-form-handler'` error,
   purpose-built for "the submission itself failed" (network/auth). It's also
   mirrored in a dedicated store so `getClientSubmissionError()` can return **just
@@ -880,16 +885,25 @@ the array so they follow their items:
 - `arrayFieldIDs`: a stable id per item, parallel to `items`. Use it as the React
   `key` instead of the array index. See "Stable Keys" below.
 - `add(item)`: append an item to the end.
-- `prepend(item)`: insert an item at the front (`insert(0, item)`).
-- `insert(index, item)`: insert at `index` (clamped to `[0, length]`). Items at/after it shift up.
+- `prepend(item)`: insert an item at the front (`insert(0, item)`). The index is
+  clamped, so it always inserts.
+- `insert(index, item)`: insert at `index` (clamped to `[0, length]`). Items at/after
+  it shift up. The index is clamped rather than rejected, so it always inserts.
 - `remove(index)`: remove the item at `index`. Later items shift down to fill the gap, and their errors/touched markers shift with them (the removed item's metadata is dropped).
-- `move(from, to)`: reorder one item. Intermediate items shift to fill the gap.
-- `swap(a, b)`: exchange two items. Their errors/touched follow them.
+- `move(from, to): boolean`: reorder one item. Intermediate items shift to fill the
+  gap. Returns `false` (a no-op) if either index is out of range or `from === to`,
+  `true` if it moved.
+- `swap(a, b): boolean`: exchange two items. Their errors/touched follow them.
+  Returns `false` (a no-op) if either index is out of range or `a === b`, `true` if
+  it swapped.
 - `replace(newItems)`: replace the whole array. Per-index errors/touched no longer
   correspond to the new items, so they're dropped (validation regenerates as fields
   are touched).
-- `update(index, item)`: replace a single item. Convenience for
-  `form.setValue([...path, index], item)`.
+- `update(index, item): boolean`: replace an **existing** item in place. Sugar for
+  `form.setValue([...path, index], item)`, but scoped to an in-range index: it
+  returns `false` (a no-op) for an out-of-range index rather than
+  creating/extending the array the way a raw `setValue` would, and `true` when it
+  updated an item.
 
 Example:
 
@@ -1141,6 +1155,11 @@ This helps prevent race conditions when:
 - Async operations complete out of order
 
 ## Best Practices
+
+> The `FormInput`, `EmailInput`, `PhoneInput`, etc. components in this section are
+> **illustrative app-level components**, not exports of this library. The library
+> ships the hooks (`useField`/`useArrayField`) and context; you build the input
+> components yourself (see the [demos](../README.md#demos) for full versions examples).
 
 ### Form Input Components
 
@@ -1731,6 +1750,9 @@ Benefits of the `WebFormProvider` wrapper (native `<form>` tag):
 The FormProvider can accept multiple children, allowing you to split your form into separate components while sharing the same form context:
 
 ```tsx
+import { useContext } from 'react';
+import { FormContext, serializePath } from 'form-context-react-zod';
+
 function MultiSectionForm() {
   return (
     <FormProvider
@@ -1776,7 +1798,9 @@ function PersonalInfoSection() {
         onChange={(value) => form.setValue(['firstName'], value)}
         onBlur={() => form.setFieldTouched(['firstName'], true)}
         errorText={form.getError(['firstName'])[0]?.message}
-        touched={!!form.touched['firstName']}
+        // `touched` is keyed by the serialized path, so read it with serializePath
+        // — `form.touched['firstName']` (a bare string key) would always be undefined.
+        touched={!!form.touched[serializePath(['firstName'])]}
       />
 
       <FormInput
@@ -1785,7 +1809,7 @@ function PersonalInfoSection() {
         onChange={(value) => form.setValue(['lastName'], value)}
         onBlur={() => form.setFieldTouched(['lastName'], true)}
         errorText={form.getError(['lastName'])[0]?.message}
-        touched={!!form.touched['lastName']}
+        touched={!!form.touched[serializePath(['lastName'])]}
       />
     </div>
   );
