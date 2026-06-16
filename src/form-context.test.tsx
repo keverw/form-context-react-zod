@@ -1231,16 +1231,18 @@ describe('FormProvider', () => {
     expect(screen.getByTestId('bio-error')).toBeInTheDocument();
     expect(screen.getByTestId('bio-error').textContent).toBe('Bio is too long');
 
-    // Change a field value to verify error is cleared
+    // Change a field value, which triggers a full revalidation. These errors were
+    // set UNTAGGED (no `source`) via setErrors — i.e. ordinary validation-style
+    // errors per the contract — and the schema finds nothing wrong, so the recompute
+    // clears ALL of them, not just the edited field's. (Reach for setError/
+    // setServerError when you want an error that survives a sibling edit.)
     fireEvent.click(screen.getByTestId('change-username'));
 
     await advanceTimers();
 
-    // Username error should be cleared because the field value changed
     expect(screen.queryByTestId('username-error')).not.toBeInTheDocument();
-    // Other errors should remain
-    expect(screen.getByTestId('email-error')).toBeInTheDocument();
-    expect(screen.getByTestId('bio-error')).toBeInTheDocument();
+    expect(screen.queryByTestId('email-error')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('bio-error')).not.toBeInTheDocument();
 
     // Clear all errors
     fireEvent.click(screen.getByTestId('clear-errors'));
@@ -1251,6 +1253,65 @@ describe('FormProvider', () => {
     expect(screen.queryByTestId('username-error')).not.toBeInTheDocument();
     expect(screen.queryByTestId('email-error')).not.toBeInTheDocument();
     expect(screen.queryByTestId('bio-error')).not.toBeInTheDocument();
+  });
+
+  it('setErrors syncs the per-source baselines (server + client-submission channels)', async () => {
+    // Regression: setErrors is a wholesale replace, and server / client-form-handler
+    // errors each keep a parallel store. A raw setErrors([{ source: 'server', … }])
+    // must update serverErrorsRef too — otherwise a later targeted setServerError
+    // rebuilds from a stale baseline and silently drops the raw server error. The
+    // client-submission channel must likewise be readable via getClientSubmissionError.
+    function Probe() {
+      const form = useFormContext();
+      return (
+        <div>
+          <div data-testid="email-errs">{form.getError(['email']).length}</div>
+          <div data-testid="name-errs">{form.getError(['name']).length}</div>
+          <div data-testid="submission-errs">
+            {form.getClientSubmissionError().join(',')}
+          </div>
+          <button
+            data-testid="raw-set"
+            onClick={() =>
+              form.setErrors([
+                { path: ['email'], message: 'Email taken', source: 'server' },
+                {
+                  path: [],
+                  message: 'Network down',
+                  source: 'client-form-handler',
+                },
+              ])
+            }
+          />
+          <button
+            data-testid="set-other-server"
+            // Targeted server error at a DIFFERENT path — rebuilds from serverErrorsRef.
+            onClick={() => form.setServerError(['name'], 'Name bad')}
+          />
+        </div>
+      );
+    }
+
+    render(
+      <TestForm initialValues={{ email: 'a@b.c', name: 'x' }}>
+        <Probe />
+      </TestForm>
+    );
+
+    // Raw setErrors with a server + a client-submission entry.
+    fireEvent.click(screen.getByTestId('raw-set'));
+    await advanceTimers();
+    expect(screen.getByTestId('email-errs').textContent).toBe('1');
+    // The client-submission channel reflects the raw entry (synced baseline).
+    expect(screen.getByTestId('submission-errs').textContent).toBe(
+      'Network down'
+    );
+
+    // A later targeted setServerError must NOT drop the raw server error at ['email'].
+    fireEvent.click(screen.getByTestId('set-other-server'));
+    await advanceTimers();
+    expect(screen.getByTestId('email-errs').textContent).toBe('1'); // survived
+    expect(screen.getByTestId('name-errs').textContent).toBe('1'); // added
   });
 
   it('tests setServerErrors function for setting multiple server-side errors', async () => {
@@ -2276,6 +2337,57 @@ describe('FormProvider', () => {
     expect(screen.getByTestId('name-source').textContent).toBe('manual');
   });
 
+  it('a handler that rejects via raw setErrors (server source) is not a success', async () => {
+    // setErrors is the low-level whole-list overwrite, but the failure flag keys
+    // off the error `source`, not the setter — so a server-sourced error set this
+    // way still marks the attempt as failed, just like setServerError would.
+    const onSubmit = jest.fn(async (_values, helpers) => {
+      helpers.setErrors([
+        { path: ['name'], message: 'Name already taken', source: 'server' },
+      ]);
+    });
+
+    render(
+      <TestForm initialValues={{ name: 'John' }} onSubmit={onSubmit}>
+        <SubmitStatus />
+      </TestForm>
+    );
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('submit-button'));
+    });
+    await advanceTimers();
+
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId('attempted').textContent).toBe('attempted');
+    expect(screen.getByTestId('succeeded').textContent).toBe('not-succeeded');
+  });
+
+  it('a handler that sets only client-sourced errors via setErrors still succeeds', async () => {
+    // Boundary: a 'client' (or untagged) error is an ordinary validation-style
+    // entry, not a submission rejection, so it does NOT flag a failed attempt.
+    const onSubmit = jest.fn(async (_values, helpers) => {
+      helpers.setErrors([
+        { path: ['name'], message: 'looks off', source: 'client' },
+      ]);
+    });
+
+    render(
+      <TestForm initialValues={{ name: 'John' }} onSubmit={onSubmit}>
+        <SubmitStatus />
+      </TestForm>
+    );
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('submit-button'));
+    });
+    await advanceTimers();
+
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId('attempted').textContent).toBe('attempted');
+    expect(screen.getByTestId('succeeded').textContent).toBe('succeeded');
+  });
+
   it('a handler that throws is an attempt but not a success', async () => {
     const onSubmit = jest.fn(() => {
       throw new Error('boom');
@@ -2982,6 +3094,80 @@ describe('FormProvider', () => {
     expect(screen.queryByTestId('age-error')).not.toBeInTheDocument();
   });
 
+  it('validate() clears a stale cross-field client error once the form becomes valid', async () => {
+    // A cross-field refine reports its error on ['confirm']. With validateOnChange
+    // off, fixing the mismatch by editing ['password'] only clears ['password']'s
+    // own errors — the stale ['confirm'] error survives until the next validation.
+    // A standalone validate() that now passes must drop it (regression: it used to
+    // leave the stale 'client' error behind because the valid branch was a no-op).
+    const schema = z
+      .object({
+        password: z.string(),
+        confirm: z.string(),
+      })
+      .refine((d) => d.password === d.confirm, {
+        message: 'Passwords must match',
+        path: ['confirm'],
+      });
+
+    const TestComponent = () => {
+      const form = useFormContext();
+      return (
+        <div>
+          <div data-testid="confirm-error">
+            {form.getError(['confirm'])[0]?.message ?? 'none'}
+          </div>
+          <button
+            data-testid="force-validate"
+            onClick={() => form.validate(true)}
+          >
+            Force validate
+          </button>
+          <button
+            data-testid="fix-password"
+            onClick={() => form.setValue(['password'], 'xyz')}
+          >
+            Fix password
+          </button>
+          <button data-testid="validate" onClick={() => form.validate()}>
+            Validate
+          </button>
+        </div>
+      );
+    };
+
+    render(
+      <TestForm
+        initialValues={{ password: 'abc', confirm: 'xyz' }}
+        schema={schema}
+        validateOnMount={false}
+        validateOnChange={false}
+      >
+        <TestComponent />
+      </TestForm>
+    );
+
+    // Surface the mismatch error on ['confirm'].
+    fireEvent.click(screen.getByTestId('force-validate'));
+    await advanceTimers();
+    expect(screen.getByTestId('confirm-error').textContent).toBe(
+      'Passwords must match'
+    );
+
+    // Make the two fields match by editing ['password']. With validateOnChange off,
+    // this clears only ['password']'s errors and leaves ['confirm']'s stale one.
+    fireEvent.click(screen.getByTestId('fix-password'));
+    await advanceTimers();
+    expect(screen.getByTestId('confirm-error').textContent).toBe(
+      'Passwords must match'
+    );
+
+    // A standalone validate() now passes and must clear the stale client error.
+    fireEvent.click(screen.getByTestId('validate'));
+    await advanceTimers();
+    expect(screen.getByTestId('confirm-error').textContent).toBe('none');
+  });
+
   it('handles errors thrown in onSubmit by setting them as client submission errors', async () => {
     const initialValues = { username: 'testuser' };
     const errorMessage = 'Test submission error';
@@ -3585,6 +3771,212 @@ describe('FormProvider', () => {
 
     // Verify touched state is cleared
     expect(screen.getByTestId('touched-state').textContent).toBe('untouched');
+  });
+
+  it('clears currentSubmissionID on a normal reset after a completed submission', async () => {
+    const onSubmit = jest.fn().mockResolvedValue(undefined);
+
+    const TestComponent = () => {
+      const form = useFormContext();
+      // Remember the last non-null submission ID so we can ask whether it's still
+      // current after a reset.
+      const [lastId, setLastId] = React.useState<string | null>(null);
+      React.useEffect(() => {
+        if (form.currentSubmissionID) {
+          // eslint-disable-next-line react-hooks/set-state-in-effect -- test helper: remembers the last non-null submission ID across clears
+          setLastId(form.currentSubmissionID);
+        }
+      }, [form.currentSubmissionID]);
+
+      return (
+        <div>
+          <div data-testid="current-submission-id">
+            {form.currentSubmissionID || 'none'}
+          </div>
+          <div data-testid="last-id-current">
+            {lastId ? form.isCurrentSubmission(lastId).toString() : 'no-id'}
+          </div>
+          <button data-testid="submit" onClick={form.submit}>
+            Submit
+          </button>
+          <button data-testid="reset" onClick={() => form.reset()}>
+            Reset
+          </button>
+        </div>
+      );
+    };
+
+    render(
+      <TestForm initialValues={{ name: 'John' }} onSubmit={onSubmit}>
+        <TestComponent />
+      </TestForm>
+    );
+
+    // Submit and let it settle — currentSubmissionID stays set after completion.
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('submit'));
+    });
+    await advanceTimers();
+
+    expect(screen.getByTestId('current-submission-id').textContent).not.toBe(
+      'none'
+    );
+    expect(screen.getByTestId('last-id-current').textContent).toBe('true');
+
+    // A normal (unforced) reset clears the submission tracking.
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('reset'));
+    });
+    await advanceTimers();
+
+    expect(screen.getByTestId('current-submission-id').textContent).toBe(
+      'none'
+    );
+    expect(screen.getByTestId('last-id-current').textContent).toBe('false');
+  });
+
+  it('exposes helpers.getValue reading the live value inside onSubmit', async () => {
+    let snapshotName: unknown;
+    let liveBeforeName: unknown;
+    let liveAfterName: unknown;
+
+    const onSubmit = jest.fn().mockImplementation((values, helpers) => {
+      snapshotName = values.name; // top-level argument: snapshot at submit start
+      liveBeforeName = helpers.getValue(['name']); // live read, matches snapshot
+      helpers.setValue(['name'], 'Edited in handler');
+      liveAfterName = helpers.getValue(['name']); // reflects the setValue above
+    });
+
+    const TestComponent = () => {
+      const form = useFormContext();
+      return (
+        <button data-testid="submit" onClick={form.submit}>
+          Submit
+        </button>
+      );
+    };
+
+    render(
+      <TestForm initialValues={{ name: 'Initial' }} onSubmit={onSubmit}>
+        <TestComponent />
+      </TestForm>
+    );
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('submit'));
+    });
+    await advanceTimers();
+
+    expect(snapshotName).toBe('Initial');
+    expect(liveBeforeName).toBe('Initial');
+    expect(liveAfterName).toBe('Edited in handler');
+  });
+
+  it('exposes the live read surface (getError/getErrorPaths/getFieldState/getValuePaths/hasField) on helpers', async () => {
+    const seen: Record<string, unknown> = {};
+
+    const onSubmit = jest.fn().mockImplementation((_values, helpers) => {
+      // Before any mutation: no error, field present, value paths include it.
+      seen.errorBefore = helpers.getError(['name']).length;
+      seen.stateBefore = helpers.getFieldState(['name']);
+      seen.hadFieldBefore = helpers.hasField(['name']);
+      seen.valuePathsBefore = helpers
+        .getValuePaths()
+        .map((p: (string | number)[]) => JSON.stringify(p));
+
+      // Mutate via helpers, then read back synchronously — no re-render in between.
+      helpers.setServerError(['name'], 'Taken');
+      seen.errorAfter = helpers.getError(['name']).length;
+      seen.errorPathsAfter = helpers
+        .getErrorPaths()
+        .map((p: (string | number)[]) => JSON.stringify(p));
+      seen.stateAfter = helpers.getFieldState(['name']);
+
+      helpers.deleteField(['name']);
+      seen.hadFieldAfter = helpers.hasField(['name']);
+    });
+
+    const TestComponent = () => {
+      const form = useFormContext();
+      return (
+        <button data-testid="submit" onClick={form.submit}>
+          Submit
+        </button>
+      );
+    };
+
+    render(
+      <TestForm initialValues={{ name: 'Initial' }} onSubmit={onSubmit}>
+        <TestComponent />
+      </TestForm>
+    );
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('submit'));
+    });
+    await advanceTimers();
+
+    expect(seen.errorBefore).toBe(0);
+    expect((seen.stateBefore as { invalid: boolean }).invalid).toBe(false);
+    expect((seen.stateBefore as { exists: boolean }).exists).toBe(true);
+    expect(seen.hadFieldBefore).toBe(true);
+    expect(seen.valuePathsBefore).toContain(JSON.stringify(['name']));
+
+    // The point: every read reflects the in-handler mutations immediately, rather
+    // than lagging behind a not-yet-committed render.
+    expect(seen.errorAfter).toBe(1);
+    expect(seen.errorPathsAfter).toContain(JSON.stringify(['name']));
+    expect((seen.stateAfter as { invalid: boolean }).invalid).toBe(true);
+    expect((seen.stateAfter as { error: string | null }).error).toBe('Taken');
+    expect(seen.hadFieldAfter).toBe(false);
+  });
+
+  it('exposes helpers.validateField, validating one field live inside onSubmit', async () => {
+    let validInvalid: boolean | undefined;
+    let validFixed: boolean | undefined;
+    let errorAfterFix: number | undefined;
+
+    const schema = z.object({ name: z.string().min(3) });
+
+    // Start valid ('abcd') so submit() passes its gate and onSubmit runs.
+    const onSubmit = jest.fn().mockImplementation((_values, helpers) => {
+      // Make the field invalid, then trigger: validateField reports false.
+      helpers.setValue(['name'], 'ab');
+      validInvalid = helpers.validateField(['name']);
+      // Fix it, re-trigger: now it passes and the field's error clears — all live.
+      helpers.setValue(['name'], 'wxyz');
+      validFixed = helpers.validateField(['name']);
+      errorAfterFix = helpers.getError(['name']).length;
+    });
+
+    const TestComponent = () => {
+      const form = useFormContext();
+      return (
+        <button data-testid="submit" onClick={form.submit}>
+          Submit
+        </button>
+      );
+    };
+
+    render(
+      <TestForm
+        initialValues={{ name: 'abcd' }}
+        schema={schema}
+        onSubmit={onSubmit}
+      >
+        <TestComponent />
+      </TestForm>
+    );
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('submit'));
+    });
+    await advanceTimers();
+
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    expect(validInvalid).toBe(false);
+    expect(validFixed).toBe(true);
+    expect(errorAfterFix).toBe(0);
   });
 
   it('tracks currentSubmissionID and handles concurrent submissions properly', async () => {
@@ -4390,16 +4782,17 @@ describe('FormProvider', () => {
     // Form should no longer be valid
     expect(screen.getByTestId('is-valid').textContent).toBe('false');
 
-    // But with no schema, validation should still pass and clear the error
+    // The setErrors entry above is UNTAGGED (no `source`) — an ordinary
+    // validation-style error per the contract. With no schema, validate() passes,
+    // so it recomputes validation-owned errors (Zod 'client' AND untagged) away:
+    // the error clears and the form reads valid again. (A 'manual'/'server' error
+    // would survive instead — use setError/setServerError for persistent errors.)
     fireEvent.click(screen.getByTestId('validate'));
 
     await advanceTimers();
 
-    // Form remains invalid even after validation without schema
-    expect(screen.getByTestId('is-valid').textContent).toBe('false');
-
-    // Errors persist even after validation without a schema
-    expect(screen.queryByTestId('name-error')).toBeInTheDocument();
+    expect(screen.getByTestId('is-valid').textContent).toBe('true');
+    expect(screen.queryByTestId('name-error')).not.toBeInTheDocument();
   });
 
   // A field built on the real useField hook (which wires onBlur -> validateOnBlur),
@@ -4501,6 +4894,102 @@ describe('FormProvider', () => {
     fireEvent.click(screen.getByTestId('set-error'));
     await advanceTimers();
     expect(screen.getByTestId('is-valid').textContent).toBe('false');
+  });
+
+  it('validate() clears stale UNTAGGED errors when the form is valid', async () => {
+    // Regression: untagged errors (raw setErrors with no `source`) are documented
+    // as ordinary validation-style errors. A validate() pass on an otherwise-valid
+    // form must drop them like 'client' errors — otherwise they linger and keep
+    // isValid stuck false.
+    function Probe() {
+      const form = useFormContext();
+      return (
+        <div>
+          <div data-testid="is-valid">{form.isValid.toString()}</div>
+          <div data-testid="err-count">{form.getError(['name']).length}</div>
+          <button
+            data-testid="set-untagged"
+            // No `source` — an untagged error, i.e. validation-style per the docs.
+            onClick={() =>
+              form.setErrors([{ path: ['name'], message: 'stale untagged' }])
+            }
+          />
+          <button data-testid="run-validate" onClick={() => form.validate()} />
+        </div>
+      );
+    }
+
+    render(
+      // 'ab' satisfies min(2), so the schema validates clean.
+      <FormProvider
+        initialValues={{ name: 'ab' }}
+        schema={z.object({ name: z.string().min(2) })}
+        onSubmit={jest.fn()}
+      >
+        <Probe />
+      </FormProvider>
+    );
+
+    await advanceTimers();
+
+    // Seed an untagged error, then validate a form whose values are actually valid.
+    fireEvent.click(screen.getByTestId('set-untagged'));
+    await advanceTimers();
+    expect(screen.getByTestId('err-count').textContent).toBe('1');
+
+    fireEvent.click(screen.getByTestId('run-validate'));
+    await advanceTimers();
+
+    // The untagged error is recomputed away, and the form reads valid again.
+    expect(screen.getByTestId('err-count').textContent).toBe('0');
+    expect(screen.getByTestId('is-valid').textContent).toBe('true');
+  });
+
+  it('validate() on an INVALID form preserves client-submission errors', async () => {
+    // Regression: client-form-handler errors are cleared only by submit start /
+    // clearClientSubmissionError / reset — NOT by validate(). The invalid-branch
+    // merge must preserve them (it previously kept only server/manual, wiping a
+    // submission banner on any validate while the form was invalid).
+    function Probe() {
+      const form = useFormContext();
+      return (
+        <div>
+          <div data-testid="submission-errs">
+            {form.getClientSubmissionError().length}
+          </div>
+          <button
+            data-testid="set-client-error"
+            onClick={() => form.setClientSubmissionError('Network failed')}
+          />
+          <button
+            data-testid="run-validate"
+            onClick={() => form.validate(true)}
+          />
+        </div>
+      );
+    }
+
+    render(
+      // name '' fails min(2), so the form is invalid → validate() hits the invalid branch.
+      <FormProvider
+        initialValues={{ name: '' }}
+        schema={z.object({ name: z.string().min(2) })}
+        onSubmit={jest.fn()}
+      >
+        <Probe />
+      </FormProvider>
+    );
+
+    await advanceTimers();
+
+    fireEvent.click(screen.getByTestId('set-client-error'));
+    await advanceTimers();
+    expect(screen.getByTestId('submission-errs').textContent).toBe('1');
+
+    // Validate the (still-invalid) form — the submission error must survive.
+    fireEvent.click(screen.getByTestId('run-validate'));
+    await advanceTimers();
+    expect(screen.getByTestId('submission-errs').textContent).toBe('1');
   });
 });
 

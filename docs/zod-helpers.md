@@ -109,19 +109,22 @@ Run a Zod schema against values and return a `ValidationResult`. `validate` is s
 
 #### Options
 
-- `isServer`: Tag all errors as `source: 'server'` instead of `'client'`
-- `rootMessages`: Attach one or more form-level errors (`path: []`) to the result, even if field validation passed. Useful for injecting a top-level rejection message upfront.
+- `isServer`: Tag all errors as `source: 'server'` instead of `'client'`. This applies to **both** the field errors and any `rootMessages`, so a single `validate` call never mixes sources — a plain (client) validate tags its root messages `client`, and `{ isServer: true }` tags everything `server`.
+- `rootMessages`: Attach one or more form-level errors (`path: []`) to the result, even if field validation passed. Useful for injecting a top-level rejection message upfront. They follow `isServer` (default `client`).
 
 ### withRootErrors
 
 ```typescript
 function withRootErrors<T>(
   result: ValidationResult<T>,
-  messages: string | string[]
+  messages: string | string[],
+  options?: { isServer?: boolean } // default: { isServer: false }
 ): ValidationResult<T>;
 ```
 
 Purely additive, appends one or more form-level errors (`path: []`) to an existing `ValidationResult` without touching the existing field errors. Use this when you need to attach a top-level message after validation has already run, such as after a server response or when you want to summarize multiple field errors with a banner message. Always returns `valid: false`.
+
+The appended root errors default to `source: 'client'`, matching `validate` — the rule across both helpers is **"errors are `client` unless you tag them `server`"**. Pass `{ isServer: true }` to tag them `server` instead (e.g. a top-level rejection from a server response, which persists across re-validation and shows regardless of touched state).
 
 ### Path Utilities
 
@@ -171,17 +174,38 @@ const result = validate(userSchema, {
   errors: [
     {
       path: ['name'],
-      message: 'String must contain at least 2 character(s)',
+      message: 'Too small: expected string to have >=2 characters',
       source: 'client'
     },
     {
       path: ['age'],
-      message: 'Number must be greater than or equal to 0',
+      message: 'Too small: expected number to be >=0',
       source: 'client'
     }
   ]
 }
 ```
+
+**On the message strings above.** They're Zod 4's **default** messages — shown
+verbatim only to illustrate the output shape. Don't assert against them; they can
+change between Zod versions. Supply your own with the message argument
+(`z.string().min(2, 'Name must be at least 2 characters')`) and that text comes
+through unchanged.
+
+A plain string is a **static literal** — Zod does no templating, so something like
+`'Need at least {min} chars'` comes through with the `{min}` intact. To interpolate
+the constraint value, use the callback form, where the `issue` object carries
+`minimum`/`maximum`/etc.:
+
+```ts
+z.string().min(2, {
+  error: (issue) => `Need at least ${issue.minimum} chars`,
+});
+// -> "Need at least 2 chars"
+```
+
+It must be the `{ error: fn }` object form — a bare function as the second argument
+is ignored and you get the default message back.
 
 ### Server-Sourced Validation
 
@@ -195,7 +219,7 @@ const result = validate(userSchema, values, { isServer: true });
   errors: [
     {
       path: ['name'],
-      message: 'String must contain at least 2 character(s)',
+      message: 'Too small: expected string to have >=2 characters',
       source: 'server'
     }
   ]
@@ -209,7 +233,8 @@ const result = validate(userSchema, values, {
   rootMessages: 'Account creation temporarily disabled'
 });
 
-// Result:
+// Result (no isServer, so root messages are tagged 'client', matching the
+// validation pass — see Combined Options below to get 'server'):
 {
   valid: false,
   value: null,
@@ -218,7 +243,7 @@ const result = validate(userSchema, values, {
     {
       path: [],
       message: 'Account creation temporarily disabled',
-      source: 'server'
+      source: 'client'
     }
   ]
 }
@@ -247,7 +272,7 @@ const result = validate(userSchema, values, {
   errors: [
     {
       path: ['name'],
-      message: 'Invalid name',
+      message: 'Too small: expected string to have >=2 characters',
       source: 'server'
     },
     {
@@ -269,12 +294,14 @@ const withBanner = withRootErrors(result, 'Please fix all highlighted fields.');
 // withBanner.errors = [...original field errors, { path: [], message: '...' }]
 ```
 
-Works on valid results too. This is useful for injecting a server-level rejection after a passing schema:
+Works on valid results too. This is useful for injecting a server-level rejection after a passing schema — pass `{ isServer: true }` so the message is tagged `server` and persists like other server errors:
 
 ```typescript
 const result = validate(userSchema, values); // passes
-const rejected = withRootErrors(result, 'Your account has been suspended.');
-// rejected.valid === false
+const rejected = withRootErrors(result, 'Your account has been suspended.', {
+  isServer: true,
+});
+// rejected.valid === false; root error source: 'server'
 ```
 
 Multiple messages:
@@ -288,7 +315,7 @@ const withMultiple = withRootErrors(result, [
 
 ## Integration With Form Library
 
-The error format produced by these helpers maps directly to the form context's error state, same path shape, same flat array. Inside `onSubmit`, pass errors straight to `helpers.setErrors`:
+The error format produced by these helpers maps directly to the form context's error state, same path shape, same flat array. Inside `onSubmit`, pass the errors to `helpers.setServerErrors`:
 
 ```typescript
 onSubmit={async (values, helpers) => {
@@ -301,11 +328,24 @@ onSubmit={async (values, helpers) => {
       response.message
     );
 
-    helpers.setErrors(result.errors ?? []);
+    helpers.setServerErrors(result.errors ?? []);
     return;
   }
 }}
 ```
+
+> `setServerErrors` tags **every** entry `source: 'server'` for you (and drops any
+> whose path doesn't exist), so the errors show regardless of touched state, clear
+> on the next submit/edit, and mark the attempt failed (`submitSucceeded` →
+> `false`). The failure flag keys off each error's `source`, not which setter you
+> called — so this matters: `withRootErrors` defaults to `source: 'client'`, and
+> the API's field errors here are untagged, so handing this list to raw `setErrors`
+> instead would register as **ordinary validation errors** and **not** flag the
+> submit as failed. `setServerErrors` re-tags everything `server` for you, which is
+> exactly what you want here; reach for it (or `setServerError`/`setError`) rather
+> than raw `setErrors`. (If you do want the root message to carry `server` on its own
+> — e.g. to render it before any `setServerErrors` call — pass `{ isServer: true }`
+> to `withRootErrors`.)
 
 Root errors (`path: []`) are readable in components via `form.getError([])`:
 

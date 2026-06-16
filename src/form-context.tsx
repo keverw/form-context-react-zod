@@ -48,6 +48,26 @@ export interface FormHelpers<T> {
    * @returns An array of error message strings
    */
   getClientSubmissionError: () => string[];
+  /**
+   * Read the current value at `path`. Reads the live values (reflecting any
+   * `helpers.setValue` you've already made in this handler), so it's the way to
+   * inspect a field inside `onSubmit` — the top-level `values` argument is the
+   * snapshot taken when submission started. Untyped paths return `unknown`; pass a
+   * type argument to narrow (`helpers.getValue<string>(['name'])`).
+   */
+  getValue: <V = unknown>(path: (string | number)[]) => V;
+  /**
+   * The read side of the form, available mid-handler. These mirror the same-named
+   * methods on {@link FormContextValue} and read the live form state, so a call
+   * right after a `helpers.setError`/`setValue`/`deleteField` reflects it (no
+   * re-render needed). Errors are raw (not touched-gated). With `getValue`/
+   * `hasField`, the handler has the full read surface without grabbing the context
+   * separately.
+   */
+  getError: (path: (string | number)[]) => ValidationError[];
+  getErrorPaths: (path?: (string | number)[]) => (string | number)[][];
+  getFieldState: (path: (string | number)[]) => FieldState;
+  getValuePaths: (path?: (string | number)[]) => (string | number)[][];
   setValue: <V = unknown>(path: (string | number)[], value: V) => void;
   /**
    * Clear a field to its type-appropriate empty value. Returns `true` if a field
@@ -56,7 +76,19 @@ export interface FormHelpers<T> {
   clearValue: (path: (string | number)[]) => boolean;
   deleteField: (path: (string | number)[]) => void;
   validate: (force?: boolean) => boolean;
+  /**
+   * Imperatively validate one field ("trigger"); see {@link FormContextValue.validateField}.
+   * Marks it touched, re-runs the schema, and returns whether the field is now
+   * error-free. A guarded mutation: it no-ops if this submission is no longer current.
+   */
+  validateField: (path: (string | number)[]) => boolean;
   hasField: (path: (string | number)[]) => boolean;
+  /**
+   * Touched state as a SNAPSHOT taken when submission started — not a live view.
+   * `submit()` marks every field touched before invoking the handler, but this
+   * object reflects the touched state from the prior render, so it won't include
+   * those submit-time touches (or any `setFieldTouched` made mid-handler).
+   */
   touched: Record<string, boolean>;
   setFieldTouched: (path: (string | number)[], value?: boolean) => void;
   reset: (force?: boolean) => boolean;
@@ -334,6 +366,17 @@ export interface FormFieldContextValue {
    * order, which is the order `focusFirstError` scans.
    */
   registerFieldRef: (path: (string | number)[], node: Focusable | null) => void;
+}
+
+// Which errors does the validation pass "own" — i.e. recompute (and clear when no
+// longer valid) on every validate/setValue/deleteField? Zod `client` errors AND
+// UNTAGGED ones: the public contract treats a source-less error (e.g. a raw
+// `setErrors([{ path, message }])`) as an ordinary validation error. `server`,
+// `manual`, and `client-form-handler` are owned OUTSIDE validation and survive a
+// re-validate — cleared only by their own setters / submit start / reset. Every
+// full-form recompute site routes through this so the rule can't drift between them.
+function isValidationOwnedError(e: ValidationError): boolean {
+  return e.source === 'client' || e.source == null;
 }
 
 // Whether two error lists for the SAME path are equivalent (so a cached snapshot
@@ -625,42 +668,42 @@ export function FormProvider<T extends Record<string | number, unknown>>({
   // { a: { b: 1 }, list: [{ x: 2 }] } it returns:
   //   ['a'], ['a','b'], ['list'], ['list', 0], ['list', 0, 'x']
   // Used by validate(true) (to touch every field) and reset/clear traversals.
-  const getValuePaths = useCallback(
-    (basePath: (string | number)[] = []) => {
-      const paths: (string | number)[][] = [];
+  const getValuePaths = useCallback((basePath: (string | number)[] = []) => {
+    const paths: (string | number)[][] = [];
 
-      const traverse = (obj: unknown, currentPath: (string | number)[]) => {
-        // Only objects/arrays have children to descend into; primitives are leaves.
-        if (obj && typeof obj === 'object') {
-          const isArray = Array.isArray(obj);
+    const traverse = (obj: unknown, currentPath: (string | number)[]) => {
+      // Only objects/arrays have children to descend into; primitives are leaves.
+      if (obj && typeof obj === 'object') {
+        const isArray = Array.isArray(obj);
 
-          // Object.entries gives us BOTH halves we need at each node:
-          //   key   -> the next path segment (the breadcrumb at this level)
-          //   value -> the subtree to recurse into to find deeper paths
-          for (const [key, value] of Object.entries(obj)) {
-            // Object.entries always returns string keys, including array indices
-            // ('0', '1', ...). Restore numeric indices for arrays so these paths
-            // match the number-indexed paths used everywhere else (touched keys,
-            // Zod error paths, getValue). Object keys stay strings — even
-            // numeric-looking ones like { '5': ... } are real string keys.
-            // Without this, e.g. validate(true)'s force-touch builds ['list','0']
-            // while the field looks up ['list', 0] — different serializePath keys,
-            // so the touch silently misses nested array fields.
-            const segment = isArray ? Number(key) : key;
-            const newPath = [...currentPath, segment];
+        // Object.entries gives us BOTH halves we need at each node:
+        //   key   -> the next path segment (the breadcrumb at this level)
+        //   value -> the subtree to recurse into to find deeper paths
+        for (const [key, value] of Object.entries(obj)) {
+          // Object.entries always returns string keys, including array indices
+          // ('0', '1', ...). Restore numeric indices for arrays so these paths
+          // match the number-indexed paths used everywhere else (touched keys,
+          // Zod error paths, getValue). Object keys stay strings — even
+          // numeric-looking ones like { '5': ... } are real string keys.
+          // Without this, e.g. validate(true)'s force-touch builds ['list','0']
+          // while the field looks up ['list', 0] — different serializePath keys,
+          // so the touch silently misses nested array fields.
+          const segment = isArray ? Number(key) : key;
+          const newPath = [...currentPath, segment];
 
-            paths.push(newPath); // record this node's path
-            traverse(value, newPath); // then descend for any deeper paths
-          }
+          paths.push(newPath); // record this node's path
+          traverse(value, newPath); // then descend for any deeper paths
         }
-      };
+      }
+    };
 
-      // Start from the subtree at basePath (default: the whole values object).
-      traverse(getValueAtPath(values, basePath), basePath);
-      return paths;
-    },
-    [values]
-  );
+    // Start from the subtree at basePath (default: the whole values object).
+    // Read the live ref (the synchronous source of truth), so an imperative call
+    // mid-batch — e.g. inside onSubmit after a setValue/deleteField — sees the
+    // current tree, matching getValue. State drives renders; refs drive reads.
+    traverse(getValueAtPath(valuesRef.current, basePath), basePath);
+    return paths;
+  }, []);
 
   const validateForm = useCallback(() => {
     if (!schema) {
@@ -738,13 +781,14 @@ export function FormProvider<T extends Record<string | number, unknown>>({
         newCanSubmit = result.valid;
         canSubmitRef.current = newCanSubmit;
 
-        // Recompute ALL Zod ('client') errors from the full-form result — not just
-        // the edited path — so a cross-field refine that flags a SIBLING updates
-        // live too. Keep server/manual errors (they're owned elsewhere and aren't
-        // recomputed), except any under the edited subtree, which are now stale.
-        // Display stays touch-gated, so untouched siblings still don't show an error.
+        // Recompute ALL validation-owned errors (Zod 'client' + untagged) from the
+        // full-form result — not just the edited path — so a cross-field refine that
+        // flags a SIBLING updates live too. Keep externally-owned errors (server/
+        // manual/client-form-handler), except any under the edited subtree, which are
+        // now stale. Display stays touch-gated, so untouched siblings still don't
+        // show an error.
         const preserved = errorsRef.current.filter(
-          (e) => e.source !== 'client' && !atOrUnderPath(e.path)
+          (e) => !isValidationOwnedError(e) && !atOrUnderPath(e.path)
         );
         const freshClient = result.valid ? [] : (result.errors ?? []);
         newErrors = [...preserved, ...freshClient];
@@ -794,6 +838,18 @@ export function FormProvider<T extends Record<string | number, unknown>>({
     (errors: ValidationError[]) => {
       // Update ref first, then state.
       errorsRef.current = errors;
+      // Resync the per-source channel baselines from the full list. `setErrors` is a
+      // wholesale replace, and `server` / `client-form-handler` errors each keep a
+      // PARALLEL store (serverErrorsRef for setServerError(s)' merge/replace-all;
+      // clientSubmissionErrorRef for getClientSubmissionError). Without this, a raw
+      // setErrors([{ source: 'server', … }]) lands in errorsRef but not the baseline,
+      // so a later setServerError(s) rebuilds from a stale baseline and silently
+      // drops it (and getClientSubmissionError would under-report a raw cfh error).
+      // 'manual'/'client' have no parallel store — they live solely in errorsRef.
+      serverErrorsRef.current = errors.filter((e) => e.source === 'server');
+      clientSubmissionErrorRef.current = errors
+        .filter((e) => e.source === 'client-form-handler')
+        .map((e) => e.message);
       dispatch({
         type: 'UPDATE_STATE',
         updates: { errors },
@@ -837,10 +893,11 @@ export function FormProvider<T extends Record<string | number, unknown>>({
       }
       const result = validateForm();
       if (!result.valid && result.errors) {
-        // Update errors ref first. Validation owns only the Zod ('client') errors;
-        // server- and manual-sourced errors are preserved across re-validation.
+        // Update errors ref first. Validation owns the Zod ('client') + untagged
+        // errors; externally-owned errors (server/manual/client-form-handler) are
+        // preserved across re-validation.
         const preservedErrors = errorsRef.current.filter(
-          (e) => e.source === 'server' || e.source === 'manual'
+          (e) => !isValidationOwnedError(e)
         );
         const newErrors = [...preservedErrors, ...(result.errors || [])];
         errorsRef.current = newErrors;
@@ -850,6 +907,25 @@ export function FormProvider<T extends Record<string | number, unknown>>({
           type: 'UPDATE_STATE',
           updates: { errors: errorsRef.current },
         });
+      } else if (result.valid) {
+        // Form is now valid — clear any stale validation-owned errors (Zod 'client'
+        // + untagged) left over from a previous invalid pass, so they don't linger
+        // and keep `isValid` false on a clean form. Externally-owned errors
+        // (server/manual/client-form-handler) are preserved. Only dispatch when
+        // there's something to drop, so a no-op validate() of an already-clean form
+        // doesn't trigger an extra render.
+        if (errorsRef.current.some(isValidationOwnedError)) {
+          const newErrors = errorsRef.current.filter(
+            (e) => !isValidationOwnedError(e)
+          );
+
+          errorsRef.current = newErrors;
+
+          dispatch({
+            type: 'UPDATE_STATE',
+            updates: { errors: errorsRef.current },
+          });
+        }
       }
       return result.valid;
     },
@@ -872,7 +948,7 @@ export function FormProvider<T extends Record<string | number, unknown>>({
       if (schema) {
         const result = validate(schema, valuesRef.current);
         const withoutStale = errorsRef.current.filter(
-          (e) => e.source !== 'client' || !atPath(e.path)
+          (e) => !isValidationOwnedError(e) || !atPath(e.path)
         );
         const freshAtPath = result.valid
           ? []
@@ -932,11 +1008,11 @@ export function FormProvider<T extends Record<string | number, unknown>>({
     const result = validateForm();
     const validationErrors = result.valid ? [] : result.errors || [];
 
-    // Preserve any server- or manual-sourced errors (e.g. seeded via
-    // initialServerErrors) — mount validation only owns the client/validation
-    // errors, not server/manual ones.
+    // Preserve externally-owned errors (server/manual/client-form-handler, e.g.
+    // seeded via initialServerErrors) — mount validation only owns the validation
+    // errors (Zod 'client' + untagged).
     const preservedErrors = errorsRef.current.filter(
-      (e) => e.source === 'server' || e.source === 'manual'
+      (e) => !isValidationOwnedError(e)
     );
     const newErrors = [...preservedErrors, ...validationErrors];
 
@@ -990,42 +1066,41 @@ export function FormProvider<T extends Record<string | number, unknown>>({
   // Helper function removed since we now filter errors directly
 
   // Check if a field exists at the given path
-  const hasField = useCallback(
-    (path: (string | number)[]) => {
-      let current: Record<string | number, unknown> | unknown = values;
+  const hasField = useCallback((path: (string | number)[]) => {
+    // Read the live ref so a mid-batch call (e.g. setServerErrors' path filter, or
+    // hasField inside onSubmit after a setValue) sees the current values.
+    let current: Record<string | number, unknown> | unknown = valuesRef.current;
 
-      for (let i = 0; i < path.length; i++) {
-        const segment = path[i];
+    for (let i = 0; i < path.length; i++) {
+      const segment = path[i];
 
-        // If current becomes non-object/array prematurely, path is invalid
-        if (typeof current !== 'object' || current === null) {
-          return false;
-        }
-
-        // Check if the property/index exists before trying to access it
-        if (!Object.prototype.hasOwnProperty.call(current, segment)) {
-          // Special case for arrays: check if index is within bounds numerically
-          // hasOwnProperty doesn't work reliably for array indices > length or sparse arrays
-          if (Array.isArray(current) && typeof segment === 'number') {
-            if (segment < 0 || segment >= current.length) {
-              return false; // Index out of bounds
-            }
-            // If index is within bounds but potentially sparse (undefined),
-            // we still consider the path "existing" up to this point. Let access proceed.
-          } else {
-            return false; // Property doesn't exist on object
-          }
-        }
-
-        // Move to the next part of the path
-        current = (current as Record<string | number, unknown>)[segment];
+      // If current becomes non-object/array prematurely, path is invalid
+      if (typeof current !== 'object' || current === null) {
+        return false;
       }
 
-      // If the loop completes, it means every segment existed and was traversable.
-      return true;
-    },
-    [values]
-  );
+      // Check if the property/index exists before trying to access it
+      if (!Object.prototype.hasOwnProperty.call(current, segment)) {
+        // Special case for arrays: check if index is within bounds numerically
+        // hasOwnProperty doesn't work reliably for array indices > length or sparse arrays
+        if (Array.isArray(current) && typeof segment === 'number') {
+          if (segment < 0 || segment >= current.length) {
+            return false; // Index out of bounds
+          }
+          // If index is within bounds but potentially sparse (undefined),
+          // we still consider the path "existing" up to this point. Let access proceed.
+        } else {
+          return false; // Property doesn't exist on object
+        }
+      }
+
+      // Move to the next part of the path
+      current = (current as Record<string | number, unknown>)[segment];
+    }
+
+    // If the loop completes, it means every segment existed and was traversable.
+    return true;
+  }, []);
 
   // Implement the clearValue function to set a field to an empty value.
   // Returns true if a field existed at `path` and was cleared, false if the path
@@ -1126,11 +1201,12 @@ export function FormProvider<T extends Record<string | number, unknown>>({
           indexMap
         );
 
-        // Recompute ALL Zod ('client') errors from the new full-form result, mirroring
-        // setValue: removing an item can change errors anywhere (the array-level
-        // z.array().min, but also a cross-field .refine landing on a sibling), and the
-        // remap above only moved item metadata, not the array's own or cross-field
-        // errors. Keep the already-remapped server/manual errors (owned elsewhere).
+        // Recompute ALL validation-owned errors (Zod 'client' + untagged) from the new
+        // full-form result, mirroring setValue: removing an item can change errors
+        // anywhere (the array-level z.array().min, but also a cross-field .refine landing
+        // on a sibling), and the remap above only moved item metadata, not the array's
+        // own or cross-field errors. Keep the already-remapped externally-owned errors
+        // (server/manual/client-form-handler).
         let finalErrors = newErrors;
         let newCanSubmit = canSubmit;
 
@@ -1138,7 +1214,7 @@ export function FormProvider<T extends Record<string | number, unknown>>({
           const result = validate(schema, newValues);
           newCanSubmit = result.valid;
 
-          const preserved = newErrors.filter((e) => e.source !== 'client');
+          const preserved = newErrors.filter((e) => !isValidationOwnedError(e));
           const freshClient = result.valid ? [] : (result.errors ?? []);
           finalErrors = [...preserved, ...freshClient];
           errorsRef.current = finalErrors;
@@ -1252,11 +1328,12 @@ export function FormProvider<T extends Record<string | number, unknown>>({
             .every((val, idx) => path[idx] === val);
         });
 
-        // Validate the form after deletion. Recompute ALL Zod ('client') errors from
-        // the new full-form result, mirroring setValue — a deletion can change a
-        // cross-field .refine error on an unrelated sibling, not just errors under the
-        // deleted path. Keep the server/manual errors already filtered above (the
-        // deleted subtree's were dropped); only client errors are regenerated.
+        // Validate the form after deletion. Recompute ALL validation-owned errors (Zod
+        // 'client' + untagged) from the new full-form result, mirroring setValue — a
+        // deletion can change a cross-field .refine error on an unrelated sibling, not
+        // just errors under the deleted path. Keep the externally-owned errors
+        // (server/manual/client-form-handler) already filtered above (the deleted
+        // subtree's were dropped); only validation-owned errors are regenerated.
         let finalErrors = newErrors;
         let newCanSubmit = canSubmit;
 
@@ -1266,7 +1343,7 @@ export function FormProvider<T extends Record<string | number, unknown>>({
           // Update canSubmit based on validation result
           newCanSubmit = result.valid;
 
-          const preserved = newErrors.filter((e) => e.source !== 'client');
+          const preserved = newErrors.filter((e) => !isValidationOwnedError(e));
           const freshClient = result.valid ? [] : (result.errors ?? []);
           finalErrors = [...preserved, ...freshClient];
           errorsRef.current = finalErrors;
@@ -1402,45 +1479,44 @@ export function FormProvider<T extends Record<string | number, unknown>>({
     ]
   );
 
-  const getError = useCallback(
-    (path: (string | number)[]) => {
-      return errors.filter(
+  // Reads the live errors ref (the synchronous source of truth), so an imperative
+  // call mid-batch — e.g. getError inside onSubmit right after setServerError — sees
+  // the current errors, matching getValue/getFieldSnapshot. State still drives
+  // renders: contextValue recomputes when `errors` changes, re-rendering consumers.
+  const getError = useCallback((path: (string | number)[]) => {
+    return errorsRef.current.filter(
+      (error) =>
+        error.path.length === path.length &&
+        error.path.every((val, idx) => path[idx] === val)
+    );
+  }, []);
+
+  const getErrorPaths = useCallback((basePath: (string | number)[] = []) => {
+    return errorsRef.current
+      .filter(
         (error) =>
-          error.path.length === path.length &&
-          error.path.every((val, idx) => path[idx] === val)
-      );
-    },
-    [errors]
-  );
+          error.path.length >= basePath.length &&
+          basePath.every((val, idx) => error.path[idx] === val)
+      )
+      .map((error) => error.path);
+  }, []);
 
-  const getErrorPaths = useCallback(
-    (basePath: (string | number)[] = []) => {
-      return errors
-        .filter(
-          (error) =>
-            error.path.length >= basePath.length &&
-            basePath.every((val, idx) => error.path[idx] === val)
-        )
-        .map((error) => error.path);
-    },
-    [errors]
-  );
-
-  // Convenience snapshot of one field's state. Pure read over getError + touched
-  // + hasField; errors are raw (not touched-gated) so callers see the real
-  // validation state.
+  // Convenience snapshot of one field's state. Pure read over getError + the touched
+  // ref + hasField; errors are raw (not touched-gated) so callers see the real
+  // validation state. All three read the live refs, so it's consistent with the
+  // other readers when called imperatively (e.g. inside onSubmit).
   const getFieldState = useCallback(
     (path: (string | number)[]): FieldState => {
       const fieldErrors = getError(path);
       return {
         errors: fieldErrors,
         error: fieldErrors[0]?.message ?? null,
-        isTouched: !!touched[serializePath(path)],
+        isTouched: !!touchedRef.current[serializePath(path)],
         invalid: fieldErrors.length > 0,
         exists: hasField(path),
       };
     },
-    [getError, touched, hasField]
+    [getError, hasField]
   );
 
   // --- Per-field subscriptions (re-render isolation) -----------------------
@@ -1633,6 +1709,10 @@ export function FormProvider<T extends Record<string | number, unknown>>({
       serverErrorsRef.current = [];
       clientSubmissionErrorRef.current = [];
       canSubmitRef.current = false; // Typically, a reset form isn't immediately submittable until validated
+      // A reset clears submission tracking — back to "never submitted" — so the
+      // stale ID from a completed (or force-cancelled) submit doesn't linger and
+      // make isCurrentSubmission report a dead submission as current.
+      currentSubmissionIDRef.current = null;
 
       // reset() means "back to load" — the dirty baseline returns to initialValues
       // too, so a freshly reset form reads clean.
@@ -1651,8 +1731,9 @@ export function FormProvider<T extends Record<string | number, unknown>>({
           submitAttempted: false,
           submitSucceeded: false,
           submitCount: 0,
-          // isSubmitting and currentSubmissionID are handled above if forced
-          // If not forced, they remain as they were, or are already false/null
+          // Always clear the submission ID (the forced-mid-submit branch above also
+          // flips isSubmitting off; isSubmitting is otherwise left as-is).
+          currentSubmissionID: null,
         },
       });
       // Values were replaced wholesale — id-tracking subscribers re-derive.
@@ -1696,6 +1777,9 @@ export function FormProvider<T extends Record<string | number, unknown>>({
       serverErrorsRef.current = [];
       clientSubmissionErrorRef.current = [];
       canSubmitRef.current = false; // Reset form isn't immediately submittable
+      // Clear submission tracking — matching reset() — so a stale ID can't outlive
+      // the reset and read as the current submission.
+      currentSubmissionIDRef.current = null;
 
       // resetWithValues() establishes a new known state — the dirty baseline moves
       // to those values so the form reads clean immediately after.
@@ -1714,6 +1798,8 @@ export function FormProvider<T extends Record<string | number, unknown>>({
           submitAttempted: false,
           submitSucceeded: false,
           submitCount: 0,
+          // Always clear the submission ID (see reset()).
+          currentSubmissionID: null,
         },
       });
       // Values were replaced wholesale — id-tracking subscribers re-derive.
@@ -2064,6 +2150,14 @@ export function FormProvider<T extends Record<string | number, unknown>>({
               setError(path, message);
             }
           },
+          // Reads — no submission guard needed; they read the live refs so a call
+          // right after a setValue/setError/deleteField in this handler reflects it.
+          getValue: <V = unknown,>(path: (string | number)[]): V =>
+            getValue<V>(path),
+          getError,
+          getErrorPaths,
+          getFieldState,
+          getValuePaths,
           setValue: <V = unknown,>(path: (string | number)[], value: V) => {
             if (isCurrentSubmission(submissionId) && mountedRef.current) {
               setValue(path, value);
@@ -2080,7 +2174,23 @@ export function FormProvider<T extends Record<string | number, unknown>>({
               deleteField(path);
             }
           },
-          validate: validateFunction, // Validate doesn't need the guard itself, it's a query
+          // validate mutates too (marks touched with force, writes errors /
+          // lastValidated / canSubmit), so guard it like the other mutators — a
+          // stale call must not resurrect errors on a form that was force-reset.
+          validate: (force?: boolean): boolean => {
+            if (isCurrentSubmission(submissionId) && mountedRef.current) {
+              return validateFunction(force);
+            }
+            return false;
+          },
+          // validateField mutates (marks touched, writes errors), so guard it like
+          // the other mutators; a stale call no-ops and reports the field as invalid.
+          validateField: (path: (string | number)[]): boolean => {
+            if (isCurrentSubmission(submissionId) && mountedRef.current) {
+              return validateField(path);
+            }
+            return false;
+          },
           hasField, // HasField doesn't need the guard, it's a query
           touched, // Touched is a snapshot, not an action
           setFieldTouched: (
@@ -2113,11 +2223,9 @@ export function FormProvider<T extends Record<string | number, unknown>>({
               clearClientSubmissionError();
             }
           },
-          getClientSubmissionError: () => {
-            return isCurrentSubmission(submissionId)
-              ? getClientSubmissionError()
-              : [];
-          },
+          // A read — unguarded, like getValue/getError. Returns the live submission
+          // errors (a stale handler reading them is harmless; its writes are guarded).
+          getClientSubmissionError,
           currentSubmissionID: submissionId, // Changed to use the submissionId from this closure
           isCurrentSubmission, // This function already uses the ref correctly
           signal: abortController.signal,
@@ -2145,24 +2253,32 @@ export function FormProvider<T extends Record<string | number, unknown>>({
 
         await onSubmit(values, helpers);
 
-        // The attempt succeeded if it's still the current submission and the
-        // handler set no errors. server/manual/client-submission errors were all
-        // emptied at the start of submit(), so any present here means the handler
-        // reported a failure (setServerError / setError / setClientSubmissionError).
+        // The attempt succeeded only if it's still the current submission and the
+        // handler left behind NO failure-sourced error. All server/manual/
+        // client-submission errors were emptied at the start of submit(), so any
+        // present now were set by the handler. We read them straight off the
+        // combined error list (errorsRef) by source rather than the per-channel
+        // refs, so it doesn't matter WHICH setter created them: setServerError(s),
+        // setError, setClientSubmissionError, and a raw setErrors carrying one of
+        // those sources all register as a rejected submit. (Only 'client'/untagged
+        // entries — ordinary Zod-style validation errors — don't flag a failure.)
         if (isCurrentSubmission(submissionId) && mountedRef.current) {
-          didSucceed =
-            serverErrorsRef.current.length === 0 &&
-            clientSubmissionErrorRef.current.length === 0 &&
-            !errorsRef.current.some((e) => e.source === 'manual');
+          didSucceed = !errorsRef.current.some(
+            (e) =>
+              e.source === 'server' ||
+              e.source === 'manual' ||
+              e.source === 'client-form-handler'
+          );
         }
       } else if (result.errors) {
         // Only set errors if this is still the current submission
         if (isCurrentSubmission(submissionId) && mountedRef.current) {
-          // Preserve server/manual errors and add the fresh Zod errors (same merge
-          // rule as validateFunction). Manual errors are cleared at submit start, so
-          // this is defensive — it keeps the merge consistent across all sites.
+          // Preserve externally-owned errors (server/manual/client-form-handler) and
+          // add the fresh Zod errors (same merge rule as validateFunction). Those
+          // sources are cleared at submit start, so this is defensive — it keeps the
+          // merge consistent across all sites.
           const preservedErrors = errorsRef.current.filter(
-            (e) => e.source === 'server' || e.source === 'manual'
+            (e) => !isValidationOwnedError(e)
           );
           const newErrors = [...preservedErrors, ...(result.errors || [])];
 
@@ -2206,11 +2322,16 @@ export function FormProvider<T extends Record<string | number, unknown>>({
   }, [
     onSubmit,
     setErrors,
+    getError,
+    getErrorPaths,
+    getFieldState,
     getValuePaths,
     setSubmissionId,
     setFieldTouched,
     validateForm,
+    validateField,
     schema,
+    getValue,
     setValue,
     clearValue,
     deleteField,

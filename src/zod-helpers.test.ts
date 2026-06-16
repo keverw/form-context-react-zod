@@ -87,6 +87,33 @@ describe('zod-helpers', () => {
       expect(rootErrors).toHaveLength(2);
       expect(rootErrors?.map((err) => err.message)).toEqual(rootMessages);
     });
+
+    it('tags root messages client by default (matching the validation pass)', () => {
+      const result = validate(
+        testSchema,
+        { name: 'J' },
+        { rootMessages: 'Banner' }
+      );
+
+      const rootError = result.errors?.find((err) => err.path.length === 0);
+      const fieldError = result.errors?.find((err) => err.path.length > 0);
+      // No mixed sources within one result: root and field errors are both client.
+      expect(rootError?.source).toBe('client');
+      expect(fieldError?.source).toBe('client');
+    });
+
+    it('tags root messages server when isServer is set', () => {
+      const result = validate(
+        testSchema,
+        { name: 'J' },
+        { rootMessages: 'Banner', isServer: true }
+      );
+
+      const rootError = result.errors?.find((err) => err.path.length === 0);
+      const fieldError = result.errors?.find((err) => err.path.length > 0);
+      expect(rootError?.source).toBe('server');
+      expect(fieldError?.source).toBe('server');
+    });
   });
 
   describe('withRootErrors', () => {
@@ -100,6 +127,17 @@ describe('zod-helpers', () => {
       const rootErrors = result.errors?.filter((e) => e.path.length === 0);
       expect(rootErrors).toHaveLength(1);
       expect(rootErrors?.[0].message).toBe('Something went wrong');
+      // Defaults to client, matching validate() — "client unless tagged server".
+      expect(rootErrors?.[0].source).toBe('client');
+    });
+
+    it('tags root messages server when isServer is true', () => {
+      const invalidResult = validate(testSchema, { name: 'J' });
+      const result = withRootErrors(invalidResult, 'Server rejection', {
+        isServer: true,
+      });
+
+      const rootErrors = result.errors?.filter((e) => e.path.length === 0);
       expect(rootErrors?.[0].source).toBe('server');
     });
 

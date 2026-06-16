@@ -64,6 +64,7 @@ function formatZodError(error: ZodError, isServer = false): ValidationError[] {
 }
 
 function addRootMessages(
+  isServer: boolean,
   errors: ValidationError[],
   messages?: string | string[]
 ): ValidationError[] {
@@ -73,21 +74,37 @@ function addRootMessages(
   const rootErrors = rootMessages.map((message) => ({
     path: [] as (string | number)[],
     message,
-    source: 'server' as const,
+    // Root messages share the validation pass's source, so a client-side
+    // validate(...) produces client root errors and a `{ isServer: true }` pass
+    // produces server ones — no mixed-source surprise within a single result.
+    source: isServer ? ('server' as const) : ('client' as const),
   }));
 
   return [...errors, ...rootErrors];
 }
 
+/**
+ * Append one or more form-level errors (`path: []`) to an existing result,
+ * preserving its field errors. Always returns `valid: false`.
+ *
+ * The appended root errors default to `source: 'client'`, matching `validate`'s
+ * default — the rule across both helpers is "errors are `client` unless you tag
+ * them `server`". Pass `{ isServer: true }` to tag them `server` instead (e.g. a
+ * top-level rejection from a server response, which should persist across
+ * re-validation and show regardless of touched state).
+ */
 export function withRootErrors<T>(
   result: ValidationResult<T>,
-  messages: string | string[]
+  messages: string | string[],
+  options: { isServer?: boolean } = {}
 ): ValidationResult<T> {
+  const { isServer = false } = options;
+
   const rootErrors = (Array.isArray(messages) ? messages : [messages]).map(
     (message) => ({
       path: [] as (string | number)[],
       message,
-      source: 'server' as const,
+      source: isServer ? ('server' as const) : ('client' as const),
     })
   );
 
@@ -111,7 +128,11 @@ export function validate<T>(
       return {
         valid: false,
         value: null, // Set to null to be consistent with other error cases
-        errors: addRootMessages([], options.rootMessages),
+        errors: addRootMessages(
+          options.isServer ?? false,
+          [],
+          options.rootMessages
+        ),
       };
     }
 
@@ -127,7 +148,7 @@ export function validate<T>(
     valid: false,
     value: null,
     errors: options.rootMessages
-      ? addRootMessages(errors, options.rootMessages)
+      ? addRootMessages(options.isServer ?? false, errors, options.rootMessages)
       : errors,
   };
 }
@@ -145,7 +166,11 @@ export async function validateAsync<T>(
       return {
         valid: false,
         value: null, // Set to null to be consistent with other error cases
-        errors: addRootMessages([], options.rootMessages),
+        errors: addRootMessages(
+          options.isServer ?? false,
+          [],
+          options.rootMessages
+        ),
       };
     }
 
@@ -161,7 +186,7 @@ export async function validateAsync<T>(
     valid: false,
     value: null,
     errors: options.rootMessages
-      ? addRootMessages(errors, options.rootMessages)
+      ? addRootMessages(options.isServer ?? false, errors, options.rootMessages)
       : errors,
   };
 }

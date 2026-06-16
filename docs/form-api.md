@@ -96,10 +96,11 @@ State getters:
 - `isValid`: Boolean. `true` when the form currently has **no errors at all** (of any source — Zod, server, manual, or client-submission) **and** a validation has run (`lastValidated !== null`, or there's no `schema`). It reflects the **whole** form, not just touched fields — any error anywhere makes it `false`. It is _not_ the touched-gated "is what I've filled so far OK" signal; for that, read a field's own error via [`useField`](#usefield)/`getFieldState`. Note it stays `false` until the first validation runs (on a schema form with `validateOnChange`, that's the first edit). Use `canSubmit` to gate the submit button.
 - `canSubmit`: Boolean indicating if the entire form passes Zod schema validation, regardless of which fields have been touched. A form with **no `schema`** is vacuously submittable, so `canSubmit` is `true` for it.
 - `submitAttempted`: Boolean. `true` once the user has tried to submit at all, pass or fail. Stays `true` for the duration of the submission and after it settles, then cleared by `reset`/`resetWithValues`. Use it _alongside_ `touched` to reveal errors. Gate on `touched[field] || submitAttempted` so each field shows its error once the user has interacted with it **or** has hit submit, which surfaces errors on fields they skipped. `submit()` also marks every field touched, so on its own `touched` covers this. `submitAttempted` is the cleaner signal if you'd rather key the "reveal everything" moment off the attempt itself.
-- `submitSucceeded`: Boolean. `true` only if the **most recent** attempt completed cleanly: validation passed, `onSubmit` resolved without throwing, **and** the handler set no submission errors (no `setServerError(s)` / `setClientSubmissionError`). It's `false` while a submit is in flight and flips to its final value when the attempt settles.
+- `submitSucceeded`: Boolean. `true` only if the **most recent** attempt completed cleanly: validation passed, `onSubmit` resolved without throwing, **and** no submission error is present when it settles. "Submission error" is defined by `source` — any `server`, `manual`, or `client-form-handler` error left behind by the handler flips it `false`, regardless of which setter created it (`setServerError(s)`, `setError`, `setClientSubmissionError`, or a raw `setErrors` carrying one of those sources). It's `false` while a submit is in flight and flips to its final value when the attempt settles.
 - `submitCount`: Number. Running count of submit attempts (bumped at the start of each `submit()`, including ones that fail validation). Reset to `0` by `reset`/`resetWithValues`.
 - `errors`: Current validation/server errors
 - `lastValidated`: Timestamp of the last validation
+- `validateOnBlur`: Boolean. Mirrors the `validateOnBlur` FormProvider prop (default `true`), exposed on the context so a field wiring its own blur handler can match the provider's configured behavior. Read-only — set it via the prop.
 - `isDirty`: Boolean. `true` when the current values differ from the **dirty baseline**. See [Dirty Tracking](#dirty-tracking).
 - `dirtyFields`: `Record<string, boolean>`. Per-field dirty map keyed by serialized path (same shape as `touched`). See [Dirty Tracking](#dirty-tracking).
 
@@ -364,7 +365,18 @@ Value operations:
 - `getValue<V = unknown>(path: (string|number)[]): V`: Get the value at any path.
   Paths are untyped, so the result is `unknown` unless you pass a type argument (`form.getValue<string>(['name'])`).
 - `setValue<V = unknown>(path: (string|number)[], value: V): void`: Set the value at any path.
-- `clearValue(path): boolean`: Reset field to an empty value based on its type. A thin wrapper over `setValue(path, <empty>)`, so it has the same side effects: marks touched, clears the field's errors (whole subtree, all sources), and re-validates. Returns `true` if a field existed at `path` and was cleared, `false` if the path doesn't exist (nothing to clear). The empty value is chosen by type: `string → ''`, `number → 0`, `boolean → false`, `array → []`, and an object is rebuilt with each property recursively emptied (so a `Date`, being an object, comes back as `{}` — `clearValue` is meant for primitive/collection fields, not `Date`s).
+- `clearValue(path): boolean`: Reset field to an empty value based on its type. A thin wrapper over `setValue(path, <empty>)`, so it has the same side effects: marks touched, clears the field's errors (whole subtree, all sources), and re-validates. Returns `true` if a field existed at `path` and was cleared, `false` if the path doesn't exist (nothing to clear). The empty value is chosen by type:
+
+  | Field type     | Cleared to                        |
+  | -------------- | --------------------------------- |
+  | `string`       | `''`                              |
+  | `number`       | `0`                               |
+  | `boolean`      | `false`                           |
+  | `array`        | `[]`                              |
+  | plain `object` | each property recursively emptied |
+
+  > **Dates and other non-plain objects:** the recursive object rule treats anything that's an object as a plain object to walk. A `Date` (or `Map`, `Set`, class instance, etc.) has no enumerable own properties to recurse into, so it comes back as `{}` — **not** a cleared `Date` and not `null`. `clearValue` is meant for primitive/collection fields; for a `Date` (or any non-plain object) clear it yourself with `setValue(path, null)` (or whatever your schema's "empty" is) rather than relying on `clearValue`.
+
 - `deleteField(path)`: Remove field at path. For an array item, later items' metadata (touched + errors, all sources) re-indexes down to follow them, instead of being wiped. Like `setValue`, when `validateOnChange` is on it re-runs the **whole** schema and refreshes every field's Zod error, so a cross-field rule (e.g. a `.refine()` on a sibling, or an array-level `z.array().min`) updates live when an item is removed.
 - `reindexArray(arrayPath, newItems, indexMap)`: Low-level primitive that replaces an array and atomically re-indexes its item metadata (touched, validation + server errors) via `indexMap` (old index → new index, or `null` to drop). Prefer the [`useArrayField`](#usearrayfield) helpers, which wrap it.
 - `hasField(path)`: Check if field exists
@@ -375,10 +387,27 @@ Error operations:
 - `getError(path)`: Get array of errors at specific path level
 - `getErrorPaths(path?: (string|number)[]): (string|number)[][]`: Get all error paths under given path
 - `getFieldState(path): FieldState`: Convenience snapshot of one field in a single call: `{ errors, error, isTouched, invalid, exists }`. A pure read over `getError(path)` + the `touched` lookup + `hasField(path)`. Note the errors here are **raw** (not gated on `touched`), so `invalid`/`error` reflect the field's real validation state. This is handy for raw-context fields that want a field's error/touched/validity without wiring up [`useField`](#usefield), whose display `error` _is_ touched-gated.
-- `setErrors(errors)`: Set all errors (replaces existing errors)
+- `setErrors(errors)`: Set all errors (replaces existing errors). This is the
+  low-level overwrite of the whole error list. Whether it marks a submit failed is
+  decided by the **`source`** of the entries, not by which setter you called:
+  `submitSucceeded` reads `false` if any `server`, `manual`, or
+  `client-form-handler` error is still present after `onSubmit` resolves. So
+  `setErrors([{ path, message, source: 'server' }])` inside `onSubmit` rejects the
+  attempt just like `setServerErrors` would, while `setErrors` entries with
+  `source: 'client'` (or no `source`) are treated as ordinary validation errors and
+  do **not** flag a failure. When your intent is "reject this submit," prefer the
+  source-specific setters (`setServerErrors`/`setServerError`/`setError`/
+  `setClientSubmissionError`) — they tag the `source` for you, so you can't forget.
+  (There is no way to set `submitSucceeded` directly as it is computed based on the presence of certain error sources during the submit flow.)
+  Because it's a wholesale replace, `setErrors` also **resyncs the per-source
+  channel baselines** to match the new list: a `server` entry feeds the same
+  internal store `setServerError(s)` merge from (so a later targeted
+  `setServerError` won't drop it), and a `client-form-handler` entry is readable via
+  `getClientSubmissionError()`. So a server/submission entry set this way behaves
+  identically to the dedicated setter — not just for the failure flag.
 - `setServerErrors(errors)`: Replace all server errors with new ones
 - `setServerError(path, message)`: Set server error(s) for a specific path
-- `setError(path, message)`: Set (or clear, with `null`) a **manual/client** error at one path, using the same `string | string[] | null` shape as `setServerError`. The error is tagged `source: 'manual'` and behaves exactly like a server error (see [Error Sources](#error-sources) below): it survives re-validation, shows regardless of `touched`, and clears when the field is edited or on submit/reset. Use it for client-owned checks Zod can't express (an async "username taken" surfaced client-side, a cross-field rule you'd rather run imperatively, etc.). Also available on the `onSubmit` helpers. Pass `[]` as the path for a form-level error.
+- `setError(path, message)`: Set (or clear, with `null`) a **manual/client** error at one path, using the same `string | string[] | null` shape as `setServerError`. The error is tagged `source: 'manual'` and behaves exactly like a server error (see [Error Sources](#error-sources) below): it survives re-validation, shows regardless of `touched`, and clears when the field is edited or on submit/reset. Use it for client-owned checks Zod can't express (an async "username taken" surfaced client-side, a cross-field rule you'd rather run imperatively, etc.). Also available on the `onSubmit` helpers. Pass `[]` as the path for a form-level error. **Replaces, doesn't accumulate:** each call first drops any existing `manual` error(s) at that exact path, so calling it repeatedly leaves only the latest — pass a `string[]` to set several messages at one path in a single call, and `null` to clear them. (Same per-path replace semantics as `setServerError`; `client`/`server` errors at the path are left untouched.)
 
 #### Error Sources
 
@@ -391,16 +420,35 @@ Every `ValidationError` carries a `source` that controls its lifecycle:
 | `manual`              | `setError`                 | Yes                          | Yes                   | editing the field, submit start, reset            |
 | `client-form-handler` | `setClientSubmissionError` | n/a (form-level)             | n/a                   | submit start, `clearClientSubmissionError`, reset |
 
+**No `source`?** An error with `source` omitted (e.g. a raw `setErrors([{ path, message }])` with no `source`) is treated as `client` for its **whole lifecycle** — it's validation-owned, so every `validate()` / `setValue` / `deleteField` recomputes it (dropping it once the schema no longer flags that path), it does **not** survive re-validation, and it does not flag a submit as failed. In short: only `server` / `manual` / `client-form-handler` survive validation and reject a submit — `client` **and untagged** are ordinary validation errors. If you want an error to persist, give it a `source` (`setError` → `manual`, `setServerError` → `server`).
+
 `manual` is deliberately parallel to `server`. Same rules, a different label so you can tell a server-reported error from a client-set one and own each channel independently. The only difference is plumbing: `server` errors also live in an internal canonical store (used by `setServerErrors` replace-all), whereas `manual` errors live only in the main error list. Like server errors, a `manual` error does **not** gate `canSubmit` (which is schema-only). But setting one from inside `onSubmit` **does** mark the attempt as failed. `submitSucceeded` stays `false`, the same as `setServerError`/`setClientSubmissionError`, so a client-side check that rejects a submit reads correctly.
 
 ##### Form-Level Errors: `setError([])` vs `setClientSubmissionError`
 
-Both put an error at the form/root level, but they're **separate channels, not two names for the same thing**. They use different `source`, storage, and retrieval paths:
+Both put an error at the form/root level, but they're **separate channels** with
+different `source`, lifecycle, and a dedicated getter:
 
-- `setError([], msg)` → a `source: 'manual'` error at path `[]`, read back via `getError([])` (alongside any root validation errors). It's a _field-style_ error that happens to live at the root, and it persists like other field errors.
-- `setClientSubmissionError(msg)` → a `source: 'client-form-handler'` error in a dedicated store, read back via `getClientSubmissionError()`. It's purpose-built for "the submission itself failed" (network/auth), kept apart from field/validation errors and cleared by `clearClientSubmissionError()`.
+- `setError([], msg)` → a `source: 'manual'` error at path `[]`. It's a
+  _field-style_ error that happens to live at the root, and it persists like other
+  field errors (survives re-validation; cleared on submit start / reset).
+- `setClientSubmissionError(msg)` → a `source: 'client-form-handler'` error,
+  purpose-built for "the submission itself failed" (network/auth). It's also
+  mirrored in a dedicated store so `getClientSubmissionError()` can return **just
+  these messages** as a `string[]`, and it's cleared by
+  `clearClientSubmissionError()` (and at submit start).
 
-Reach for `setClientSubmissionError` for submit-failure banners. Use `setError([])` when you want a root-level error that sits in the same list as your field errors.
+**Heads-up on reading them back.** Both ultimately live in the same flat `errors`
+list at path `[]`, so `getError([])` returns **everything** at the root —
+`manual` errors, root `client`/`server` validation errors, **and** the
+`client-form-handler` submission errors — distinguishable only by their `source`.
+The dedicated `getClientSubmissionError()` is what isolates the submission errors
+on their own. So if you render a root banner from `getError([])`, expect
+submission errors to show up there too; filter by `source` (or use
+`getClientSubmissionError()`) if you want to separate them.
+
+Reach for `setClientSubmissionError` for submit-failure banners. Use `setError([])`
+when you want a root-level error that sits in the same list as your field errors.
 
 Touch state operations:
 
@@ -464,12 +512,18 @@ export interface FormHelpers<T> {
   setClientSubmissionError: (message: string | string[] | null) => void;
   clearClientSubmissionError: () => void;
   getClientSubmissionError: () => string[];
+  getValue: <V = unknown>(path: (string | number)[]) => V; // read the LIVE value (see note below)
+  getError: (path: (string | number)[]) => ValidationError[]; // live reads, mirror the context methods
+  getErrorPaths: (path?: (string | number)[]) => (string | number)[][];
+  getFieldState: (path: (string | number)[]) => FieldState;
+  getValuePaths: (path?: (string | number)[]) => (string | number)[][];
   setValue: <V = unknown>(path: (string | number)[], value: V) => void;
   clearValue: (path: (string | number)[]) => boolean;
   deleteField: (path: (string | number)[]) => void;
-  validate: (force?: boolean) => boolean;
+  validate: (force?: boolean) => boolean; // mutation (writes errors/touched) — guarded, see note
+  validateField: (path: (string | number)[]) => boolean; // trigger one field — guarded, see note
   hasField: (path: (string | number)[]) => boolean;
-  touched: Record<string, boolean>;
+  touched: Record<string, boolean>; // snapshot at submit start, NOT live — see note below
   setFieldTouched: (path: (string | number)[], value?: boolean) => void;
   reset: (force?: boolean) => boolean;
   resetWithValues: (newValues: T, force?: boolean) => boolean;
@@ -481,6 +535,31 @@ export interface FormHelpers<T> {
   focusFirstError: () => (string | number)[] | null; // focus first errored field
 }
 ```
+
+**Stale-submission guard (how `helpers` behaves when superseded).** Each `helpers`
+member falls into one of three buckets, and the distinction only matters once a
+submission is no longer the current one — i.e. a newer `submit()` started, or a
+force-reset (`reset(true)` / `resetWithValues(_, true)`) or unmount invalidated this
+one (see [Resetting Mid-Submit](#resetting-the-form) and [Submission ID Tracking](#submission-id-tracking)):
+
+- **Mutations are guarded** — they **no-op when this submission is stale**, so a
+  slow `await` in `onSubmit` can't write back over a form the user already reset or
+  resubmitted. This covers `setErrors`, `setServerErrors`, `setServerError`,
+  `setError`, `setClientSubmissionError`, `clearClientSubmissionError`, `setValue`,
+  `clearValue`, `deleteField`, `setFieldTouched`, `validate`, `validateField`,
+  `reset`, `resetWithValues`, `markPristine`, `setFocus`, and `focusFirstError`.
+  The ones that return a value report the no-op (`false` / `null`) when stale.
+- **Reads are live and unguarded** — `getValue`, `getError`, `getErrorPaths`,
+  `getFieldState`, `getValuePaths`, `hasField`, and `getClientSubmissionError`
+  always reflect the current form state, including mutations you made earlier in the
+  same handler. (A stale read is harmless — reads have no side effects.)
+- **Snapshots / identity** — `touched` is a snapshot from submit start (not live),
+  and `currentSubmissionID` / `isCurrentSubmission` / `signal` describe _this_
+  submission so you can detect staleness yourself.
+
+This is why `helpers.*` writes are "safe by default": you rarely need to wrap them
+in `isCurrentSubmission` checks — that check is mainly for your **own** non-`helpers`
+side effects (navigation, toasts, external state), which the guard can't cover.
 
 Server Error Handling:
 
@@ -934,12 +1013,15 @@ The `helpers` object (`FormHelpers<T>`, see the [full interface](#formhelpers-in
 - `setServerError`: Set server error for specific path
 - `setError`: Set (or clear, with `null`) a manual error at a path
 - `setClientSubmissionError` / `clearClientSubmissionError` / `getClientSubmissionError`: Manage form-level client submission errors
+- `getValue`: Read the current value at a path. Reads the **live** values, so it reflects any `helpers.setValue` you've already made in this handler — unlike the top-level `values` argument, which is the snapshot from when submission started.
+- `getError` / `getErrorPaths` / `getFieldState` / `getValuePaths`: The read side of the form, available right on `helpers` (alongside `getValue`/`hasField`). They read **live** state, so a call right after a `helpers.setError`/`setValue`/`deleteField` reflects it with no re-render needed. Errors are raw (not touched-gated) — same behavior as the [context methods of the same name](#error-operations). You don't need to grab `useFormContext()` inside the handler to read errors.
 - `setValue`: Update field value
 - `clearValue`: Reset field to empty value (returns `true` if the field existed and was cleared, `false` otherwise)
 - `deleteField`: Remove field
 - `validate`: Manually trigger validation
+- `validateField`: Imperatively validate one field (see [`validateField`](#core-components) on the context). A guarded mutation — no-ops if the submission is no longer current.
 - `hasField`: Check if field exists
-- `touched`: Current touched state
+- `touched`: The touched state **as a snapshot taken when submission started** — not a live view. `submit()` marks every field touched before calling your handler, but this object reflects the touched state from the render before that, so it won't show those submit-time touches (or any `setFieldTouched` you call mid-handler). It's a read-only snapshot, not a live binding.
 - `setFieldTouched`: Mark field as touched
 - `reset`: Reset form to initial values. Returns `true` if successful, `false` otherwise (e.g., if submitting and not forced).
 - `resetWithValues`: Reset form with new values
@@ -1461,7 +1543,7 @@ const schema = z
 // If data has unknown field 'age':
 const error = {
   path: [], // Empty path indicates root error
-  message: "Unrecognized key(s) in object: 'age'",
+  message: 'Unrecognized key: "age"', // Zod 4's default text (illustrative)
 };
 ```
 
