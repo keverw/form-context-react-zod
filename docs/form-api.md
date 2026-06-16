@@ -57,8 +57,8 @@ Provides context with:
 State getters:
 
 - `isSubmitting`: Boolean indicating submission state
-- `isValid`: Boolean indicating if form passes validation for touched fields
-- `canSubmit`: Boolean indicating if the entire form passes Zod schema validation
+- `isValid`: Boolean. `true` when the form currently has **no errors at all** (of any source — Zod, server, or manual) **and** a validation has run (`lastValidated !== null`, or there's no `schema`). It reflects the **whole** form, not just touched fields — any error anywhere makes it `false`. It is _not_ the touched-gated "is what I've filled so far OK" signal; for that, read a field's own error via [`useField`](#usefield)/`getFieldState`. Note it stays `false` until the first validation runs (on a schema form with `validateOnChange`, that's the first edit). Use `canSubmit` to gate the submit button.
+- `canSubmit`: Boolean indicating if the entire form passes Zod schema validation, regardless of which fields have been touched. A form with **no `schema`** is vacuously submittable, so `canSubmit` is `true` for it.
 - `submitAttempted`: Boolean. `true` once the user has tried to submit at all, pass or fail. Stays `true` for the duration of the submission and after it settles, then cleared by `reset`/`resetWithValues`. Use it _alongside_ `touched` to reveal errors. Gate on `touched[field] || submitAttempted` so each field shows its error once the user has interacted with it **or** has hit submit, which surfaces errors on fields they skipped. `submit()` also marks every field touched, so on its own `touched` covers this. `submitAttempted` is the cleaner signal if you'd rather key the "reveal everything" moment off the attempt itself.
 - `submitSucceeded`: Boolean. `true` only if the **most recent** attempt completed cleanly: validation passed, `onSubmit` resolved without throwing, **and** the handler set no submission errors (no `setServerError(s)` / `setClientSubmissionError`). It's `false` while a submit is in flight and flips to its final value when the attempt settles.
 - `submitCount`: Number. Running count of submit attempts (bumped at the start of each `submit()`, including ones that fail validation). Reset to `0` by `reset`/`resetWithValues`.
@@ -325,10 +325,9 @@ Value operations:
 
 - `getValue(path)`: Get value at specific path
 - `setValue(path, value)`: Set value at specific path. Marks the path touched and clears stale server/manual errors at that path **and any descendant paths** (assigning a value replaces the whole subtree). When `validateOnChange` is on it re-runs the **whole** schema and refreshes every field's Zod error, not just the edited field's, so a cross-field rule (e.g. a `.refine()` "passwords must match" whose error lands on a sibling) updates **live** as you type. Display stays touch-gated, so an _untouched_ sibling still won't show its error until it's touched/blurred/submitted.
-- `getValue<K extends keyof T>([key]: [K]): T[K]`: Get value at a top-level key with type safety.
-- `getValue(path: (string|number)[]): unknown`: Get value at any specific path.
-- `setValue<K extends keyof T>([key]: [K], value: T[K])`: Set value at a top-level key with type safety.
-- `setValue(path: (string|number)[], value: V)`: Set value at any specific path
+- `getValue<V = unknown>(path: (string|number)[]): V`: Get the value at any path.
+  Paths are untyped, so the result is `unknown` unless you pass a type argument (`form.getValue<string>(['name'])`).
+- `setValue<V = unknown>(path: (string|number)[], value: V): void`: Set the value at any path.
 - `clearValue(path)`: Reset field to an empty value based on its type. A thin wrapper over `setValue(path, <empty>)`, so it has the same side effects: marks touched, clears the field's errors (whole subtree, all sources), and re-validates.
 - `deleteField(path)`: Remove field at path. For an array item, later items' metadata (touched + errors, all sources) re-indexes down to follow them, instead of being wiped.
 - `reindexArray(arrayPath, newItems, indexMap)`: Low-level primitive that replaces an array and atomically re-indexes its item metadata (touched, validation + server errors) via `indexMap` (old index → new index, or `null` to drop). Prefer the [`useArrayField`](#usearrayfield) helpers, which wrap it.
@@ -429,7 +428,6 @@ export interface FormHelpers<T> {
   setClientSubmissionError: (message: string | string[] | null) => void;
   clearClientSubmissionError: () => void;
   getClientSubmissionError: () => string[];
-  setValue<K extends keyof T>(path: [K], value: T[K]): void;
   setValue: <V = unknown>(path: (string | number)[], value: V) => void;
   clearValue: (path: (string | number)[]) => void;
   deleteField: (path: (string | number)[]) => void;
@@ -492,8 +490,9 @@ instead of calling the API from an effect:
 ```
 
 - Entries are normalized to `source: 'server'`, so you can omit `source`.
-- A `path` of `[]` is a root (form-level) error. Render it with `RootErrors` /
-  `getError([])`.
+- A `path` of `[]` is a root (form-level) error. Read it with `getError([])` and
+  render it in a small banner component of your own, e.g.
+  `getError([]).map((e) => <p key={e.message}>{e.message}</p>)`.
 - These render **immediately and regardless of touched state** (unlike Zod
   validation errors, which gate on `touched`).
 - Later `setServerError(s)` calls merge from this seeded baseline: updating one
@@ -669,9 +668,12 @@ const {
   value,
   setValue,
   error,
+  inputRef, // Ref callback — attach to your input so setFocus/focusFirstError can reach it
   props, // Typed props for input components
 } = useField(path);
 ```
+
+See [Focus Management](#focus-management) for `inputRef`.
 
 Path can be specified using:
 
@@ -1332,9 +1334,9 @@ form.setServerErrors(errors);
 
 The form provides two distinct validation states:
 
-1. `isValid`: Indicates if there are no errors for fields that have been touched or interacted with. This is useful for showing validation feedback as users fill out the form.
+1. `isValid`: Indicates the form currently has **no errors at all** (of any source) and a validation has run. This reflects the whole form, not just touched fields, so it flips `false` the moment any field is invalid. It's a coarse "everything is currently clean" signal, not a per-field, touch-gated one — for inline feedback as a user fills out a field, read that field's own error instead (`useField`/`getFieldState`).
 
-2. `canSubmit`: Indicates if the entire form passes Zod schema validation, regardless of which fields have been touched. This is useful for controlling when to enable the submit button.
+2. `canSubmit`: Indicates if the entire form passes Zod schema validation, regardless of which fields have been touched. This is useful for controlling when to enable the submit button. (A form with no `schema` is vacuously valid, so `canSubmit` is `true`.)
 
 Example usage with a submit button:
 
@@ -1567,6 +1569,13 @@ function MultiSectionForm() {
     </FormProvider>
   );
 }
+
+// `FormState` is an opt-in debug component (it dumps the live form state for development).
+// It is NOT part of the core entry — import it from the devtools
+// entry for your platform:
+//
+//   import { FormState } from 'form-context-react-zod/devtools/web';    // DOM
+//   import { FormState } from 'form-context-react-zod/devtools/native'; // React Native
 
 // Example of a component that accesses the form context
 function PersonalInfoSection() {

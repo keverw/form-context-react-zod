@@ -2283,7 +2283,10 @@ export function FormProvider<T extends Record<string | number, unknown>>({
       // is set) or there's no schema to validate against (a schema-less form is
       // vacuously valid). Uses reactive state, not refs, so consumers stay in sync.
       isValid: errors.length === 0 && (lastValidated !== null || !schema),
-      canSubmit, // reactive state; the ref stays for the synchronous submit logic
+      // A form with no schema has nothing to fail, so it's vacuously submittable.
+      // (With a schema, `canSubmit` reflects the last validation; the ref stays for
+      // the synchronous submit logic, which already treats `!schema` as valid.)
+      canSubmit: schema ? canSubmit : true,
       submitAttempted,
       submitSucceeded,
       submitCount,

@@ -16,13 +16,14 @@ import type { FormContextValue } from '../form-context';
  *   }
  * }
  *
- * // Using strongly typed form hook
+ * // Pass your form's value type for typed helpers/state:
  * const form = useFormContext<UserForm>();
  *
- * // Now you get type checking and auto-completion:
- * form.getValue(['name']); // returns string
- * form.getValue(['address', 'city']); // returns string
- * form.getValue(['invalid']); // TypeScript error
+ * // Paths are untyped (string|number)[], so reads are `unknown` by default —
+ * // pass a type argument (or annotate the destination) for a concrete type:
+ * form.getValue<string>(['name']); // string
+ * form.getValue<string>(['address', 'city']); // string
+ * form.getValue(['name']); // unknown
  * ```
  */
 export function useFormContext<TForm = Record<string, unknown>>() {
