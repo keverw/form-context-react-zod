@@ -255,7 +255,7 @@ import { FormState } from 'form-context-react-zod/devtools/native';
 - Use the `mode` prop (`'light' | 'dark'`, default `'light'`) to set the theme.
   `mode` always sets the **initial** theme. When `showToggle` is `false` it stays
   fixed at `mode`, and when the toggle is on it just seeds the starting state and
-  the toggle takes over from there.
+  the toggle takes over from there. Changing `mode` after mount has no effect once the toggle is active.
 - This component is intended for development and debugging purposes.
 
 ## Demos

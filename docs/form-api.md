@@ -365,7 +365,7 @@ Value operations:
 - `getValue<V = unknown>(path: (string|number)[]): V`: Get the value at any path.
   Paths are untyped, so the result is `unknown` unless you pass a type argument (`form.getValue<string>(['name'])`).
 - `setValue<V = unknown>(path: (string|number)[], value: V): void`: Set the value at any path.
-- `clearValue(path): boolean`: Reset field to an empty value based on its type. A thin wrapper over `setValue(path, <empty>)`, so it has the same side effects: marks touched, clears the field's errors (whole subtree, all sources), and re-validates. Returns `true` if a field existed at `path` and was cleared, `false` if the path doesn't exist (nothing to clear). The empty value is chosen by type:
+- `clearValue(path): boolean`: Reset field to an empty value based on its type. A thin wrapper over `setValue(path, <empty>)`, so it has the same side effects: marks touched, clears the field's errors (whole subtree, all sources), and re-validates (when `validateOnChange` is on, just like `setValue`). Returns `true` if a field existed at `path` and was cleared, `false` if the path doesn't exist (nothing to clear). The empty value is chosen by type:
 
   | Field type     | Cleared to                        |
   | -------------- | --------------------------------- |

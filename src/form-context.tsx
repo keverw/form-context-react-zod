@@ -159,7 +159,8 @@ export interface FormContextValue<T> {
   /**
    * Clear a field to its type-appropriate empty value (string → `''`, number → `0`,
    * boolean → `false`, array → `[]`, object → recursively emptied). Marks the path
-   * touched, clears the field's errors (whole subtree, all sources), and re-validates.
+   * touched, clears the field's errors (whole subtree, all sources), and re-validates
+   * (when `validateOnChange` is on — it delegates to `setValue`).
    * Returns `true` if a field existed at `path` and was cleared, `false` if the path
    * doesn't exist.
    */

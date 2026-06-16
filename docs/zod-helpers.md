@@ -139,7 +139,7 @@ function serializePath(path: (string | number)[]): string;
 function deserializePath(serialized: string): (string | number)[];
 ```
 
-Utilities for reading and writing values at nested paths. `setValueAtPath` automatically creates intermediate objects or arrays as needed.
+These are general-purpose path utilities (not Zod-specific) re-exported from the package root, so you import them from `form-context-react-zod` alongside the validation helpers. They're for reading and writing values at nested paths; `setValueAtPath` automatically creates intermediate objects or arrays as needed.
 
 `serializePath` / `deserializePath` convert a path array to and from the stable string key the form uses internally. The form's `touched` and `dirtyFields` maps are keyed by this serialized path, so reach for `serializePath` when reading them directly:
 
