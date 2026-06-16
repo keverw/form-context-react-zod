@@ -1034,14 +1034,20 @@ export function FormProvider<T extends Record<string | number, unknown>>({
   // Combined effect for mount tracking and validation
   React.useEffect(() => {
     mountedRef.current = true;
+
     let timer: ReturnType<typeof setTimeout> | undefined;
     if (validateOnMount && schema) {
+      // For testing purposes, we'll execute synchronously to avoid test timeouts
       if (process.env.NODE_ENV === 'test') {
+        // In tests, execute synchronously
         performInitialValidation();
       } else {
+        // In production, defer validation to next tick to ensure component mount cycle completes
+        // This helps prevent potential React state update warnings during commit phase
         timer = setTimeout(performInitialValidation, 0);
       }
     }
+
     return () => {
       mountedRef.current = false;
       if (timer) clearTimeout(timer);
