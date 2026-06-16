@@ -76,15 +76,14 @@ exports throughout.
       deps/devDeps (adapted from Unirend, minus the starter-template surface it doesn't have).
       Added `semver`. Runs in `build:lib` before tsup. Currently passes. - ❌ `sync-version` — SCRAPPED. Unirend needs it for its CLI's `PKG_VERSION`; this lib has
       no runtime use for its own version, and `build-lib` already reads the version straight
-      from root. A public `VERSION` export would just be dead weight. - ✅ `scripts/update-docs.ts` — stamps the version into the dev README's **H1 title**
-      (`# Form Context React Zod vX.Y.Z`), Unirend-style, from root version. Kept the dev +
-      published READMEs as separate documents (per plan), so this guards them from drifting on
-      version. Runs in `build:lib`. Verified both branches (corrects stale, stamps bare title).
+      from root. A public `VERSION` export would just be dead weight. - ✅ `scripts/update-docs.ts` — stamps the version into the README's **H1 title**
+      (`# Form Context React Zod vX.Y.Z`), Unirend-style, from root version. The same README
+      is copied into `dist_module` during `build:lib`, so repo and package docs share one
+      source. Verified both branches (corrects stale, stamps bare title).
       (markdown-toc-gen TOC not added — README is short.)
-- [x] **README drift.** DECISION: keep the dev `README.md` and the build-lib-generated published
-      README as **separate documents** (different audiences — contributors vs npm consumers).
-      Drift risk was really just the version, now handled by `update-docs` syncing the dev
-      README's `**Current version:**` line. No consolidation needed.
+- [x] **README drift.** Updated decision: root `README.md` is now the single source of truth.
+      `build-lib` copies it into `dist_module/README.md` instead of generating a separate
+      published README, and the native demo README points back to the consolidated root docs.
 - [x] Add `prepublishOnly` + `type-check`. ✅ - `type-check`: `tsc --noEmit`. **Consolidated the Vite-starter split tsconfig** into one
       root `tsconfig.json` (merged `tsconfig.app.json` in, repointed `tsconfig.lib.json`'s
       `extends`, dropped the project references) so a bare `tsc --noEmit` checks `src` — no more
@@ -374,11 +373,11 @@ Feasible — field binding is via hooks (render-agnostic). Only DOM hard-deps:
       exercises the real published entries (incl. `./devtools/native` + the `./context` singleton). Two
       screens (Basic, Array), a TextInput adapter ([RNFormInput](examples/native/src/RNFormInput.tsx)),
       and the published native `FormState`. **Verified by actually bundling** — `npx expo export --platform
-      ios` succeeds (660 modules) and the demo type-checks. Pinned to SDK 54 (not the latest 56) so the
+ios` succeeds (660 modules) and the demo type-checks. Pinned to SDK 54 (not the latest 56) so the
       dev build runs on Xcode 16.x — SDK 56/RN 0.85 needs Swift 6.2 / Xcode 26. SDK 54's older Metro needs
       a small [metro.config.js](examples/native/metro.config.js) (watchFolders + `exports` + peer pinning)
       to consume the `file:`-linked package. Run: `bun run build:lib` then `cd examples/native &&
-      npm install && npm start`._
+npm install && npm start`._
 - [x] Decide `react-native` export condition if RN needs a distinct core build. _Not needed: the core
       (`.`) is DOM-free and works as-is on RN, so no `react-native` condition / distinct build. `react-dom`
       is an optional peer. (A `react-native` condition would only come into play for `./devtools` web-vs-native.)_

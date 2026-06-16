@@ -1,8 +1,7 @@
 /**
- * Sync the dev README.md version line from root package.json (the single source
- * of truth). The *published* README is generated separately by build-lib and is
- * already version-stamped; this keeps the repo's own README in step so the two
- * never drift on version even though they stay separate documents.
+ * Sync README.md's version line from root package.json (the single source of
+ * truth). build-lib copies this README into dist_module, so the repo and
+ * published package share the same document.
  *
  * Adapted from Unirend's scripts/update-readme-version.ts. Run via
  * `bun run update-docs` (also runs as part of build:lib).

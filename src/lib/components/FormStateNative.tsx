@@ -119,7 +119,9 @@ export function FormState({
       ]}
     >
       <View style={styles.headerRow}>
-        <Text style={[styles.heading, { color: p.heading }]}>🛠️ Form State</Text>
+        <Text style={[styles.heading, { color: p.heading }]}>
+          🛠️ Form State
+        </Text>
         {showToggle && (
           <View style={styles.toggle}>
             <Text style={[styles.toggleLabel, { color: p.muted }]}>Dark</Text>
@@ -132,7 +134,11 @@ export function FormState({
       </View>
 
       <View style={styles.chips}>
-        <Chip label={form.isValid ? '✓ Valid' : '✗ Invalid'} ok={form.isValid} p={p} />
+        <Chip
+          label={form.isValid ? '✓ Valid' : '✗ Invalid'}
+          ok={form.isValid}
+          p={p}
+        />
         <Chip
           label={form.canSubmit ? '✓ Can Submit' : '✗ Cannot Submit'}
           ok={form.canSubmit}
@@ -167,7 +173,9 @@ export function FormState({
         {dirtyCount > 0 ? (
           <Code value={prettyPaths(form.dirtyFields)} p={p} />
         ) : (
-          <Text style={[styles.muted, { color: p.muted }]}>No dirty fields</Text>
+          <Text style={[styles.muted, { color: p.muted }]}>
+            No dirty fields
+          </Text>
         )}
       </Section>
 
@@ -186,7 +194,10 @@ export function FormState({
       <Section title={`Validation Errors (${validation.length})`} p={p}>
         <Errors list={validation} p={p} />
       </Section>
-      <Section title={`Client Submission Errors (${clientSubmission.length})`} p={p}>
+      <Section
+        title={`Client Submission Errors (${clientSubmission.length})`}
+        p={p}
+      >
         <Errors list={clientSubmission} p={p} />
       </Section>
       <Section title={`Server Errors (${server.length})`} p={p}>
@@ -242,9 +253,14 @@ function Code({ value, p }: { value: unknown; p: Palette }) {
   return (
     <ScrollView
       horizontal
-      style={[styles.codeWrap, { backgroundColor: p.codeBg, borderColor: p.codeBorder }]}
+      style={[
+        styles.codeWrap,
+        { backgroundColor: p.codeBg, borderColor: p.codeBorder },
+      ]}
     >
-      <Text style={[styles.code, { color: p.code }]}>{safeStringify(value)}</Text>
+      <Text style={[styles.code, { color: p.code }]}>
+        {safeStringify(value)}
+      </Text>
     </ScrollView>
   );
 }

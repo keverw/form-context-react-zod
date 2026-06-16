@@ -5,7 +5,7 @@ import path from 'node:path';
 import { execSync } from 'node:child_process';
 
 // Single source of truth: read metadata from the root package.json so the
-// published manifest, generated README, etc. all stay in sync with one place.
+// published manifest stays in sync with one place.
 const rootPkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
 
 const PACKAGE_CONFIG = {
@@ -63,14 +63,12 @@ async function build() {
     // Copy documentation files
     console.log('Copying documentation files...');
     try {
-      // Copy ZOD-HELPERS.md
-      if (fs.existsSync('ZOD-HELPERS.md')) {
-        fs.copyFileSync('ZOD-HELPERS.md', 'dist_module/ZOD-HELPERS.md');
+      if (fs.existsSync('README.md')) {
+        fs.copyFileSync('README.md', 'dist_module/README.md');
       }
 
-      // Copy FORM-API.md
-      if (fs.existsSync('FORM-API.md')) {
-        fs.copyFileSync('FORM-API.md', 'dist_module/FORM-API.md');
+      if (fs.existsSync('docs')) {
+        fs.cpSync('docs', 'dist_module/docs', { recursive: true });
       }
 
       console.log('✅ Documentation files copied successfully');
@@ -167,8 +165,8 @@ async function build() {
         'context/index.d.ts',
         'context/index.d.cts',
         'README.md',
-        'FORM-API.md',
-        'ZOD-HELPERS.md',
+        'docs/form-api.md',
+        'docs/zod-helpers.md',
       ],
       // Peers come from root package.json (validated by check-deps). react-dom
       // is an OPTIONAL peer — no published bundle imports it (the core is
@@ -183,92 +181,6 @@ async function build() {
       path.join('dist_module', 'package.json'),
       JSON.stringify(libPackageJson, null, 2)
     );
-
-    // Create README.md with references to documentation
-    console.log('Creating README.md...');
-    const readme = `# ${PACKAGE_CONFIG.name}
-
-${PACKAGE_CONFIG.description}
-
-Current version: ${PACKAGE_CONFIG.version}
-
-## Demo
-
-Check out the [live demo](https://keverw.github.io/form-context-react-zod/) to see the library in action.
-
-## Installation
-
-\`\`\`bash
-npm install ${PACKAGE_CONFIG.name}
-\`\`\`
-
-> **Requires React 19 and Zod 4.** Need React 18 / Zod 3? Install \`${PACKAGE_CONFIG.name}@^1\`.
-
-## Features
-
-- Type-safe form handling with Zod schemas
-- Nested form support
-- Array field management
-- Client and server-side validation
-- React hooks for form state management
-
-## Usage
-
-\`\`\`tsx
-import { FormProvider, useForm, zodHelpers } from '${PACKAGE_CONFIG.name}';
-
-// Basic example
-const MyForm = () => {
-  const schema = z.object({
-    name: z.string().min(2),
-    email: z.string().email()
-  });
-
-  return (
-    <FormProvider schema={schema} onSubmit={values => console.log(values)}>
-      <FormField name="name" />
-      <FormField name="email" />
-      <button type="submit">Submit</button>
-    </FormProvider>
-  );
-};
-\`\`\`
-
-## Debugging
-
-### FormState
-
-The \`FormState\` component is a developer tool for inspecting the current form state, errors, and touched fields.
-
-**Usage:**
-
-\`\`\`tsx
-import { FormState } from '${PACKAGE_CONFIG.name}/devtools/web';
-
-<FormState showToggle />
-\`\`\`
-
-- Imported from the \`${PACKAGE_CONFIG.name}/devtools/web\` subpath (or \`/devtools/native\` on React Native) so the core entry stays DOM-free.
-- Use the \`showToggle\` prop to allow switching between light and dark mode.
-- This component is intended for development and debugging purposes.
-
-## Documentation
-
-For detailed documentation, see:
-
-- [Form API Documentation](https://github.com/keverw/form-context-react-zod/blob/master/FORM-API.md)
-- [Zod Helpers Documentation](https://github.com/keverw/form-context-react-zod/blob/master/ZOD-HELPERS.md)
-
-## License
-
-${PACKAGE_CONFIG.license}
-
-## Disclaimer
-
-This project is not affiliated with, endorsed by, or sponsored by React or Zod. All product names, logos, and brands are property of their respective owners.
-`;
-
-    fs.writeFileSync(path.join('dist_module', 'README.md'), readme);
 
     console.log(
       '✅ Library build complete! Your package is ready in the dist_module directory.'

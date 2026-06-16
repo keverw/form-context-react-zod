@@ -2,6 +2,26 @@
 
 > **Requires Zod 4** (peer dependency `zod@^4`). Still on Zod 3? Install `form-context-react-zod@^1`.
 
+<!-- toc -->
+
+- [Overview](#overview)
+- [Core Types](#core-types)
+  - [ValidationError](#validationerror)
+  - [ValidationResult](#validationresult)
+  - [ValidationOptions](#validationoptions)
+- [Core Functions](#core-functions)
+  - [validate / validateAsync](#validate--validateasync)
+    - [Options](#options)
+  - [Path Utilities](#path-utilities)
+- [Usage Examples](#usage-examples)
+  - [Basic Validation](#basic-validation)
+  - [Server-Sourced Validation](#server-sourced-validation)
+  - [Root Messages](#root-messages)
+  - [Combined Options](#combined-options)
+- [Integration with Form Library](#integration-with-form-library)
+
+<!-- tocstop -->
+
 ## Overview
 
 Enhanced ZOD validation helpers that provide a more JSON-friendly error format and utility functions for working with nested paths.

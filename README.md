@@ -4,6 +4,27 @@
 
 A powerful React form management library with Zod validation.
 
+<!-- toc -->
+
+- [Project Overview](#project-overview)
+- [Features](#features)
+- [Installation](#installation)
+- [Quick usage](#quick-usage)
+  - [Web](#web)
+  - [React Native](#react-native)
+- [Debugging](#debugging)
+- [Demos](#demos)
+  - [Native demo details](#native-demo-details)
+- [Development](#development)
+- [Entry points](#entry-points)
+- [SSR / Hydration](#ssr--hydration)
+- [Documentation](#documentation)
+- [Library Structure](#library-structure)
+- [License](#license)
+- [Disclaimer](#disclaimer)
+
+<!-- tocstop -->
+
 ## Project Overview
 
 This repository contains:
@@ -20,34 +41,159 @@ This repository contains:
 - **React hooks** for form state management
 - **Comprehensive error handling** with path-based errors
 
-## Getting Started
-
-### Development
-
-```bash
-# Install dependencies
-npm install
-
-# Start development server
-npm run dev
-```
-
-### Building the Demo
-
-```bash
-# Build the demo application
-npm run build
-```
-
-### Using the Library
-
-You can use this library in your projects by installing it from NPM:
+## Installation
 
 ```bash
 npm install form-context-react-zod
+# or
+bun add form-context-react-zod
+# or
+yarn add form-context-react-zod
 ```
 
 > **Requires React 19 and Zod 4.** Need React 18 / Zod 3? Install `form-context-react-zod@^1`.
+
+Peer dependencies:
+
+```bash
+npm install react react-dom zod
+# or
+bun add react react-dom zod
+# or
+yarn add react react-dom zod
+```
+
+`react-dom` and `react-native` are optional peers. Web apps should install
+`react-dom`, and React Native apps should install `react-native`, especially when
+using the `form-context-react-zod/devtools/native` entry.
+
+## Quick usage
+
+### Web
+
+Use `WebFormProvider` when you want native browser form behavior (`<form>`,
+submit buttons, and Enter-to-submit):
+
+```tsx
+import { WebFormProvider } from 'form-context-react-zod/web';
+import { useField, type FormSubmitHandler } from 'form-context-react-zod';
+import { z } from 'zod';
+
+const schema = z.object({
+  name: z.string().min(2),
+  email: z.string().email(),
+});
+
+type Values = z.infer<typeof schema>;
+
+const onSubmit: FormSubmitHandler<Values> = (values) => {
+  console.log(values);
+};
+
+export function ContactForm() {
+  return (
+    <WebFormProvider
+      initialValues={{ name: '', email: '' }}
+      schema={schema}
+      onSubmit={onSubmit}
+    >
+      <ContactFormFields />
+    </WebFormProvider>
+  );
+}
+
+function ContactFormFields() {
+  const name = useField(['name']);
+  const email = useField(['email']);
+
+  return (
+    <>
+      <input {...name.props} placeholder="Name" />
+      <input {...email.props} placeholder="Email" />
+      <button type="submit">Submit</button>
+    </>
+  );
+}
+```
+
+### React Native
+
+Use the core `FormProvider` on native. There is no `<form>`, so submit from a
+button with `form.submit()`:
+
+```tsx
+import { Pressable, Text, TextInput, View } from 'react-native';
+import {
+  FormProvider,
+  useField,
+  useFormContext,
+  type FormSubmitHandler,
+} from 'form-context-react-zod';
+import { z } from 'zod';
+
+const schema = z.object({
+  name: z.string().min(2),
+});
+
+type Values = z.infer<typeof schema>;
+
+const onSubmit: FormSubmitHandler<Values> = (values) => {
+  console.log(values);
+};
+
+export function NativeContactForm() {
+  return (
+    <FormProvider
+      initialValues={{ name: '' }}
+      schema={schema}
+      onSubmit={onSubmit}
+    >
+      <NativeContactFormFields />
+    </FormProvider>
+  );
+}
+
+function NativeContactFormFields() {
+  const form = useFormContext<Values>();
+  const name = useField(['name']);
+
+  return (
+    <View>
+      <TextInput
+        value={name.props.value}
+        onChangeText={name.props.onChange}
+        onBlur={name.props.onBlur}
+        placeholder="Name"
+      />
+      <Pressable onPress={() => form.submit()} disabled={!form.canSubmit}>
+        <Text>Submit</Text>
+      </Pressable>
+    </View>
+  );
+}
+```
+
+## Debugging
+
+The `FormState` component is a developer tool for inspecting the current form
+state, errors, and touched fields.
+
+**Usage:**
+
+```tsx
+// Web
+import { FormState } from 'form-context-react-zod/devtools/web';
+
+// React Native
+import { FormState } from 'form-context-react-zod/devtools/native';
+
+<FormState showToggle />;
+```
+
+- Imported from the `form-context-react-zod/devtools/web` subpath (or
+  `/devtools/native` on React Native) so the core entry stays DOM-free.
+- Use the `showToggle` prop to allow switching between light and dark mode.
+- This component is intended for development and debugging purposes.
 
 ## Demos
 
@@ -55,13 +201,106 @@ Two runnable demos live in this repo:
 
 - **Web** — a Vite app that exercises every feature: nested objects, array fields
   (add / remove / reorder), client + server validation, async validation, focus
-  management, and the `FormState` debugger. Run it locally with `npm run dev`, or
-  open the [live demo](https://keverw.github.io/form-context-react-zod/).
+  management, and the `FormState` debugger. Run it locally with
+  `npm run demo:web`, or open the
+  [live demo](https://keverw.github.io/form-context-react-zod/).
 - **React Native** — an Expo app in [`examples/native`](./examples/native) that
   proves the **same** core runs on native: Zod validation, `useArrayField`, a
   `TextInput` adapter, and the published `devtools/native` `FormState` panel. It
   depends on the built package via a `file:` link, so it exercises the real
-  published entry points. See its [README](./examples/native/README.md) to run it.
+  published entry points.
+
+Run the demos from the repo root:
+
+```bash
+# Web demo
+npm run demo:web
+
+# React Native / Expo demo
+npm run demo:native:install # install native demo deps once
+npm run demo:native:ios      # builds iOS, launches the app, and starts Metro
+npm run demo:native:android  # builds Android, launches the app, and starts Metro
+npm run demo:native          # starts Metro for Expo Go or an installed dev build
+npm run demo:native:clear    # same as above, with a cleared Metro cache
+```
+
+Install the native demo's dependencies once before running it:
+
+```bash
+npm run demo:native:install
+```
+
+The native demo defaults to a **development build** (it depends on `expo-dev-client`),
+which mirrors how a real shipped Expo app runs. Expo Go is still available as a
+fallback: run `npm run demo:native`, press `s` to switch to Expo Go, then press
+`i` / `a` or scan the QR code.
+
+You do not need to run `npm run demo:native` before `npm run demo:native:ios` or
+`npm run demo:native:android`; the build commands start Metro themselves. Use
+`npm run demo:native` after the first dev build is installed, or when using Expo
+Go.
+
+### Native demo details
+
+The core is already platform-agnostic:
+
+- `FormProvider` (the core entry) renders no host elements — no `<form>` — so it's
+  React-Native-safe as-is. The web `<form>` lives in `form-context-react-zod/web`.
+- `useField(...).props.onChange` is value-based — it receives the new value, not
+  a DOM event — which maps 1:1 onto `<TextInput onChangeText>`.
+
+See [`examples/native/src/RNFormInput.tsx`](./examples/native/src/RNFormInput.tsx)
+for the small input adapter. Each native tab renders the published `FormState`
+from `form-context-react-zod/devtools/native`.
+
+For iOS, install Xcode and CocoaPods, then run `npm run demo:native:ios`. A free
+Apple ID can sign a real-device build for about 7 days. For Android, install
+Android Studio, create or launch an emulator, ensure JDK 17 is available, then
+run `npm run demo:native:android`.
+
+This demo pins Expo SDK 54 / React Native 0.81 so it builds on Xcode 16.x.
+[`examples/native/metro.config.js`](./examples/native/metro.config.js) lets SDK
+54's Metro consume the `file:`-linked package, watch `dist_module`, resolve
+package exports, and pin shared peers (`react`, `react-native`, and `zod`) to
+the demo app's copies.
+
+> Rebuilt the library? The root native demo commands run `bun run build:lib`
+> first. If Metro still has stale output, restart it with `npm run demo:native:clear`.
+
+## Development
+
+```bash
+# Install repo dependencies
+npm install
+
+# Check types, lint, and tests
+npm run type-check
+npm run lint
+npm test
+
+# Build the web demo and published package
+npm run build
+npm run build:lib
+
+# Publish the web demo to GitHub Pages
+npm run deploy
+```
+
+| Command               | Description                              |
+| --------------------- | ---------------------------------------- |
+| `npm run type-check`  | Run TypeScript without emitting          |
+| `npm run lint`        | Run ESLint                               |
+| `npm test`            | Run the test suite                       |
+| `npm run build`       | Build the web demo into `dist`           |
+| `npm run build:lib`   | Build the package into `dist_module`     |
+| `npm run preview`     | Preview the built web demo               |
+| `npm run deploy`      | Build and publish `dist` to GitHub Pages |
+| `npm run publish:lib` | Build and publish `dist_module` to NPM   |
+
+`npm run deploy` is manual. npm automatically runs `predeploy` first, so the
+actual flow is `npm run build` followed by `gh-pages -d dist`. The `gh-pages`
+package pushes the built `dist` folder to the repository's `gh-pages` branch;
+GitHub Pages updates from that branch when the repo is configured to serve it.
 
 ## Entry points
 
@@ -111,8 +350,8 @@ server and client the same array.
 
 ## Documentation
 
-- [Form API Documentation](./FORM-API.md)
-- [Zod Helpers Documentation](./ZOD-HELPERS.md)
+- [Form API Documentation](./docs/form-api.md)
+- [Zod Helpers Documentation](./docs/zod-helpers.md)
 
 ## Library Structure
 
@@ -121,17 +360,12 @@ The core library code is located in:
 - `src/lib/form-context.tsx` - Form context and hooks
 - `src/lib/zod-helpers.ts` - Zod validation utilities
 
-## Commands
-
-| Command               | Description                          |
-| --------------------- | ------------------------------------ |
-| `npm run dev`         | Start development server             |
-| `npm run build`       | Build the demo application           |
-| `npm run build:lib`   | Build the library for NPM            |
-| `npm run publish:lib` | Build and publish the library to NPM |
-| `npm run lint`        | Run ESLint                           |
-| `npm run preview`     | Preview the built application        |
-
 ## License
 
 MIT
+
+## Disclaimer
+
+This project is not affiliated with, endorsed by, or sponsored by React, Zod, or
+Expo. All product names, logos, and brands are property of their respective
+owners.

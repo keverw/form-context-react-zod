@@ -1,5 +1,13 @@
 # Form Library API Documentation
 
+<!-- toc -->
+
+- [Overview](#overview)
+- [Core Components](#core-components)
+  - [FormProvider](#formprovider)
+
+<!-- tocstop -->
+
 ## Overview
 
 A TypeScript-first form management library that handles complex nested forms with validation, server-side errors, and array fields. Built with Zod for type-safe schema validation.
