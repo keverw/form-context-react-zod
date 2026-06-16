@@ -373,9 +373,10 @@ Value operations:
   | `number`       | `0`                               |
   | `boolean`      | `false`                           |
   | `array`        | `[]`                              |
+  | `Date`         | `null`                            |
   | plain `object` | each property recursively emptied |
 
-  > **Dates and other non-plain objects:** the recursive object rule treats anything that's an object as a plain object to walk. A `Date` (or `Map`, `Set`, class instance, etc.) has no enumerable own properties to recurse into, so it comes back as `{}` — **not** a cleared `Date` and not `null`. `clearValue` is meant for primitive/collection fields; for a `Date` (or any non-plain object) clear it yourself with `setValue(path, null)` (or whatever your schema's "empty" is) rather than relying on `clearValue`.
+  > **Other non-plain objects:** a `Date` is treated as a terminal leaf and clears to `null` (consistent with how the library treats Dates elsewhere). Other non-plain objects (`Map`, `Set`, class instances, etc.) still fall through the recursive object rule, which walks enumerable own properties — they have none, so they come back as `{}`, **not** a cleared instance. `clearValue` is meant for primitive/collection (and `Date`) fields; for any other non-plain object clear it yourself with `setValue(path, null)` (or whatever your schema's "empty" is) rather than relying on `clearValue`.
 
 - `deleteField(path)`: Remove field at path. For an array item, later items' metadata (touched + errors, all sources) re-indexes down to follow them, instead of being wiped. Like `setValue`, when `validateOnChange` is on it re-runs the **whole** schema and refreshes every field's Zod error, so a cross-field rule (e.g. a `.refine()` on a sibling, or an array-level `z.array().min`) updates live when an item is removed.
 - `reindexArray(arrayPath, newItems, indexMap)`: Low-level primitive that replaces an array and atomically re-indexes its item metadata (touched, validation + server errors) via `indexMap` (old index → new index, or `null` to drop). Prefer the [`useArrayField`](#usearrayfield) helpers, which wrap it.

@@ -171,6 +171,10 @@ export function getEmptyValue(value: unknown): unknown {
   if (Array.isArray(value)) {
     // For arrays, simply return an empty array
     return [];
+  } else if (value instanceof Date) {
+    // Terminal leaf: don't recurse into a Date's (zero) own keys, which would
+    // wrongly yield {}. Clear to null, matching isPlainObject's treatment of Date.
+    return null;
   } else if (typeof value === 'object' && value !== null) {
     // For objects, preserve the structure but set each property to its empty value
     const emptyObj: Record<string | number, unknown> = {};
@@ -204,6 +208,10 @@ export function isEmptyValue(value: unknown): boolean {
   if (typeof value === 'number') return value === 0;
   if (typeof value === 'boolean') return value === false;
   if (Array.isArray(value)) return value.length === 0;
+  // A Date is a terminal leaf, never "empty" — guard before the generic object
+  // branch, whose Object.keys check would treat a populated Date as empty and
+  // hide its validation error on validateOnMount.
+  if (value instanceof Date) return false;
   if (typeof value === 'object') return Object.keys(value).length === 0;
   return false;
 }

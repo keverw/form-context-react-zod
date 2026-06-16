@@ -374,6 +374,15 @@ describe('utils', () => {
         },
       });
     });
+
+    it('clears a Date to null instead of recursing into its keys', () => {
+      expect(getEmptyValue(new Date('2020-01-01'))).toBeNull();
+    });
+
+    it('clears a nested Date field to null', () => {
+      const obj = { name: 'John', born: new Date('2020-01-01') };
+      expect(getEmptyValue(obj)).toEqual({ name: '', born: null });
+    });
   });
 
   describe('getValueAtPath (edge cases)', () => {
@@ -451,6 +460,10 @@ describe('utils', () => {
       for (const v of ['x', 5, true, [1], { a: 1 }]) {
         expect(isEmptyValue(v)).toBe(false);
       }
+    });
+
+    it('treats a Date as non-empty (terminal leaf, not an empty object)', () => {
+      expect(isEmptyValue(new Date('2020-01-01'))).toBe(false);
     });
   });
 
