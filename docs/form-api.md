@@ -32,9 +32,9 @@ interface FormProviderProps<T> {
 }
 ```
 
-> **Entry points.** The core `FormProvider` above (`form-context-react-zod`)
+> **Entry Points.** The core `FormProvider` above (`form-context-react-zod`)
 > renders no host elements, so it works on web and React Native. The web entry
-> `form-context-react-zod/web` exports **`WebFormProvider`** — the same provider
+> `form-context-react-zod/web` exports **`WebFormProvider`**, the same provider
 > plus two extra props for an HTML `<form>` element (on by default):
 >
 > ```ts
@@ -59,13 +59,13 @@ State getters:
 - `isSubmitting`: Boolean indicating submission state
 - `isValid`: Boolean indicating if form passes validation for touched fields
 - `canSubmit`: Boolean indicating if the entire form passes Zod schema validation
-- `submitAttempted`: Boolean — `true` once the user has tried to submit at all, pass or fail. Stays `true` for the duration of the submission and after it settles; cleared by `reset`/`resetWithValues`. Use it _alongside_ `touched` to reveal errors — gate on `touched[field] || submitAttempted` so each field shows its error once the user has interacted with it **or** has hit submit (which surfaces errors on fields they skipped). `submit()` also marks every field touched, so on its own `touched` covers this; `submitAttempted` is the cleaner signal if you'd rather key the "reveal everything" moment off the attempt itself.
-- `submitSucceeded`: Boolean — `true` only if the **most recent** attempt completed cleanly: validation passed, `onSubmit` resolved without throwing, **and** the handler set no submission errors (no `setServerError(s)` / `setClientSubmissionError`). It's `false` while a submit is in flight and flips to its final value when the attempt settles.
-- `submitCount`: Number — running count of submit attempts (bumped at the start of each `submit()`, including ones that fail validation). Reset to `0` by `reset`/`resetWithValues`.
+- `submitAttempted`: Boolean. `true` once the user has tried to submit at all, pass or fail. Stays `true` for the duration of the submission and after it settles, then cleared by `reset`/`resetWithValues`. Use it _alongside_ `touched` to reveal errors. Gate on `touched[field] || submitAttempted` so each field shows its error once the user has interacted with it **or** has hit submit, which surfaces errors on fields they skipped. `submit()` also marks every field touched, so on its own `touched` covers this. `submitAttempted` is the cleaner signal if you'd rather key the "reveal everything" moment off the attempt itself.
+- `submitSucceeded`: Boolean. `true` only if the **most recent** attempt completed cleanly: validation passed, `onSubmit` resolved without throwing, **and** the handler set no submission errors (no `setServerError(s)` / `setClientSubmissionError`). It's `false` while a submit is in flight and flips to its final value when the attempt settles.
+- `submitCount`: Number. Running count of submit attempts (bumped at the start of each `submit()`, including ones that fail validation). Reset to `0` by `reset`/`resetWithValues`.
 - `errors`: Current validation/server errors
 - `lastValidated`: Timestamp of the last validation
-- `isDirty`: Boolean — `true` when the current values differ from the **dirty baseline**. See [Dirty tracking](#dirty-tracking).
-- `dirtyFields`: `Record<string, boolean>` — per-field dirty map keyed by serialized path (same shape as `touched`). See [Dirty tracking](#dirty-tracking).
+- `isDirty`: Boolean. `true` when the current values differ from the **dirty baseline**. See [Dirty Tracking](#dirty-tracking).
+- `dirtyFields`: `Record<string, boolean>`. Per-field dirty map keyed by serialized path (same shape as `touched`). See [Dirty Tracking](#dirty-tracking).
 
 - Form operations:
 
@@ -80,26 +80,26 @@ State getters:
     this field's error is surfaced/reconciled), returning whether the field is now
     error-free. See the note below on how it differs from `handleBlur`.
   - `markPristine(path?, value?)`: Move the **dirty baseline** so the current (or an
-    explicit) value reads clean — "this is the new saved-clean reference." Baseline-only;
+    explicit) value reads clean. "This is the new saved-clean reference." Baseline-only,
     never touches values/errors/touched. Also accepts a server-returned partial record to
-    re-baseline many fields at once. See [Dirty tracking](#dirty-tracking).
+    re-baseline many fields at once. See [Dirty Tracking](#dirty-tracking).
   - `setFocus(path): boolean`: Imperatively focus a field by path. Returns whether a
-    registered focusable field was found. See [Focus management](#focus-management).
+    registered focusable field was found. See [Focus Management](#focus-management).
   - `focusFirstError(): path | null`: Focus the first registered field that currently has
     an error (registration order). Returns the focused path, or `null`. See
-    [Focus management](#focus-management).
+    [Focus Management](#focus-management).
 
-**`reset` vs `resetWithValues`** — they're the same operation with a different target. Both clear
+**`reset` vs `resetWithValues`**: They're the same operation with a different target. Both clear
 touched state, validation errors, and server errors, clear the submit-attempt tracking
 (`submitAttempted`/`submitSucceeded` back to `false`, `submitCount` back to `0`), and set
-`canSubmit=false` / `lastValidated=null`. `reset()` restores the original `initialValues` (fixed at mount);
-`resetWithValues(x)` adopts `x` instead — use it to accept the server's canonical record after a
+`canSubmit=false` / `lastValidated=null`. `reset()` restores the original `initialValues`, fixed at mount.
+`resetWithValues(x)` adopts `x` instead. Use it to accept the server's canonical record after a
 save, or to load a different record into the same form. Note: `resetWithValues` does **not** move
-the `reset()` baseline — a later `reset()` still returns to the original `initialValues`.
+the `reset()` baseline. A later `reset()` still returns to the original `initialValues`.
 
-**Resetting mid-submit** — while a submission is in flight (`isSubmitting === true`, e.g. inside
+**Resetting Mid-Submit**: While a submission is in flight (`isSubmitting === true`, e.g. inside
 `onSubmit`), both `reset()` and `resetWithValues()` **no-op**: they log a warning and return
-`false`. Pass `force: true` to reset anyway — this **invalidates the in-flight submission** first,
+`false`. Pass `force: true` to reset anyway. This **invalidates the in-flight submission** first,
 then resets. "Invalidates" means the bookkeeping: it flips `isSubmitting` off, clears the current
 submission ID (so any `helpers.*` writes from the now-stale `onSubmit` become no-ops, guarded by
 `isCurrentSubmission`), **and aborts `helpers.signal`**. So if you passed that signal to your request,
@@ -142,45 +142,45 @@ mainly for your own non-`helpers` side effects.) To re-baseline after a successf
 invalidating anything, call reset **after** `submit()` resolves (when `isSubmitting` is already back
 to `false`).
 
-### Dirty tracking
+### Dirty Tracking
 
 The form tracks "has the user changed anything since the last known-clean state?" against a **dirty
-baseline** — a snapshot that starts at `initialValues` and moves only when you tell it to.
+baseline**, a snapshot that starts at `initialValues` and moves only when you tell it to.
 
 - `isDirty`: `true` when the current values differ from the baseline. Use it to disable a Save
   button until there's something to save: `disabled={!form.isDirty || form.isSubmitting}`.
-- `dirtyFields`: a per-field map keyed by **serialized path** (same shape as `touched`) — a leaf
+- `dirtyFields`: a per-field map keyed by **serialized path** (same shape as `touched`). A leaf
   path maps to `true` when that leaf differs from the baseline. Read it with the `serializePath`
   helper: `form.dirtyFields[serializePath(['email'])]`. Absent keys are clean.
 
-Both are **always derived** by comparing current values to the baseline — nothing is ever force-flipped. So an edit that returns a field to its baseline value reads clean again on its own;
-there's no latched "once dirty, always dirty."
+Both are **always derived** by comparing current values to the baseline. Nothing is ever force-flipped. So an edit that returns a field to its baseline value reads clean again on its own.
+There is no latched "once dirty, always dirty."
 
-**Objects are key-precise; arrays cascade.** This is the one asymmetry to internalize:
+**Objects Are Key-Precise, Arrays Cascade.** This is the one asymmetry to internalize:
 
-- **Plain objects** are compared key by key. Editing `meta.a` marks only `["meta","a"]` dirty —
+- **Plain objects** are compared key by key. Editing `meta.a` marks only `["meta","a"]` dirty.
   `meta.b` and other siblings stay clean.
-- **Arrays are compared as a unit.** If an array differs from the baseline in **any** way — a content
-  edit, an add, a remove, **or a reorder** — then the array's own path **and every field underneath it**
+- **Arrays are compared as a unit.** If an array differs from the baseline in **any** way, whether a content
+  edit, an add, a remove, **or a reorder**, then the array's own path **and every field underneath it**
   (recursively, through nested arrays and objects) are marked dirty. So a deep edit at
   `sections[0].questions[0].q` flips `["sections"]`, `["sections",0,"title"]`,
-  `["sections",0,"questions"]`, and the edited leaf — the whole subtree under the outermost changed
-  array. A pure reorder does the same.
+  `["sections",0,"questions"]`, and the edited leaf. That means the whole subtree under the outermost
+  changed array is marked dirty. A pure reorder does the same.
 
 The practical upshot: a generic field component can always check **its own path** (`dirtyFields[serializePath(myPath)]`)
 and get a sensible answer, even for fields nested inside arrays. The tradeoff is that array dirtiness is
-all-or-nothing — it does **not** tell you _which_ item changed (indices aren't stable identities; a
-prepend would otherwise falsely flag every later row, so no per-item attribution is attempted). For
+all-or-nothing. It does **not** tell you _which_ item changed, since indices aren't stable identities. A
+prepend would otherwise falsely flag every later row, so no per-item attribution is attempted. For
 per-item change tracking, pair this with the stable item ids from [`useArrayField`](#usearrayfield).
 
 #### Baselines: `reset` vs `markPristine`
 
 There are two baselines and they can legitimately drift:
 
-- `reset()` restores **values** to `initialValues` (the mount snapshot) — "back to load." It moves
+- `reset()` restores **values** to `initialValues` (the mount snapshot). Think "back to load." It moves
   the dirty baseline back to `initialValues` too, so a freshly reset form is clean. `resetWithValues(x)`
   is the same but to `x`.
-- `markPristine(...)` moves **only the dirty baseline** — it never touches values, errors, or touched.
+- `markPristine(...)` moves **only the dirty baseline**. It never touches values, errors, or touched.
   It's "this is the new saved-clean reference." This is the piece you call after a successful save so
   the form goes clean **without** rewinding what's on screen.
 
@@ -197,8 +197,8 @@ form.markPristine(serverResult); // batch: MERGE a partial record's leaves into 
 ```
 
 **Batch is a leaf-level merge, not a whole-baseline replace.** You pass only the fields you want
-re-baselined — you do **not** need to include the whole containing object. The record is flattened to
-its leaves and each one is merged into the baseline; **everything you omit keeps its existing baseline**:
+re-baselined. You do **not** need to include the whole containing object. The record is flattened to
+its leaves and each one is merged into the baseline. **Everything you omit keeps its existing baseline**:
 
 ```tsx
 // baseline before: { user: { name: 'old', age: 30 }, theme: 'dark' }
@@ -207,7 +207,7 @@ form.markPristine({ user: { name: 'new' } });
 //                                        ^^^^^^^^ age and theme are untouched
 ```
 
-So a partial record never "applies to the whole thing" — it only moves the leaves it contains. (Arrays
+So a partial record never "applies to the whole thing." It only moves the leaves it contains. (Arrays
 are the one stop point: a record's array is merged as one whole value, per "Arrays baseline as a whole"
 below.) If you actually want to **replace** the entire baseline, use the whole-form forms above
 (`markPristine()` or `markPristine([], obj)`), not the batch. A non-object argument (a bare primitive)
@@ -234,25 +234,25 @@ const onSubmit: FormSubmitHandler<FormValues> = async (values, helpers) => {
 
 **Key consequence (intended):** a field whose current value doesn't match the new baseline **stays
 dirty**. If the user kept typing past what was saved, those edits are real unsaved changes and remain
-flagged — exactly right. The batch form only moves the baselines for the leaves present in the record;
-fields it doesn't mention keep their existing baseline (a field that was clean stays clean).
+flagged, exactly right. The batch form only moves the baselines for the leaves present in the record.
+Fields it doesn't mention keep their existing baseline (a field that was clean stays clean).
 
 This is the split from `reset(savedValues)`: `reset` would **overwrite the on-screen values** with the
-saved record (throwing away any in-progress edits); `markPristine(savedValues)` leaves the inputs alone
+saved record, throwing away any in-progress edits. `markPristine(savedValues)` leaves the inputs alone
 and just redefines "clean", letting the derived comparison decide what's still dirty.
 
 **Arrays baseline as a whole.** Symmetric with the dirty check above: `markPristine` stores an array (or
-any subtree) as a single value — `markPristine(['items'])` baselines the entire current `items` array,
+any subtree) as a single value. `markPristine(['items'])` baselines the entire current `items` array,
 and a record passed to the batch form applies each array as one unit. The array then reads clean only if
-it deep-matches that baseline element-for-element and in order; any later edit/add/remove/reorder dirties
+it deep-matches that baseline element-for-element and in order. Any later edit/add/remove/reorder dirties
 the whole array subtree again.
 
-### Focus management
+### Focus Management
 
-`setFocus(path)` and `focusFirstError()` let you move focus imperatively — most commonly to drop the
+`setFocus(path)` and `focusFirstError()` let you move focus imperatively, most commonly to drop the
 user on the first invalid field after a failed submit.
 
-**Register the field's node.** `useField` returns an `inputRef` callback; attach it to your input so the form can reach that field:
+**Register the Field's Node.** `useField` returns an `inputRef` callback. Attach it to your input so the form can reach that field:
 
 ```tsx
 function TextField({ path }: { path: (string | number)[] }) {
@@ -278,7 +278,7 @@ form.setFocus(['email']); // focus one field; returns false if it has no registe
 form.focusFirstError(); // focus the first errored field; returns the path or null
 ```
 
-A natural pattern is focusing the first error after a submit attempt — `submit()` touches every field
+A natural pattern is focusing the first error after a submit attempt. `submit()` touches every field
 first, so all errors are active by the time it resolves:
 
 ```tsx
@@ -307,7 +307,7 @@ const onSubmit: FormSubmitHandler<FormValues> = async (values, helpers) => {
 
 **Notes:**
 
-- **Platform-agnostic.** The registry stores any node exposing `focus()` — a DOM `<input>`, a React
+- **Platform-agnostic.** The registry stores any node exposing `focus()`, a DOM `<input>`, a React
   Native `<TextInput>` (`<TextInput ref={inputRef} />`), or any custom component with a `focus()` method.
   The core imports no DOM types. On the web, `setFocus` also calls `scrollIntoView()` when present
   (feature-detected, so it's a harmless no-op elsewhere).
@@ -317,19 +317,19 @@ const onSubmit: FormSubmitHandler<FormValues> = async (values, helpers) => {
 - **Raw context.** Not using `useField`? Call `registerFieldRef(path, node)` from `FormFieldContext`
   directly (pass `null` on unmount to unregister).
 - `setFocus` returns `false` (and `focusFirstError` returns `null`) when no matching registered,
-  focusable field exists — e.g. the field is unmounted or never attached an `inputRef`.
+  focusable field exists, for example when the field is unmounted or never attached an `inputRef`.
 
-`WebFormProvider` (from `form-context-react-zod/web`) wraps the form content in a native HTML `<form>` tag — on by default (`useFormTag`) — with automatic `preventDefault` handling on submit events, so you can use standard HTML submit buttons instead of manually calling `form.submit()`. Set `useFormTag={false}` to opt out. The core provider (`form-context-react-zod`) has no `<form>` — on React Native, trigger submission with a button's `onPress={() => form.submit()}`.
+`WebFormProvider` (from `form-context-react-zod/web`) wraps the form content in a native HTML `<form>` tag, on by default (`useFormTag`), with automatic `preventDefault` handling on submit events, so you can use standard HTML submit buttons instead of manually calling `form.submit()`. Set `useFormTag={false}` to opt out. The core provider (`form-context-react-zod`) has no `<form>`. On React Native, trigger submission with a button's `onPress={() => form.submit()}`.
 
 Value operations:
 
 - `getValue(path)`: Get value at specific path
-- `setValue(path, value)`: Set value at specific path. Marks the path touched and clears stale server/manual errors at that path **and any descendant paths** (assigning a value replaces the whole subtree). When `validateOnChange` is on it re-runs the **whole** schema and refreshes every field's Zod error — not just the edited field's — so a cross-field rule (e.g. a `.refine()` "passwords must match" whose error lands on a sibling) updates **live** as you type. Display stays touch-gated, so an _untouched_ sibling still won't show its error until it's touched/blurred/submitted.
+- `setValue(path, value)`: Set value at specific path. Marks the path touched and clears stale server/manual errors at that path **and any descendant paths** (assigning a value replaces the whole subtree). When `validateOnChange` is on it re-runs the **whole** schema and refreshes every field's Zod error, not just the edited field's, so a cross-field rule (e.g. a `.refine()` "passwords must match" whose error lands on a sibling) updates **live** as you type. Display stays touch-gated, so an _untouched_ sibling still won't show its error until it's touched/blurred/submitted.
 - `getValue<K extends keyof T>([key]: [K]): T[K]`: Get value at a top-level key with type safety.
 - `getValue(path: (string|number)[]): unknown`: Get value at any specific path.
 - `setValue<K extends keyof T>([key]: [K], value: T[K])`: Set value at a top-level key with type safety.
 - `setValue(path: (string|number)[], value: V)`: Set value at any specific path
-- `clearValue(path)`: Reset field to an empty value based on its type. A thin wrapper over `setValue(path, <empty>)`, so it has the same side effects — marks touched, clears the field's errors (whole subtree, all sources), and re-validates.
+- `clearValue(path)`: Reset field to an empty value based on its type. A thin wrapper over `setValue(path, <empty>)`, so it has the same side effects: marks touched, clears the field's errors (whole subtree, all sources), and re-validates.
 - `deleteField(path)`: Remove field at path. For an array item, later items' metadata (touched + errors, all sources) re-indexes down to follow them, instead of being wiped.
 - `reindexArray(arrayPath, newItems, indexMap)`: Low-level primitive that replaces an array and atomically re-indexes its item metadata (touched, validation + server errors) via `indexMap` (old index → new index, or `null` to drop). Prefer the [`useArrayField`](#usearrayfield) helpers, which wrap it.
 - `hasField(path)`: Check if field exists
@@ -339,57 +339,57 @@ Error operations:
 
 - `getError(path)`: Get array of errors at specific path level
 - `getErrorPaths(path?: (string|number)[]): (string|number)[][]`: Get all error paths under given path
-- `getFieldState(path): FieldState`: Convenience snapshot of one field in a single call — `{ errors, error, isTouched, invalid, exists }`. A pure read over `getError(path)` + the `touched` lookup + `hasField(path)`. Note the errors here are **raw** (not gated on `touched`), so `invalid`/`error` reflect the field's real validation state — handy for raw-context fields that want a field's error/touched/validity without wiring up [`useField`](#usefield) (whose display `error` _is_ touched-gated).
+- `getFieldState(path): FieldState`: Convenience snapshot of one field in a single call: `{ errors, error, isTouched, invalid, exists }`. A pure read over `getError(path)` + the `touched` lookup + `hasField(path)`. Note the errors here are **raw** (not gated on `touched`), so `invalid`/`error` reflect the field's real validation state. This is handy for raw-context fields that want a field's error/touched/validity without wiring up [`useField`](#usefield), whose display `error` _is_ touched-gated.
 - `setErrors(errors)`: Set all errors (replaces existing errors)
 - `setServerErrors(errors)`: Replace all server errors with new ones
 - `setServerError(path, message)`: Set server error(s) for a specific path
-- `setError(path, message)`: Set (or clear, with `null`) a **manual/client** error at one path — same `string | string[] | null` shape as `setServerError`. The error is tagged `source: 'manual'` and behaves exactly like a server error (see [Error sources](#error-sources) below): it survives re-validation, shows regardless of `touched`, and clears when the field is edited or on submit/reset. Use it for client-owned checks Zod can't express (an async "username taken" surfaced client-side, a cross-field rule you'd rather run imperatively, etc.). Also available on the `onSubmit` helpers; pass `[]` as the path for a form-level error.
+- `setError(path, message)`: Set (or clear, with `null`) a **manual/client** error at one path, using the same `string | string[] | null` shape as `setServerError`. The error is tagged `source: 'manual'` and behaves exactly like a server error (see [Error Sources](#error-sources) below): it survives re-validation, shows regardless of `touched`, and clears when the field is edited or on submit/reset. Use it for client-owned checks Zod can't express (an async "username taken" surfaced client-side, a cross-field rule you'd rather run imperatively, etc.). Also available on the `onSubmit` helpers. Pass `[]` as the path for a form-level error.
 
-#### Error sources
+#### Error Sources
 
 Every `ValidationError` carries a `source` that controls its lifecycle:
 
-| `source`              | Set by                     | Survives re-validation?       | Shown when untouched? | Cleared by                                  |
-| --------------------- | -------------------------- | ----------------------------- | --------------------- | ------------------------------------------- |
-| `client`              | Zod schema validation      | No — recomputed each validate | No                    | recomputed every validate; edit clears path |
-| `server`              | `setServerError(s)`        | Yes                           | Yes                   | editing the field, submit start, reset      |
-| `manual`              | `setError`                 | Yes                           | Yes                   | editing the field, submit start, reset      |
-| `client-form-handler` | `setClientSubmissionError` | n/a (form-level)              | n/a                   | submit start, `clearClientSubmissionError`  |
+| `source`              | Set by                     | Survives re-validation?      | Shown when untouched? | Cleared by                                  |
+| --------------------- | -------------------------- | ---------------------------- | --------------------- | ------------------------------------------- |
+| `client`              | Zod schema validation      | No, recomputed each validate | No                    | recomputed every validate, edit clears path |
+| `server`              | `setServerError(s)`        | Yes                          | Yes                   | editing the field, submit start, reset      |
+| `manual`              | `setError`                 | Yes                          | Yes                   | editing the field, submit start, reset      |
+| `client-form-handler` | `setClientSubmissionError` | n/a (form-level)             | n/a                   | submit start, `clearClientSubmissionError`  |
 
-`manual` is deliberately parallel to `server` — same rules, a different label so you can tell a server-reported error from a client-set one and own each channel independently. The only difference is plumbing: `server` errors also live in an internal canonical store (used by `setServerErrors` replace-all), whereas `manual` errors live only in the main error list. Like server errors, a `manual` error does **not** gate `canSubmit` (which is schema-only). But setting one from inside `onSubmit` **does** mark the attempt as failed — `submitSucceeded` stays `false`, the same as `setServerError`/`setClientSubmissionError` — so a client-side check that rejects a submit reads correctly.
+`manual` is deliberately parallel to `server`. Same rules, a different label so you can tell a server-reported error from a client-set one and own each channel independently. The only difference is plumbing: `server` errors also live in an internal canonical store (used by `setServerErrors` replace-all), whereas `manual` errors live only in the main error list. Like server errors, a `manual` error does **not** gate `canSubmit` (which is schema-only). But setting one from inside `onSubmit` **does** mark the attempt as failed. `submitSucceeded` stays `false`, the same as `setServerError`/`setClientSubmissionError`, so a client-side check that rejects a submit reads correctly.
 
-##### Form-level errors: `setError([])` vs `setClientSubmissionError`
+##### Form-Level Errors: `setError([])` vs `setClientSubmissionError`
 
-Both put an error at the form/root level, but they're **separate channels, not two names for the same thing** — different `source`, different storage, different retrieval:
+Both put an error at the form/root level, but they're **separate channels, not two names for the same thing**. They use different `source`, storage, and retrieval paths:
 
 - `setError([], msg)` → a `source: 'manual'` error at path `[]`, read back via `getError([])` (alongside any root validation errors). It's a _field-style_ error that happens to live at the root, and it persists like other field errors.
 - `setClientSubmissionError(msg)` → a `source: 'client-form-handler'` error in a dedicated store, read back via `getClientSubmissionError()`. It's purpose-built for "the submission itself failed" (network/auth), kept apart from field/validation errors and cleared by `clearClientSubmissionError()`.
 
-Reach for `setClientSubmissionError` for submit-failure banners; use `setError([])` when you want a root-level error that sits in the same list as your field errors.
+Reach for `setClientSubmissionError` for submit-failure banners. Use `setError([])` when you want a root-level error that sits in the same list as your field errors.
 
 Touch state operations:
 
 - `setFieldTouched(path, value?)`: Mark field as touched/untouched
-- `handleBlur(path)`: Blur handler for a field — marks it touched **and**, when
+- `handleBlur(path)`: Blur handler for a field. It marks it touched **and**, when
   `validateOnBlur` is enabled, runs validation so leaving a field invalid surfaces
   its error. `useField` wires this into its `props.onBlur` automatically. If you
   wire fields manually from the context, call `form.handleBlur(path)` on blur
-  (instead of just `setFieldTouched`) so `validateOnBlur` works — and gate your
+  (instead of just `setFieldTouched`) so `validateOnBlur` works, and gate your
   error display on `touched` so only fields the user has interacted with show errors.
 
-**`validateField(path)` vs `handleBlur(path)`** — they overlap (both touch the field
+**`validateField(path)` vs `handleBlur(path)`**: They overlap (both touch the field
 and can surface its error), but they're for different jobs:
 
 - `handleBlur` is the **blur event handler** you wire to `onBlur`. It marks touched and
   validates **only if the `validateOnBlur` prop is enabled** (otherwise it just marks
   touched), and it returns nothing. It's event-driven UI plumbing.
-- `validateField` is an **imperative trigger** you call yourself — e.g. validate a field
+- `validateField` is an **imperative trigger** you call yourself, for example to validate a field
   before enabling a button, on a custom event, or inside an async flow. It **always**
   validates regardless of `validateOnBlur`/`validateOnChange`, and **returns the field's
   validity** (`boolean`). It also reconciles just that one field's error, so it's correct
   even when fixing the field made the whole form valid.
 
-In short: blur handler → `handleBlur`; "validate this field now and tell me if it
+In short: blur handler → `handleBlur`. "Validate this field now and tell me if it
 passed" → `validateField`.
 
 ### FormSubmitHandler
@@ -492,7 +492,7 @@ instead of calling the API from an effect:
 ```
 
 - Entries are normalized to `source: 'server'`, so you can omit `source`.
-- A `path` of `[]` is a root (form-level) error — render it with `RootErrors` /
+- A `path` of `[]` is a root (form-level) error. Render it with `RootErrors` /
   `getError([])`.
 - These render **immediately and regardless of touched state** (unlike Zod
   validation errors, which gate on `touched`).
@@ -517,7 +517,7 @@ The form library handles three distinct types of errors:
 
 3. **Client Submission Errors**: Set with `setClientSubmissionError()`. Each call to this function **replaces any previous client submission errors**. These are for general submission failures like network issues, authentication problems, or any other client-side issue preventing successful form submission. Use `null` to clear all client submission errors.
 
-#### Client Submission Error Handling:
+#### Client Submission Error Handling
 
 ```typescript
 // Set a client submission error (network failures, auth issues, etc.)
@@ -539,7 +539,7 @@ const clientErrors = form.getClientSubmissionError(); // Returns string[]
 
 Client submission errors are always displayed at the root level of the form and are ideal for situations where the entire form submission fails for reasons unrelated to individual field validation.
 
-Important Server Error Behaviors:
+Important Server Error Behaviors
 
 1. `setServerErrors(errors: ValidationError[])`:
 
@@ -622,16 +622,16 @@ export interface FieldState {
 ```
 
 Unlike [`useField`](#usefield)'s display `error` (which is gated on `touched` so
-untouched fields stay quiet), the errors in `FieldState` are **raw** — `invalid`
+untouched fields stay quiet), the errors in `FieldState` are **raw**. `invalid`
 and `error` reflect the field's real validation state. Gate on `isTouched`
 yourself if you only want to show errors after interaction.
 
 `FieldState` is a snapshot read at call time, not a live object. Call
 `getFieldState(path)` during render and it stays in sync because your component
 re-renders when the form's touched or error state changes. Don't stash the
-returned object and expect it to update on its own — read it fresh each render.
+returned object and expect it to update on its own. Read it fresh each render.
 
-A path that doesn't exist doesn't throw — like `getError` and the `touched`
+A path that doesn't exist doesn't throw. Like `getError` and the `touched`
 lookup it builds on, it reads as a clean state: `{ errors: [], error: null,
 isTouched: false, invalid: false, exists: false }`. The `exists` flag is how you
 tell a missing/typo'd field apart from a present one.
@@ -648,7 +648,7 @@ The form library includes several performance optimizations:
 
 1. Batched updates:
 
-Each public mutator (e.g. `setValue`, `setFieldTouched`, `setServerError`) collects all its internal state tweaks into one dispatch() call—so one re-render per operation, no matter how many bits of state it changes.
+Each public mutator (e.g. `setValue`, `setFieldTouched`, `setServerError`) collects all its internal state tweaks into one dispatch() call, so one re-render happens per operation, no matter how many bits of state it changes.
 
 2. Optimized validation:
 
@@ -684,9 +684,9 @@ Features:
 - Touch tracking
 - Error management (server errors automatically clear on edit)
 - Type-safe props for input components
-- **Re-render isolation** — `useField` subscribes to only its own field's slice
+- **Re-render isolation**: `useField` subscribes to only its own field's slice
   (value/touched/errors) via `useSyncExternalStore`, so editing one field doesn't
-  re-render the others. This is internal and changes nothing about the API; on large
+  re-render the others. This is internal and changes nothing about the API. On large
   forms it just means a keystroke re-renders one field instead of all of them.
   (Whole-form consumers like `FormState` still read the reactive context and update
   on any change, as intended.)
@@ -727,29 +727,29 @@ const {
 } = useArrayField(path);
 ```
 
-Like `useField`, `useArrayField` is **re-render isolated** — it subscribes to only
+Like `useField`, `useArrayField` is **re-render isolated**. It subscribes to only
 its own array's value (via the stable field context), so editing an unrelated field
-elsewhere doesn't re-render the array. Internal optimization; the API is unchanged.
+elsewhere doesn't re-render the array. This is an internal optimization. The API is unchanged.
 
 Array operations. The reordering ops re-index the errors and touched markers under
 the array so they follow their items:
 
-- `items`: the current array value (always an array; `[]` if the path isn't one).
-  Treat it as **read-only** — change the array only through the ops below (or
+- `items`: the current array value (always an array, or `[]` if the path isn't one).
+  Treat it as **read-only**. Change the array only through the ops below (or
   `setValue`/`replace`), never by mutating it in place. This is the same
   immutability contract React itself relies on: updates are driven by a **new**
   array reference plus a dispatch, so an in-place `items.push(...)` mutates the
-  state invisibly — no re-render, no validation, and (because the reference didn't
+  state invisibly, with no re-render, no validation, and (because the reference didn't
   change) the array won't even pick the change up later. The returned type is
   `readonly`, so TypeScript flags a direct mutation for you.
 - `arrayFieldIDs`: a stable id per item, parallel to `items`. Use it as the React
-  `key` instead of the array index — see "Stable keys" below.
+  `key` instead of the array index. See "Stable Keys" below.
 - `add(item)`: append an item to the end.
 - `prepend(item)`: insert an item at the front (`insert(0, item)`).
-- `insert(index, item)`: insert at `index` (clamped to `[0, length]`); items at/after it shift up.
-- `remove(index)`: remove the item at `index`; later items shift down to fill the gap, and their errors/touched markers shift with them (the removed item's are dropped).
-- `move(from, to)`: reorder one item; intermediate items shift to fill the gap.
-- `swap(a, b)`: exchange two items; their errors/touched follow them.
+- `insert(index, item)`: insert at `index` (clamped to `[0, length]`). Items at/after it shift up.
+- `remove(index)`: remove the item at `index`. Later items shift down to fill the gap, and their errors/touched markers shift with them (the removed item's metadata is dropped).
+- `move(from, to)`: reorder one item. Intermediate items shift to fill the gap.
+- `swap(a, b)`: exchange two items. Their errors/touched follow them.
 - `replace(newItems)`: replace the whole array. Per-index errors/touched no longer
   correspond to the new items, so they're dropped (validation regenerates as fields
   are touched).
@@ -773,19 +773,19 @@ todos.replace([{ text: 'fresh', completed: false }]); // replace all
 
 > How re-indexing works: `move`/`swap`/`insert`/`replace` delegate to the context's
 > `reindexArray` primitive, which updates the values and re-indexes the item
-> metadata — touched markers, validation errors, **and** the internal server-error
-> baseline — in a single atomic update. `remove` goes through `deleteField`, which
+> metadata, including touched markers, validation errors, **and** the internal server-error
+> baseline, in a single atomic update. `remove` goes through `deleteField`, which
 > shares the same remap, so a removal shifts later items' metadata down by one
 > rather than wiping it (a direct `form.deleteField([...path, i])` behaves the same).
 > Because server/manual errors aren't touch-gated, they aren't cleared by a
-> reorder/removal; they move with their item. A later
+> reorder/removal. They move with their item. A later
 > `setServerError`/`setServerErrors` therefore rebuilds from the correct
 > (re-indexed) baseline.
 
-**Stable keys (`arrayFieldIDs`)**
+**Stable Keys (`arrayFieldIDs`)**
 
 When you render an array with `.map()`, keying by the array **index** makes React
-reuse component instances _positionally_ — so on a reorder/insert, an input's focus,
+reuse component instances _positionally_. On a reorder/insert, an input's focus,
 cursor position, and uncontrolled state stay pinned to the slot instead of following
 the item. `arrayFieldIDs` gives each item a stable id that moves with it, so keying by
 it preserves the right instance:
@@ -802,23 +802,23 @@ return items.map((_, index) => (
 ));
 ```
 
-The ids stay aligned no matter **how** the array changes — not just through the
+The ids stay aligned no matter **how** the array changes, not just through the
 `useArrayField` ops. The context broadcasts every structural change with its intent,
 and the hook applies it:
 
 - `move`/`swap`/`insert`/`remove` (and a direct `form.deleteField([...path, i])`):
   the change carries an old→new index map, so each id follows its item exactly.
-- `update` keeps an item's id (same slot); `add` mints a fresh id for the new item.
+- `update` keeps an item's id (same slot). `add` mints a fresh id for the new item.
 - A **wholesale** replacement carries no old→new mapping, so the ids are **re-minted**
-  (the honest result — there's no way to know which new item is which old one). This
+  (the honest result, since there's no way to know which new item is which old one). This
   covers `replace`, `form.setValue(path, newArray)`, replacing a **parent object** that
   contains the array (`form.setValue(['profile'], { phones })`), and a form-wide `reset()`.
 - A **nested** array (e.g. `useArrayField(['sections', 0, 'questions'])`) is pinned to a
   fixed item index, so if its **ancestor** array reorders and a different item lands at
-  that index, its ids re-mint; a reorder that doesn't touch that index leaves them alone.
+  that index, its ids re-mint. A reorder that doesn't touch that index leaves them alone.
 
-So editing field values never disturbs the ids, and reshaping the array — through the
-hook ops _or_ directly via the context — keeps them correct. (One minor note: the ids
+So editing field values never disturbs the ids, and reshaping the array, through the
+hook ops _or_ directly via the context, keeps them correct. (One minor note: the ids
 are per-hook-instance, so two `useArrayField` on the same path generate independent
 id sets.)
 
@@ -924,7 +924,7 @@ This is useful for:
 
 **Note:** The `reset` function, when forced during a submission or when resetting normally, also clears the `currentSubmissionID` to `null`.
 
-### Resetting with New Values
+### Resetting With New Values
 
 The `resetWithValues` function allows you to reset the form with new values and returns a boolean indicating whether the reset was successful:
 
@@ -1472,7 +1472,7 @@ function TodoForm() {
 }
 ```
 
-### Form with Server Validation
+### Form With Server Validation
 
 ```tsx
 function UserForm({ onSubmit }) {
@@ -1507,7 +1507,7 @@ function UserForm({ onSubmit }) {
 
 ### Using the Native HTML Form Tag
 
-Use `WebFormProvider` from the **web** entry to wrap your form in a native HTML `<form>` tag, handling the `preventDefault` behavior for you. The `<form>` is on by default — pass `useFormTag={false}` to opt out:
+Use `WebFormProvider` from the **web** entry to wrap your form in a native HTML `<form>` tag, handling the `preventDefault` behavior for you. The `<form>` is on by default. Pass `useFormTag={false}` to opt out:
 
 ```tsx
 import { WebFormProvider } from 'form-context-react-zod/web';

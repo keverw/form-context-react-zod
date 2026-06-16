@@ -1,6 +1,4 @@
-# ZOD Helpers Documentation
-
-> **Requires Zod 4** (peer dependency `zod@^4`). Still on Zod 3? Install `form-context-react-zod@^1`.
+# Zod Helpers Documentation
 
 <!-- toc -->
 
@@ -12,19 +10,21 @@
 - [Core Functions](#core-functions)
   - [validate / validateAsync](#validate--validateasync)
     - [Options](#options)
+  - [withRootErrors](#withrooterrors)
   - [Path Utilities](#path-utilities)
 - [Usage Examples](#usage-examples)
   - [Basic Validation](#basic-validation)
   - [Server-Sourced Validation](#server-sourced-validation)
   - [Root Messages](#root-messages)
   - [Combined Options](#combined-options)
-- [Integration with Form Library](#integration-with-form-library)
+  - [withRootErrors After Validation](#withrooterrors-after-validation)
+- [Integration With Form Library](#integration-with-form-library)
 
 <!-- tocstop -->
 
 ## Overview
 
-Enhanced ZOD validation helpers that provide a more JSON-friendly error format and utility functions for working with nested paths.
+Validation helpers built on top of Zod that produce a consistent, JSON-friendly error format. Errors are flat arrays of `{ path, message, source }` objects rather than Zod's nested issue tree, making them easy to pass to the form context or serialize to an API.
 
 ## Core Types
 
@@ -32,9 +32,9 @@ Enhanced ZOD validation helpers that provide a more JSON-friendly error format a
 
 ```typescript
 interface ValidationError {
-  path: (string | number)[]; // Path to the error field
+  path: (string | number)[]; // Path to the error field — [] means form-level
   message: string; // Error message
-  source?: 'client' | 'server'; // Error source
+  source?: 'client' | 'server' | 'manual' | 'client-form-handler'; // Error source
 }
 ```
 
@@ -46,7 +46,10 @@ The path array can contain:
 Example paths:
 
 ```typescript
-['name'][('address', 'street')][('todos', 0, 'text')]; // Simple field // Nested object // Array item field
+['name']; // Simple field
+['address', 'street']; // Nested object
+['todos', 0, 'text']; // Array item field
+[]; // Form-level error
 ```
 
 ### ValidationResult
@@ -86,30 +89,36 @@ async function validateAsync<T>(
 ): Promise<ValidationResult<T>>;
 ```
 
-These functions:
-
-- Take a ZOD schema and values
-- Optionally accept validation options
-- Return a ValidationResult
-- Convert ZOD errors to the simplified format
+Run a Zod schema against values and return a `ValidationResult`. `validate` is synchronous, while `validateAsync` supports schemas with async refinements.
 
 #### Options
 
-- `isServer`: Mark validation errors as server-sourced
-- `rootMessages`: Add root-level error messages (empty path)
+- `isServer`: Tag all errors as `source: 'server'` instead of `'client'`
+- `rootMessages`: Attach one or more form-level errors (`path: []`) to the result, even if field validation passed. Useful for injecting a top-level rejection message upfront.
+
+### withRootErrors
+
+```typescript
+function withRootErrors<T>(
+  result: ValidationResult<T>,
+  messages: string | string[]
+): ValidationResult<T>;
+```
+
+Purely additive, appends one or more form-level errors (`path: []`) to an existing `ValidationResult` without touching the existing field errors. Use this when you need to attach a top-level message after validation has already run, such as after a server response or when you want to summarize multiple field errors with a banner message. Always returns `valid: false`.
 
 ### Path Utilities
 
 ```typescript
-function getValueAtPath(obj: any, path: (string | number)[]): any;
-function setValueAtPath(obj: any, path: (string | number)[], value: any): void;
+function getValueAtPath(obj: unknown, path: (string | number)[]): unknown;
+function setValueAtPath(
+  obj: Record<string | number, unknown>,
+  path: (string | number)[],
+  value: unknown
+): void;
 ```
 
-Helper functions for:
-
-- Getting values at nested paths
-- Setting values at nested paths
-- Automatically creating intermediate objects/arrays
+Utilities for reading and writing values at nested paths. `setValueAtPath` automatically creates intermediate objects or arrays as needed.
 
 ## Usage Examples
 
@@ -221,44 +230,66 @@ const result = validate(userSchema, values, {
 }
 ```
 
-## Integration with Form Library
+### withRootErrors After Validation
 
-The validation helpers are designed to work seamlessly with the form library:
-
-1. Path format matches form field paths
-2. Error structure maps directly to form error state
-3. Server error source helps with error handling
-
-Example integration:
+Append a root error after validation, preserving field errors:
 
 ```typescript
-// First, wrap your component with FormProvider
-<FormProvider
-  initialValues={initialValues}
-  schema={userSchema}
-  useFormTag={true} // Wraps children in an HTML <form> tag
-  formProps={{ className: 'my-form' }} // Optional HTML form attributes
-  onSubmit={async (values, helpers) => {
-    try {
-      await submitToServer(values);
-    } catch (error) {
-      // Handle API errors
-      const result = validate(userSchema, values, {
-        isServer: true,
-        rootMessages: error.message,
-      });
-      helpers.setErrors(result.errors);
-    }
-  }}
->
-  {/* Form components */}
-</FormProvider>
+const result = validate(userSchema, values);
+const withBanner = withRootErrors(result, 'Please fix all highlighted fields.');
+// withBanner.errors = [...original field errors, { path: [], message: '...' }]
+```
 
-// Then in your form components, use useFormContext
-function MyFormComponent() {
-  const form = useFormContext();
+Works on valid results too. This is useful for injecting a server-level rejection after a passing schema:
 
-  // Access form methods and state
-  // form.values, form.errors, form.submit(), etc.
-}
+```typescript
+const result = validate(userSchema, values); // passes
+const rejected = withRootErrors(result, 'Your account has been suspended.');
+// rejected.valid === false
+```
+
+Multiple messages:
+
+```typescript
+const withMultiple = withRootErrors(result, [
+  'Submission limit reached.',
+  'Please contact support.',
+]);
+```
+
+## Integration With Form Library
+
+The error format produced by these helpers maps directly to the form context's error state, same path shape, same flat array. Inside `onSubmit`, pass errors straight to `helpers.setErrors`:
+
+```typescript
+onSubmit={async (values, helpers) => {
+  const response = await api.save(values);
+
+  if (!response.ok) {
+    // Attach a top-level error and surface any field errors from the API
+    const result = withRootErrors(
+      { valid: false, value: null, errors: response.fieldErrors },
+      response.message
+    );
+
+    helpers.setErrors(result.errors ?? []);
+    return;
+  }
+}}
+```
+
+Root errors (`path: []`) are readable in components via `form.getError([])`:
+
+```tsx
+const rootErrors = form.getError([]);
+
+return (
+  <>
+    {rootErrors.map((e, i) => (
+      <p key={i} className="error-banner">
+        {e.message}
+      </p>
+    ))}
+  </>
+);
 ```

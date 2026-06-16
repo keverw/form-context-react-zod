@@ -79,6 +79,25 @@ function addRootMessages(
   return [...errors, ...rootErrors];
 }
 
+export function withRootErrors<T>(
+  result: ValidationResult<T>,
+  messages: string | string[]
+): ValidationResult<T> {
+  const rootErrors = (Array.isArray(messages) ? messages : [messages]).map(
+    (message) => ({
+      path: [] as (string | number)[],
+      message,
+      source: 'server' as const,
+    })
+  );
+
+  return {
+    valid: false,
+    value: null,
+    errors: [...(result.errors ?? []), ...rootErrors],
+  };
+}
+
 export function validate<T>(
   schema: ValidationSchema<T>,
   values: unknown,

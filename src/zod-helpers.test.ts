@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'bun:test';
 import { z } from 'zod';
-import { validate, validateAsync } from './zod-helpers';
+import { validate, validateAsync, withRootErrors } from './zod-helpers';
 
 describe('zod-helpers', () => {
   // Test schema
@@ -86,6 +86,58 @@ describe('zod-helpers', () => {
       const rootErrors = result.errors?.filter((err) => err.path.length === 0);
       expect(rootErrors).toHaveLength(2);
       expect(rootErrors?.map((err) => err.message)).toEqual(rootMessages);
+    });
+  });
+
+  describe('withRootErrors', () => {
+    it('should append a single root message to an invalid result', () => {
+      const invalidResult = validate(testSchema, { name: 'J' });
+      const result = withRootErrors(invalidResult, 'Something went wrong');
+
+      expect(result.valid).toBe(false);
+      expect(result.value).toBeNull();
+
+      const rootErrors = result.errors?.filter((e) => e.path.length === 0);
+      expect(rootErrors).toHaveLength(1);
+      expect(rootErrors?.[0].message).toBe('Something went wrong');
+      expect(rootErrors?.[0].source).toBe('server');
+    });
+
+    it('should append multiple root messages', () => {
+      const invalidResult = validate(testSchema, { name: 'J' });
+      const result = withRootErrors(invalidResult, ['Error A', 'Error B']);
+
+      const rootErrors = result.errors?.filter((e) => e.path.length === 0);
+      expect(rootErrors).toHaveLength(2);
+      expect(rootErrors?.map((e) => e.message)).toEqual(['Error A', 'Error B']);
+    });
+
+    it('should preserve existing field errors', () => {
+      const invalidResult = validate(testSchema, { name: 'J' });
+      const fieldErrors = invalidResult.errors?.filter(
+        (e) => e.path.length > 0
+      );
+      const result = withRootErrors(invalidResult, 'Root error');
+
+      const preserved = result.errors?.filter((e) => e.path.length > 0);
+      expect(preserved?.length).toBe(fieldErrors?.length);
+    });
+
+    it('should work on a valid result, making it invalid', () => {
+      const validResult = validate(testSchema, {
+        name: 'John',
+        email: 'john@example.com',
+        age: 30,
+      });
+      expect(validResult.valid).toBe(true);
+
+      const result = withRootErrors(validResult, 'Account suspended');
+
+      expect(result.valid).toBe(false);
+      expect(result.value).toBeNull();
+      expect(result.errors).toHaveLength(1);
+      expect(result.errors?.[0].path).toEqual([]);
+      expect(result.errors?.[0].message).toBe('Account suspended');
     });
   });
 

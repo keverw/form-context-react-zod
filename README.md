@@ -9,14 +9,14 @@ A powerful React form management library with Zod validation.
 - [Project Overview](#project-overview)
 - [Features](#features)
 - [Installation](#installation)
-- [Quick usage](#quick-usage)
+- [Quick Usage](#quick-usage)
   - [Web](#web)
   - [React Native](#react-native)
 - [Debugging](#debugging)
 - [Demos](#demos)
-  - [Native demo details](#native-demo-details)
+  - [Native Demo Details](#native-demo-details)
 - [Development](#development)
-- [Entry points](#entry-points)
+- [Entry Points](#entry-points)
 - [SSR / Hydration](#ssr--hydration)
 - [Documentation](#documentation)
 - [Library Structure](#library-structure)
@@ -30,7 +30,7 @@ A powerful React form management library with Zod validation.
 This repository contains:
 
 1. **React Form Library** ([`src/`](./src)): A TypeScript-first form management system that handles complex nested forms with validation, server-side errors, and array fields. Works on both web (DOM) and React Native.
-2. **Runnable demos** ([`examples/`](./examples)): a Vite web app ([`examples/web`](./examples/web)) and an Expo React Native app ([`examples/native`](./examples/native)), each a standalone package that consumes the built library — see [Demos](#demos).
+2. **Runnable demos** ([`examples/`](./examples)): a Vite web app ([`examples/web`](./examples/web)) and an Expo React Native app ([`examples/native`](./examples/native)), each a standalone package that consumes the built library. See [Demos](#demos).
 
 ## Features
 
@@ -56,18 +56,18 @@ yarn add form-context-react-zod
 Peer dependencies:
 
 ```bash
-npm install react react-dom zod
+npm install react zod
 # or
-bun add react react-dom zod
+bun add react zod
 # or
-yarn add react react-dom zod
+yarn add react zod
 ```
 
-`react-dom` and `react-native` are optional peers. Web apps should install
-`react-dom`, and React Native apps should install `react-native`, especially when
-using the `form-context-react-zod/devtools/native` entry.
+Optional peers: web apps typically already include `react-dom`, and React
+Native apps typically already include `react-native`. Install the relevant
+package if it is not already present.
 
-## Quick usage
+## Quick Usage
 
 ### Web
 
@@ -199,12 +199,12 @@ import { FormState } from 'form-context-react-zod/devtools/native';
 
 Two runnable demos live in this repo:
 
-- **Web** — a Vite app in [`examples/web`](./examples/web) that exercises every
+- **Web**: A Vite app in [`examples/web`](./examples/web) that exercises every
   feature: nested objects, array fields (add / remove / reorder), client + server
   validation, async validation, focus management, and the `FormState` debugger.
   Run it locally with `npm run demo:web`, or open the
   [live demo](https://keverw.github.io/form-context-react-zod/).
-- **React Native** — an Expo app in [`examples/native`](./examples/native) that
+- **React Native**: An Expo app in [`examples/native`](./examples/native) that
   proves the **same** core runs on native: Zod validation, `useArrayField`, a
   `TextInput` adapter, and the published `devtools/native` `FormState` panel.
 
@@ -212,8 +212,8 @@ Both demos are standalone packages that depend on the built library via a
 `file:../../dist_module` link, so they exercise the **real published entry
 points** rather than the source. The root `demo:*` commands run
 `bun run build:lib` first, so the demo always picks up your latest library
-changes. (Vite's dev server still gives the web demo full HMR for its own UI;
-after editing the **library**, re-run `npm run demo:web` to rebuild it.)
+changes. Vite's dev server still gives the web demo full HMR for its own UI.
+After editing the **library**, re-run `npm run demo:web` to rebuild it.
 
 First, install each demo's dependencies once (each is its own package). These
 build the library first, so the `file:../../dist_module` link resolves even on a
@@ -243,18 +243,18 @@ fallback: run `npm run demo:native`, press `s` to switch to Expo Go, then press
 `i` / `a` or scan the QR code.
 
 You do not need to run `npm run demo:native` before `npm run demo:native:ios` or
-`npm run demo:native:android`; the build commands start Metro themselves. Use
+`npm run demo:native:android`. The build commands start Metro themselves. Use
 `npm run demo:native` after the first dev build is installed, or when using Expo
 Go.
 
-### Native demo details
+### Native Demo Details
 
 The core is already platform-agnostic:
 
-- `FormProvider` (the core entry) renders no host elements — no `<form>` — so it's
+- `FormProvider` (the core entry) renders no host elements, including no `<form>`, so it's
   React-Native-safe as-is. The web `<form>` lives in `form-context-react-zod/web`.
-- `useField(...).props.onChange` is value-based — it receives the new value, not
-  a DOM event — which maps 1:1 onto `<TextInput onChangeText>`.
+- `useField(...).props.onChange` is value-based. It receives the new value, not
+  a DOM event, which maps 1:1 onto `<TextInput onChangeText>`.
 
 See [`examples/native/src/RNFormInput.tsx`](./examples/native/src/RNFormInput.tsx)
 for the small input adapter. Each native tab renders the published `FormState`
@@ -307,23 +307,23 @@ npm run deploy
 `npm run deploy` is manual. npm automatically runs `predeploy` first, so the
 actual flow is `npm run build:web` followed by `gh-pages -d examples/web/dist`.
 The `gh-pages` package pushes the built folder to the repository's `gh-pages`
-branch; GitHub Pages updates from that branch when the repo is configured to
+branch. GitHub Pages updates from that branch when the repo is configured to
 serve it.
 
 `npm run publish:lib` runs the checks + build, publishes `dist_module` to npm,
 then runs `npm run deploy` so the live demo on GitHub Pages is refreshed for the
 new release.
 
-## Entry points
+## Entry Points
 
 The package ships as conditional exports so you only pull in what you use:
 
-| Import                                   | Contents                                                                                                                                                                  |
-| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `form-context-react-zod`                 | **Core** — `FormProvider`, `useFormContext`, `useField`, `useArrayField`, zod helpers. Renders **no host elements** (no `<form>`), so it works on web _and_ React Native. |
-| `form-context-react-zod/web`             | Adds `WebFormProvider` — the core provider plus an HTML `<form>` wrapper (on by default) for native browser submit + Enter-to-submit.                                     |
-| `form-context-react-zod/devtools/web`    | The `FormState` debug panel (web/DOM). Opt-in, keep it out of production bundles.                                                                                         |
-| `form-context-react-zod/devtools/native` | The `FormState` debug panel for React Native (View/Text). Needs `react-native` (an optional peer).                                                                        |
+| Import                                   | Contents                                                                                                                                                                 |
+| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `form-context-react-zod`                 | **Core**: `FormProvider`, `useFormContext`, `useField`, `useArrayField`, zod helpers. Renders **no host elements** (no `<form>`), so it works on web _and_ React Native. |
+| `form-context-react-zod/web`             | Adds `WebFormProvider`, the core provider plus an HTML `<form>` wrapper (on by default) for native browser submit + Enter-to-submit.                                     |
+| `form-context-react-zod/devtools/web`    | The `FormState` debug panel (web/DOM). Opt-in, keep it out of production bundles.                                                                                        |
+| `form-context-react-zod/devtools/native` | The `FormState` debug panel for React Native (View/Text). Needs `react-native` (an optional peer).                                                                       |
 
 ```tsx
 // Cross-platform core (web or React Native):
@@ -339,7 +339,7 @@ import { FormState } from 'form-context-react-zod/devtools/native'; // RN debug 
 
 The core `FormProvider` is the shared base (no `<form>`). `WebFormProvider` is the
 same provider plus the `<form>` wrapper (`useFormTag`, on by default). On React
-Native you use the core `FormProvider`; see [`examples/native`](./examples/native)
+Native you use the core `FormProvider`. See [`examples/native`](./examples/native)
 for a runnable Expo demo.
 
 The two React contexts are published as an internal `./context` subpath and shared
@@ -349,7 +349,7 @@ what makes the React Native track possible.
 
 ## SSR / Hydration
 
-The library is server-render safe — it works with `renderToString` (and the streaming
+The library is server-render safe. It works with `renderToString` (and the streaming
 APIs), so it slots into Next.js, Remix, Unirend, etc. The per-field hooks supply a
 `getServerSnapshot` to `useSyncExternalStore`, so a server render produces the initial-values
 markup the client then hydrates.
@@ -357,7 +357,7 @@ markup the client then hydrates.
 The one rule: **pass identical `initialValues` on the server and the client.** Hydration assumes
 the two renders start from the same state, so derive `initialValues` from the same source (loader
 data, props) on both sides rather than regenerating it (e.g. avoid `Date.now()`/random defaults
-that differ per render). The same applies to `initialServerErrors` if you seed them — hand the
+that differ per render). The same applies to `initialServerErrors` if you seed them. Hand the
 server and client the same array.
 
 ## Documentation
