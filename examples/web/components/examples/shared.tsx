@@ -1,6 +1,6 @@
 import React from 'react';
 import { Loader2, AlertTriangle } from 'lucide-react';
-import { useFormContext } from '../../lib/hooks/useFormContext';
+import { useFormContext } from 'form-context-react-zod';
 
 export const LoadingSpinner = ({ className = '' }: { className?: string }) => (
   <Loader2 className={`animate-spin ${className}`} />

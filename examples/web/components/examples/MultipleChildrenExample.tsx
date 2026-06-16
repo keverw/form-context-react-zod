@@ -1,9 +1,9 @@
 import { z } from 'zod';
-import { FormProvider } from '../../lib/form-context';
+import { FormProvider } from 'form-context-react-zod';
 import FormInput from '../FormInput';
-import { FormState } from '../../lib/components/FormState';
-import { useField } from '../../lib/hooks/useField';
-import { useFormContext } from '../../lib/hooks/useFormContext';
+import { FormState } from 'form-context-react-zod/devtools/web';
+import { useField } from 'form-context-react-zod';
+import { useFormContext } from 'form-context-react-zod';
 import { useCallback } from 'react';
 
 // Define a schema for our form

@@ -1,7 +1,7 @@
 import { z } from 'zod';
 // WebFormProvider — the core provider plus the <form> element (on by default).
-import { WebFormProvider } from '../../lib/form-provider-web';
-import { useField } from '../../lib/hooks/useField';
+import { WebFormProvider } from 'form-context-react-zod/web';
+import { useField } from 'form-context-react-zod';
 import FormInput from '../FormInput';
 
 // Define the form schema

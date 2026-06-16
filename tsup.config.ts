@@ -7,12 +7,12 @@ const SHARED_CONTEXT = 'form-context-react-zod/context';
 // ---------------------------------------------------------------------------
 // Shared-context singleton (the whole reason this build is multi-entry-aware).
 //
-// `src/lib/context.ts` creates the two React contexts (FormContext +
+// `src/context.ts` creates the two React contexts (FormContext +
 // FormFieldContext) and is its OWN published entry (`./context`) — the single
 // home for those context instances. Every OTHER entry only *uses* them: `.`
 // (core), `./web`, `./devtools/web`, and `./devtools/native`. In source those
-// entries import context.ts relatively (`./context` from src/lib, `../context`
-// from src/lib/hooks).
+// entries import context.ts relatively (`./context` from src, `../context`
+// from src/hooks).
 //
 // The trap: if esbuild inlined context.ts into each bundle, every entry — core
 // included — would get its OWN createContext() result, and a consumer reading the
@@ -35,9 +35,9 @@ const sharedContextPlugin: Plugin = {
 
       const resolveDir = args.resolveDir.replaceAll('\\', '/');
       // Only our own source modules import the shared context relatively.
-      // Match the dir boundary (`/src/lib` or `/src/lib/...`) so a sibling like
-      // `src/lib-extra` can't accidentally match.
-      if (/\/src\/lib(\/|$)/.test(resolveDir)) {
+      // Match the dir boundary (`/src` or `/src/...`) so a sibling like
+      // `src-extra` can't accidentally match.
+      if (/\/src(\/|$)/.test(resolveDir)) {
         return { path: SHARED_CONTEXT, external: true };
       }
     });
@@ -74,27 +74,27 @@ export default defineConfig([
   // Core (`.`) — DOM-free, RN friendly. FormProvider renders no host elements.
   {
     ...shared,
-    entry: { index: 'src/lib/index.ts' },
+    entry: { index: 'src/index.ts' },
     outDir: 'dist_module/core',
   },
   // Web (`./web`) — core + a FormProvider that adds the opt-in <form> element.
-  { ...shared, entry: { index: 'src/lib/web.ts' }, outDir: 'dist_module/web' },
+  { ...shared, entry: { index: 'src/web.ts' }, outDir: 'dist_module/web' },
   // Opt-in debug tooling — symmetric web/native subpaths. Each is its own
   // subfolder of dist_module/devtools/, so the two passes' `clean` don't collide.
   {
     ...shared,
-    entry: { index: 'src/lib/devtools/web.ts' },
+    entry: { index: 'src/devtools/web.ts' },
     outDir: 'dist_module/devtools/web',
   },
   {
     ...shared,
-    entry: { index: 'src/lib/devtools/native.ts' },
+    entry: { index: 'src/devtools/native.ts' },
     outDir: 'dist_module/devtools/native',
   },
   // Shared contexts — their own entry so they stay a single instance.
   {
     ...shared,
-    entry: { index: 'src/lib/context.ts' },
+    entry: { index: 'src/context.ts' },
     outDir: 'dist_module/context',
   },
 ]);

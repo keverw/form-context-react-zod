@@ -1,12 +1,12 @@
 import { useState } from 'react';
 import { z } from 'zod';
-import { FormProvider, FormHelpers } from '../../lib/form-context';
-import type { ValidationError } from '../../lib/zod-helpers';
+import { FormProvider, FormHelpers } from 'form-context-react-zod';
+import type { ValidationError } from 'form-context-react-zod';
 import FormInput from '../FormInput';
 import { RootErrors, SubmitButton, FormNotice } from './shared';
-import { FormState } from '../../lib/components/FormState';
-import { useFormContext } from '../../lib/hooks/useFormContext';
-import { useField } from '../../lib/hooks/useField';
+import { FormState } from 'form-context-react-zod/devtools/web';
+import { useFormContext } from 'form-context-react-zod';
+import { useField } from 'form-context-react-zod';
 import { useToast } from '../useToast';
 import { simulateServer } from './utils';
 

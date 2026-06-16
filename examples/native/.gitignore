@@ -3,6 +3,15 @@
 # dependencies
 node_modules/
 
+# Lockfiles: this example installs with npm (file: dep) and its lockfile is not
+# committed — only the repo root's bun.lock is tracked. Ignore any lockfile
+# generated here (incl. bun.lock, in case someone runs `bun install` here).
+package-lock.json
+bun.lock
+bun.lockb
+yarn.lock
+pnpm-lock.yaml
+
 # Expo
 .expo/
 dist/

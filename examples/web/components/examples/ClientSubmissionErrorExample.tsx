@@ -1,11 +1,11 @@
 import { useState } from 'react';
 import { z } from 'zod';
-import { FormProvider, FormSubmitHandler } from '../../lib/form-context';
-import { useFormContext } from '../../lib/hooks/useFormContext';
+import { FormProvider, FormSubmitHandler } from 'form-context-react-zod';
+import { useFormContext } from 'form-context-react-zod';
 import FormInput from '../FormInput';
 import { RootErrors, SubmitButton } from './shared';
-import { useField } from '../../lib/hooks/useField';
-import { FormState } from '../../lib/components/FormState';
+import { useField } from 'form-context-react-zod';
+import { FormState } from 'form-context-react-zod/devtools/web';
 
 // Define the form schema with Zod
 const formSchema = z.object({

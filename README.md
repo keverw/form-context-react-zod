@@ -29,8 +29,8 @@ A powerful React form management library with Zod validation.
 
 This repository contains:
 
-1. **React Form Library**: A TypeScript-first form management system that handles complex nested forms with validation, server-side errors, and array fields.
-2. **Demo Application**: A Vite-powered React application showcasing the form library's capabilities.
+1. **React Form Library** ([`src/`](./src)): A TypeScript-first form management system that handles complex nested forms with validation, server-side errors, and array fields. Works on both web (DOM) and React Native.
+2. **Runnable demos** ([`examples/`](./examples)): a Vite web app ([`examples/web`](./examples/web)) and an Expo React Native app ([`examples/native`](./examples/native)), each a standalone package that consumes the built library — see [Demos](#demos).
 
 ## Features
 
@@ -199,35 +199,42 @@ import { FormState } from 'form-context-react-zod/devtools/native';
 
 Two runnable demos live in this repo:
 
-- **Web** — a Vite app that exercises every feature: nested objects, array fields
-  (add / remove / reorder), client + server validation, async validation, focus
-  management, and the `FormState` debugger. Run it locally with
-  `npm run demo:web`, or open the
+- **Web** — a Vite app in [`examples/web`](./examples/web) that exercises every
+  feature: nested objects, array fields (add / remove / reorder), client + server
+  validation, async validation, focus management, and the `FormState` debugger.
+  Run it locally with `npm run demo:web`, or open the
   [live demo](https://keverw.github.io/form-context-react-zod/).
 - **React Native** — an Expo app in [`examples/native`](./examples/native) that
   proves the **same** core runs on native: Zod validation, `useArrayField`, a
-  `TextInput` adapter, and the published `devtools/native` `FormState` panel. It
-  depends on the built package via a `file:` link, so it exercises the real
-  published entry points.
+  `TextInput` adapter, and the published `devtools/native` `FormState` panel.
 
-Run the demos from the repo root:
+Both demos are standalone packages that depend on the built library via a
+`file:../../dist_module` link, so they exercise the **real published entry
+points** rather than the source. The root `demo:*` commands run
+`bun run build:lib` first, so the demo always picks up your latest library
+changes. (Vite's dev server still gives the web demo full HMR for its own UI;
+after editing the **library**, re-run `npm run demo:web` to rebuild it.)
+
+First, install each demo's dependencies once (each is its own package). These
+build the library first, so the `file:../../dist_module` link resolves even on a
+fresh clone (`dist_module` is generated, not committed):
 
 ```bash
-# Web demo
-npm run demo:web
+npm run demo:web:install
+npm run demo:native:install
+```
+
+Then run either demo from the repo root:
+
+```bash
+# Web demo (Vite)
+npm run demo:web         # builds the library, then starts the Vite dev server
 
 # React Native / Expo demo
-npm run demo:native:install # install native demo deps once
 npm run demo:native:ios      # builds iOS, launches the app, and starts Metro
 npm run demo:native:android  # builds Android, launches the app, and starts Metro
 npm run demo:native          # starts Metro for Expo Go or an installed dev build
 npm run demo:native:clear    # same as above, with a cleared Metro cache
-```
-
-Install the native demo's dependencies once before running it:
-
-```bash
-npm run demo:native:install
 ```
 
 The native demo defaults to a **development build** (it depends on `expo-dev-client`),
@@ -278,29 +285,34 @@ npm run type-check
 npm run lint
 npm test
 
-# Build the web demo and published package
-npm run build
+# Build the published package, and the web demo
 npm run build:lib
+npm run build:web
 
 # Publish the web demo to GitHub Pages
 npm run deploy
 ```
 
-| Command               | Description                              |
-| --------------------- | ---------------------------------------- |
-| `npm run type-check`  | Run TypeScript without emitting          |
-| `npm run lint`        | Run ESLint                               |
-| `npm test`            | Run the test suite                       |
-| `npm run build`       | Build the web demo into `dist`           |
-| `npm run build:lib`   | Build the package into `dist_module`     |
-| `npm run preview`     | Preview the built web demo               |
-| `npm run deploy`      | Build and publish `dist` to GitHub Pages |
-| `npm run publish:lib` | Build and publish `dist_module` to NPM   |
+| Command               | Description                                                   |
+| --------------------- | ------------------------------------------------------------- |
+| `npm run type-check`  | Run TypeScript without emitting                               |
+| `npm run lint`        | Run ESLint                                                    |
+| `npm test`            | Run the test suite                                            |
+| `npm run build:lib`   | Build the package into `dist_module`                          |
+| `npm run build:web`   | Build the library, then the web demo into `examples/web/dist` |
+| `npm run preview`     | Preview the built web demo                                    |
+| `npm run deploy`      | Build and publish the web demo to GitHub Pages                |
+| `npm run publish:lib` | Publish `dist_module` to npm, then redeploy the demo to Pages |
 
 `npm run deploy` is manual. npm automatically runs `predeploy` first, so the
-actual flow is `npm run build` followed by `gh-pages -d dist`. The `gh-pages`
-package pushes the built `dist` folder to the repository's `gh-pages` branch;
-GitHub Pages updates from that branch when the repo is configured to serve it.
+actual flow is `npm run build:web` followed by `gh-pages -d examples/web/dist`.
+The `gh-pages` package pushes the built folder to the repository's `gh-pages`
+branch; GitHub Pages updates from that branch when the repo is configured to
+serve it.
+
+`npm run publish:lib` runs the checks + build, publishes `dist_module` to npm,
+then runs `npm run deploy` so the live demo on GitHub Pages is refreshed for the
+new release.
 
 ## Entry points
 
@@ -357,8 +369,8 @@ server and client the same array.
 
 The core library code is located in:
 
-- `src/lib/form-context.tsx` - Form context and hooks
-- `src/lib/zod-helpers.ts` - Zod validation utilities
+- `src/form-context.tsx` - Form context and hooks
+- `src/zod-helpers.ts` - Zod validation utilities
 
 ## License
 

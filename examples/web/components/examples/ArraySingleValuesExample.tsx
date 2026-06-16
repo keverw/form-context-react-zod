@@ -1,12 +1,12 @@
 import { z } from 'zod';
-import { FormProvider } from '../../lib/form-context';
+import { FormProvider } from 'form-context-react-zod';
 import FormInput from '../FormInput';
 import { RootErrors, SubmitButton, FormNotice } from './shared';
-import { FormState } from '../../lib/components/FormState';
+import { FormState } from 'form-context-react-zod/devtools/web';
 import { Plus, Equal, X, ArrowUp, ArrowDown, FileX } from 'lucide-react';
-import { useFormContext } from '../../lib/hooks/useFormContext';
-import { useField } from '../../lib/hooks/useField';
-import { useArrayField } from '../../lib/hooks/useArrayField';
+import { useFormContext } from 'form-context-react-zod';
+import { useField } from 'form-context-react-zod';
+import { useArrayField } from 'form-context-react-zod';
 import { useToast } from '../useToast';
 
 interface NumberItemProps {

@@ -1,8 +1,8 @@
 import { z } from 'zod';
-import { FormProvider } from '../../lib/form-context';
+import { FormProvider } from 'form-context-react-zod';
 import FormInput from '../FormInput';
 import { RootErrors, SubmitButton, FormNotice } from './shared';
-import { FormState } from '../../lib/components/FormState';
+import { FormState } from 'form-context-react-zod/devtools/web';
 import {
   Check,
   X,
@@ -16,8 +16,8 @@ import {
   Eraser,
   Delete,
 } from 'lucide-react';
-import { useFormContext } from '../../lib/hooks/useFormContext';
-import { useField } from '../../lib/hooks/useField';
+import { useFormContext } from 'form-context-react-zod';
+import { useField } from 'form-context-react-zod';
 import { useToast } from '../useToast';
 
 const apiSchema = z.object({
