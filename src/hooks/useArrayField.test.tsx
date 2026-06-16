@@ -289,6 +289,18 @@ describe('useArrayField move (error re-indexing, both directions)', () => {
     expect(screen.getByTestId('err-1').textContent).toBe('E0');
     expect(screen.getByTestId('err-2').textContent).toBe('E1');
   });
+
+  it('partial move (0 -> 1) leaves items outside the range in place', () => {
+    // Index 2 sits outside [from, to], so it passes through the indexMap
+    // unchanged (the fallthrough arm of move's reindex).
+    renderSeed3(0, 1);
+    fireEvent.click(screen.getByTestId('seed'));
+    fireEvent.click(screen.getByTestId('move'));
+    // E0 follows to index 1; E1 shifts up to 0; E2 stays at index 2.
+    expect(screen.getByTestId('err-0').textContent).toBe('E1');
+    expect(screen.getByTestId('err-1').textContent).toBe('E0');
+    expect(screen.getByTestId('err-2').textContent).toBe('E2');
+  });
 });
 
 // Exercises the parity ops (insert/prepend/swap/replace/update). Server errors

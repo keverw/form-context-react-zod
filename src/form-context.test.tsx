@@ -730,6 +730,100 @@ describe('FormProvider', () => {
     expect(screen.getByTestId('items-length').textContent).toBe('2');
   });
 
+  it('deleteField drops client and server errors under the deleted path', async () => {
+    // Covers the error-cleanup branches in deleteField: client errors and the
+    // serverErrorsRef baseline are both filtered so the deleted subtree's errors
+    // are removed, while errors on shorter/unrelated paths survive — and a later
+    // setServerError can't rebuild the dropped child errors from a stale baseline.
+    const TestComponent = () => {
+      const form = useFormContext();
+      return (
+        <div>
+          <span data-testid="street-err">
+            {form.getError(['user', 'address', 'street'])[0]?.message ?? 'none'}
+          </span>
+          <span data-testid="city-err">
+            {form.getError(['user', 'address', 'city'])[0]?.message ?? 'none'}
+          </span>
+          <span data-testid="name-err">
+            {form.getError(['user', 'name'])[0]?.message ?? 'none'}
+          </span>
+          <span data-testid="account-err">
+            {form.getError(['account'])[0]?.message ?? 'none'}
+          </span>
+          <button
+            data-testid="seed"
+            onClick={() => {
+              // Under the delete target — should be removed.
+              form.setError(['user', 'address', 'street'], 'street bad');
+              form.setServerError(['user', 'address', 'city'], 'city taken');
+              // Sibling under the same parent, NOT under the delete target — kept.
+              form.setError(['user', 'name'], 'name bad');
+              // Shorter, unrelated path (length 1 < delete path length 2) — kept.
+              form.setServerError(['account'], 'account locked');
+            }}
+          >
+            seed
+          </button>
+          <button
+            data-testid="delete"
+            onClick={() => form.deleteField(['user', 'address'])}
+          >
+            delete address
+          </button>
+          <button
+            data-testid="bump"
+            onClick={() => form.setServerError(['other'], 'EX')}
+          >
+            bump
+          </button>
+        </div>
+      );
+    };
+
+    render(
+      <TestForm
+        initialValues={{
+          user: { name: 'John', address: { street: '123 Main', city: 'NYC' } },
+          account: 'acct-1',
+          other: 'x',
+        }}
+        validateOnChange={false}
+      >
+        <TestComponent />
+      </TestForm>
+    );
+
+    fireEvent.click(screen.getByTestId('seed'));
+    await advanceTimers();
+    expect(screen.getByTestId('street-err').textContent).toBe('street bad');
+    expect(screen.getByTestId('city-err').textContent).toBe('city taken');
+    expect(screen.getByTestId('name-err').textContent).toBe('name bad');
+    expect(screen.getByTestId('account-err').textContent).toBe(
+      'account locked'
+    );
+
+    // Delete the parent: errors under user.address drop; the sibling and the
+    // shorter unrelated error are kept.
+    fireEvent.click(screen.getByTestId('delete'));
+    await advanceTimers();
+    expect(screen.getByTestId('street-err').textContent).toBe('none');
+    expect(screen.getByTestId('city-err').textContent).toBe('none');
+    expect(screen.getByTestId('name-err').textContent).toBe('name bad');
+    expect(screen.getByTestId('account-err').textContent).toBe(
+      'account locked'
+    );
+
+    // An unrelated setServerError rebuilds combined errors from the baseline —
+    // the dropped child server error must NOT come back.
+    fireEvent.click(screen.getByTestId('bump'));
+    await advanceTimers();
+    expect(screen.getByTestId('city-err').textContent).toBe('none');
+    expect(screen.getByTestId('account-err').textContent).toBe(
+      'account locked'
+    );
+  });
+
   it('handles server errors correctly', async () => {
     const initialValues = { username: 'testuser', password: 'password' };
 

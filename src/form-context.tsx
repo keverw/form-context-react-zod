@@ -780,30 +780,13 @@ export function FormProvider<T extends Record<string | number, unknown>>({
 
   // Set errors with proper ref sync
   const setErrors = useCallback(
-    (
-      errorsOrUpdater:
-        | ValidationError[]
-        | ((prev: ValidationError[]) => ValidationError[])
-    ) => {
-      if (typeof errorsOrUpdater === 'function') {
-        const updater = errorsOrUpdater;
-        const newErrors = updater(errorsRef.current);
-        // Update ref first
-        errorsRef.current = newErrors;
-        // Then update state
-        dispatch({
-          type: 'UPDATE_STATE',
-          updates: { errors: newErrors },
-        });
-      } else {
-        // Update ref first
-        errorsRef.current = errorsOrUpdater;
-        // Then update state
-        dispatch({
-          type: 'UPDATE_STATE',
-          updates: { errors: errorsOrUpdater },
-        });
-      }
+    (errors: ValidationError[]) => {
+      // Update ref first, then state.
+      errorsRef.current = errors;
+      dispatch({
+        type: 'UPDATE_STATE',
+        updates: { errors },
+      });
     },
     [dispatch]
   );
