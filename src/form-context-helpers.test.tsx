@@ -531,6 +531,32 @@ describe('useFormTag native submit', () => {
     fireEvent.submit(screen.getByTestId('form'));
     await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
   });
+
+  it('chains formProps.onSubmit without replacing the provider submit', async () => {
+    const onSubmit = jest.fn();
+    const formSubmit = jest.fn();
+
+    render(
+      <WebFormProvider
+        initialValues={{ name: 'a' }}
+        useFormTag
+        formProps={
+          {
+            'data-testid': 'form',
+            onSubmit: formSubmit,
+          } as Record<string, unknown>
+        }
+        onSubmit={onSubmit}
+      >
+        <button type="submit">go</button>
+      </WebFormProvider>
+    );
+
+    fireEvent.submit(screen.getByTestId('form'));
+
+    expect(formSubmit).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
+  });
 });
 
 describe('handleBlur (raw-context blur)', () => {

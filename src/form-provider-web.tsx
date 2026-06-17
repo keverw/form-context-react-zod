@@ -24,14 +24,17 @@ function FormElement({
   children: React.ReactNode;
 }) {
   const form = useFormContext();
+  const { onSubmit, ...restFormProps } = formProps ?? {};
+
   return (
     <form
       onSubmit={(e) => {
+        onSubmit?.(e);
         e.preventDefault();
         form.submit();
       }}
       noValidate
-      {...formProps}
+      {...restFormProps}
     >
       {children}
     </form>
