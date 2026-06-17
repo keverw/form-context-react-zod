@@ -10,9 +10,11 @@ import { serializePath } from '../utils';
 
 function TodoList() {
   const { items, add, remove, move } = useArrayField(['todos']);
+  const [removeResult, setRemoveResult] = useState<string>('');
   return (
     <div>
       <div data-testid="count">{items.length}</div>
+      <div data-testid="remove-result">{removeResult}</div>
       <ul>
         {items.map((item, i) => (
           <li key={i} data-testid={`item-${i}`}>
@@ -23,8 +25,17 @@ function TodoList() {
       <button data-testid="add" onClick={() => add('new')}>
         add
       </button>
-      <button data-testid="remove-1" onClick={() => remove(1)}>
+      <button
+        data-testid="remove-1"
+        onClick={() => setRemoveResult(String(remove(1)))}
+      >
         remove index 1
+      </button>
+      <button
+        data-testid="remove-invalid"
+        onClick={() => setRemoveResult(String(remove(99)))}
+      >
+        remove out of range
       </button>
       <button data-testid="move-0-2" onClick={() => move(0, 2)}>
         move 0 to 2
@@ -64,12 +75,23 @@ describe('useArrayField', () => {
     expect(screen.getByTestId('item-1').textContent).toBe('new');
   });
 
-  it('remove deletes the item at the given index', () => {
+  it('remove deletes the item at the given index and returns true', () => {
     renderList({ todos: ['a', 'b', 'c'] });
     fireEvent.click(screen.getByTestId('remove-1'));
     expect(screen.getByTestId('count').textContent).toBe('2');
     expect(screen.getByTestId('item-0').textContent).toBe('a');
     expect(screen.getByTestId('item-1').textContent).toBe('c');
+    expect(screen.getByTestId('remove-result').textContent).toBe('true');
+  });
+
+  it('remove is a no-op for an out-of-range index and returns false', () => {
+    renderList({ todos: ['a', 'b', 'c'] });
+    fireEvent.click(screen.getByTestId('remove-invalid'));
+    expect(screen.getByTestId('count').textContent).toBe('3');
+    expect(screen.getByTestId('item-0').textContent).toBe('a');
+    expect(screen.getByTestId('item-1').textContent).toBe('b');
+    expect(screen.getByTestId('item-2').textContent).toBe('c');
+    expect(screen.getByTestId('remove-result').textContent).toBe('false');
   });
 
   it('move reorders items', () => {

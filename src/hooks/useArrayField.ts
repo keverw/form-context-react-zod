@@ -132,12 +132,17 @@ export function useArrayField(path: (string | number)[]) {
   );
 
   // Remove the item at `index`. deleteField handles the array splice + metadata
-  // and broadcasts the removal so the ids follow.
+  // and broadcasts the removal so the ids follow. Returns `false` (a no-op) if the
+  // index is out of range — symmetric with move/swap/update — so an out-of-range
+  // call doesn't pointlessly mark the array touched and re-validate; `true` if it
+  // removed an item.
   const remove = useCallback(
-    (index: number) => {
+    (index: number): boolean => {
+      if (index < 0 || index >= items.length) return false;
       ctx.deleteField([...path, index]);
+      return true;
     },
-    [ctx, path]
+    [ctx, items, path]
   );
 
   // Move one item; intermediate items shift to fill the gap. Returns `false`

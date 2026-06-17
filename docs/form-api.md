@@ -974,7 +974,7 @@ the array so they follow their items:
   clamped, so it always inserts.
 - `insert(index, item)`: insert at `index` (clamped to `[0, length]`). Items at/after
   it shift up. The index is clamped rather than rejected, so it always inserts.
-- `remove(index)`: remove the item at `index`. Later items shift down to fill the gap, and their errors/touched markers shift with them (the removed item's metadata is dropped).
+- `remove(index): boolean`: remove the item at `index`. Later items shift down to fill the gap, and their errors/touched markers shift with them (the removed item's metadata is dropped). Returns `false` (a no-op) if `index` is out of range, symmetric with `move`/`swap`/`update` returning `true` if it removed an item.
 - `move(from, to): boolean`: reorder one item. Intermediate items shift to fill the
   gap. Returns `false` (a no-op) if either index is out of range or `from === to`,
   `true` if it moved.
