@@ -1,0 +1,28 @@
+{
+  "name": "form-context-react-zod-web-demo",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "form-context-react-zod": "file:../../dist_module",
+    "lucide-react": "^1.18.0",
+    "react": "19.2.7",
+    "react-dom": "19.2.7",
+    "zod": "^4"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4",
+    "@types/react": "19.2.17",
+    "@types/react-dom": "19.2.3",
+    "@vitejs/plugin-react": "6.0.2",
+    "tailwindcss": "^4",
+    "typescript": "5.9.3",
+    "vite": "8.0.16"
+  }
+}

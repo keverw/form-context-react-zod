@@ -1,0 +1,3 @@
+[test]
+# happydom registers DOM globals first, then testSetup wires up jest-dom matchers.
+preload = ["./happydom.ts", "./testSetup.ts"]

@@ -1,0 +1,15 @@
+node_modules
+dist
+dist-ssr
+*.local
+
+# This example installs with npm (file: dep). Its lockfile is not committed —
+# only the repo root's bun.lock is tracked. Ignore any lockfile generated here
+# (incl. bun.lock, in case someone runs `bun install` in this folder).
+package-lock.json
+bun.lock
+bun.lockb
+yarn.lock
+pnpm-lock.yaml
+
+.DS_Store

@@ -8,10 +8,20 @@ pnpm-debug.log*
 lerna-debug.log*
 
 node_modules
-dist
-dist-ssr
+# Published library build output. (The web demo's Vite build output lives in
+# examples/web/dist, ignored by examples/web/.gitignore.)
 dist_module
 *.local
+
+# This project uses Bun — ignore npm/yarn/pnpm lockfiles to avoid confusion.
+# bun.lock (JSON format) is preferred and should be committed. These patterns are
+# rootless, so they also cover the npm-based demos in examples/web and
+# examples/native (which install with `npm` against a `file:` link) — their
+# package-lock.json files are intentionally not committed.
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+bun.lockb
 
 # Editor directories and files
 .vscode/*
