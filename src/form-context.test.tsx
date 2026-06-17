@@ -4896,6 +4896,62 @@ describe('FormProvider', () => {
     expect(screen.getByTestId('is-valid').textContent).toBe('false');
   });
 
+  it('validateOnChange={false}: editing a field does NOT stamp lastValidated or flip isValid', async () => {
+    // Regression: setValue/deleteField used to dispatch lastValidated=Date.now()
+    // unconditionally, even when no validation pass ran (validateOnChange off or no
+    // schema). Because isValid gates on `lastValidated !== null`, the first edit
+    // would falsely flip isValid true without ever validating. Only a real
+    // validation pass (validate(), submit(), or validateOnChange) should stamp it.
+    function Probe() {
+      const form = useFormContext();
+      return (
+        <div>
+          <div data-testid="is-valid">{form.isValid.toString()}</div>
+          <div data-testid="last-validated">
+            {String(form.lastValidated === null)}
+          </div>
+          <button
+            data-testid="edit"
+            // 'ab' satisfies min(2): the values become valid, but with
+            // validateOnChange off no validation runs, so isValid must stay false.
+            onClick={() => form.setValue(['name'], 'ab')}
+          />
+          <button data-testid="run-validate" onClick={() => form.validate()} />
+        </div>
+      );
+    }
+
+    render(
+      <FormProvider
+        initialValues={{ name: '' }}
+        schema={z.object({ name: z.string().min(2) })}
+        onSubmit={jest.fn()}
+        validateOnChange={false}
+      >
+        <Probe />
+      </FormProvider>
+    );
+
+    await advanceTimers();
+    // No validation has run yet on a schema form.
+    expect(screen.getByTestId('last-validated').textContent).toBe('true');
+    expect(screen.getByTestId('is-valid').textContent).toBe('false');
+
+    // Edit to a valid value. Without a validation pass this must NOT stamp
+    // lastValidated, so isValid stays false.
+    fireEvent.click(screen.getByTestId('edit'));
+    await advanceTimers();
+    expect(screen.getByTestId('last-validated').textContent).toBe('true');
+    expect(screen.getByTestId('is-valid').textContent).toBe('false');
+
+    // An explicit validate() finally runs the pass: lastValidated is set and the
+    // (now valid) form reads valid.
+    fireEvent.click(screen.getByTestId('run-validate'));
+    await advanceTimers();
+    expect(screen.getByTestId('last-validated').textContent).toBe('false');
+    expect(screen.getByTestId('is-valid').textContent).toBe('true');
+  });
+
   it('validate() clears stale UNTAGGED errors when the form is valid', async () => {
     // Regression: untagged errors (raw setErrors with no `source`) are documented
     // as ordinary validation-style errors. A validate() pass on an otherwise-valid
@@ -5179,5 +5235,124 @@ describe('onSubmit helpers.signal (AbortSignal)', () => {
 
     expect(captured.signal).toBeDefined();
     expect(captured.signal!.aborted).toBe(false);
+  });
+});
+
+describe('reveal errors for fields absent from values', () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+  });
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  const schema = z.object({
+    name: z.string().min(1, 'Name is required'),
+    email: z.string().min(1, 'Email is required'),
+  });
+
+  // Uses the real useField (touch-gated display error). `email` is intentionally
+  // omitted from initialValues, so the value-tree touch walk on submit can't reach
+  // it — the fix touches the error's path instead so its error still surfaces.
+  function FieldRow({ name }: { name: string }) {
+    const field = useField([name]);
+    const display = Array.isArray(field.error) ? field.error[0] : field.error;
+    return <span data-testid={`err-${name}`}>{display ?? 'none'}</span>;
+  }
+
+  it('submit() reveals the touch-gated error for a field missing from initialValues', async () => {
+    const Trigger = () => {
+      const form = useFormContext();
+      return (
+        <button data-testid="submit" onClick={() => form.submit()}>
+          submit
+        </button>
+      );
+    };
+
+    render(
+      <FormProvider
+        // Deliberately omit the `email` key to exercise the absent-field path; the
+        // cast lets us hand the provider a partial of the schema's value type.
+        initialValues={{ name: '' } as { name: string; email: string }}
+        schema={schema}
+        onSubmit={jest.fn()}
+      >
+        <FieldRow name="name" />
+        <FieldRow name="email" />
+        <Trigger />
+      </FormProvider>
+    );
+
+    await advanceTimers();
+
+    // Before any interaction, both errors are hidden (untouched).
+    expect(screen.getByTestId('err-name').textContent).toBe('none');
+    expect(screen.getByTestId('err-email').textContent).toBe('none');
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('submit'));
+    });
+    await advanceTimers();
+
+    // Both errors are revealed — including `email`, which isn't in `values` (its
+    // exact Zod message is the undefined-type error, so just assert it's shown).
+    expect(screen.getByTestId('err-name').textContent).toBe('Name is required');
+    expect(screen.getByTestId('err-email').textContent).not.toBe('none');
+  });
+
+  it('validate(true) reveals the touch-gated error for a field missing from initialValues', async () => {
+    const Trigger = () => {
+      const form = useFormContext();
+      return (
+        <button data-testid="validate" onClick={() => form.validate(true)}>
+          validate
+        </button>
+      );
+    };
+
+    render(
+      <FormProvider
+        initialValues={{ name: '' } as { name: string; email: string }}
+        schema={schema}
+      >
+        <FieldRow name="name" />
+        <FieldRow name="email" />
+        <Trigger />
+      </FormProvider>
+    );
+
+    await advanceTimers();
+    expect(screen.getByTestId('err-email').textContent).toBe('none');
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('validate'));
+    });
+    await advanceTimers();
+
+    expect(screen.getByTestId('err-name').textContent).toBe('Name is required');
+    expect(screen.getByTestId('err-email').textContent).not.toBe('none');
+  });
+
+  it('validateOnMount + touchAllOnMount reveals the error for a field missing from initialValues', async () => {
+    render(
+      <FormProvider
+        // No `email` key — see the cast rationale above.
+        initialValues={{ name: '' } as { name: string; email: string }}
+        schema={schema}
+        validateOnMount
+        touchAllOnMount
+      >
+        <FieldRow name="name" />
+        <FieldRow name="email" />
+      </FormProvider>
+    );
+
+    await advanceTimers();
+
+    // touchAllOnMount means "reveal every error on load" — including `email`,
+    // which isn't present in `values`.
+    expect(screen.getByTestId('err-name').textContent).toBe('Name is required');
+    expect(screen.getByTestId('err-email').textContent).not.toBe('none');
   });
 });

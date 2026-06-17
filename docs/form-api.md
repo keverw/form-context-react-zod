@@ -100,6 +100,7 @@ State getters:
 - `submitCount`: Number. Running count of submit attempts (bumped at the start of each `submit()`, including ones that fail validation). Reset to `0` by `reset`/`resetWithValues`.
 - `errors`: Current validation/server errors
 - `lastValidated`: Timestamp of the last validation
+- `validateOnChange`: Boolean. Mirrors the `validateOnChange` FormProvider prop (default `true`), exposed on the context so a field wiring its own change handler can match the provider's configured behavior. It is read-only and set via the prop. (`setValue` already honors it internally, so you only need this if you bypass `useField`/`setValue` and run change-time validation yourself.)
 - `validateOnBlur`: Boolean. Mirrors the `validateOnBlur` FormProvider prop (default `true`), exposed on the context so a field wiring its own blur handler can match the provider's configured behavior. It is read-only and set via the prop.
 - `isDirty`: Boolean. `true` when the current values differ from the **dirty baseline**. See [Dirty Tracking](#dirty-tracking).
 - `dirtyFields`: `Record<string, boolean>`. Per-field dirty map keyed by serialized path (same shape as `touched`). See [Dirty Tracking](#dirty-tracking).
@@ -795,11 +796,47 @@ const {
   errors, // Raw ValidationError[] at this path — all sources, NOT touch-gated
   isTouched, // Whether the field has been blurred or edited
   inputRef, // Ref callback — attach to your input so setFocus/focusFirstError can reach it
-  props, // Props for input components (value/onChange/onBlur/errorText)
+  props, // Props for a CUSTOM input component (value/onChange/onBlur/errorText) — see note
 } = useField(path);
 ```
 
 See [Focus Management](#focus-management) for `inputRef`.
+
+> **`props` is for your own input component, not a host element.** Its `onChange`
+> hands you the **value** (`(value) => void`), not a DOM/React Native event, and
+> `errorText` isn't a real `<input>`/`<TextInput>` attribute — so spreading `props`
+> onto a bare host element would store the event as the value (and warn on the unknown
+> props). Use it on a wrapper whose `onChange` takes a value (see the `FormInput`
+> pattern in [Form Input Components](#form-input-components)):
+>
+> ```tsx
+> function MyInput({ value, onChange, onBlur, errorText }) { … }
+>
+> const field = useField(['email']);
+> <MyInput {...field.props} />; // ✅ custom component (web or React Native)
+> ```
+>
+> For a host element, wire the primitives yourself instead. **Web (`<input>`):**
+>
+> ```tsx
+> const { value, setValue } = useField(['email']);
+> <input
+>   value={(value as string) ?? ''}
+>   onChange={(e) => setValue(e.target.value)}
+> />;
+> ```
+>
+> **React Native (`<TextInput>`)** — use `onChangeText` (it already hands you the
+> value) and `inputRef` for focus:
+>
+> ```tsx
+> const { value, setValue, inputRef } = useField(['email']);
+> <TextInput
+>   ref={inputRef}
+>   value={(value as string) ?? ''}
+>   onChangeText={(text) => setValue(text)}
+> />;
+> ```
 
 **`error` vs `errors`.** `error` is the **display** value: Zod (`client`) messages are gated
 on `isTouched`, server/manual messages always show. It's a single `string` for one message,
@@ -821,9 +858,10 @@ Features:
 - Value getting/setting
 - Touch tracking, read via `isTouched`
 - Error management (server errors automatically clear on edit), display `error` plus raw `errors`
-- Ready-to-spread `props` for input components (`value`/`onChange`/`onBlur`/`errorText`). Note the
-  values are untyped (`unknown`) since paths aren't typed against the schema. Pass a type argument
-  to `getValue`/`setValue` on the context if you need the value narrowed.
+- Ready-to-spread `props` for a **custom** input component (`value`/`onChange`/`onBlur`/`errorText`),
+  where `onChange` receives the **value** (not a DOM event) — see the note above; don't spread these
+  onto a native `<input>`. Note the values are untyped (`unknown`) since paths aren't typed against
+  the schema. Pass a type argument to `getValue`/`setValue` on the context if you need the value narrowed.
 - **Re-render isolation**: `useField` subscribes to only its own field's slice
   (value/touched/errors) via `useSyncExternalStore`, so editing one field doesn't
   re-render the others. This is internal and changes nothing about the API. On large

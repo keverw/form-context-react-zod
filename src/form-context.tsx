@@ -140,6 +140,10 @@ export interface FormContextValue<T> {
   /** Running count of submit attempts. Reset to 0 by reset/resetWithValues. */
   submitCount: number;
   lastValidated: number | null;
+  /** Whether editing a field runs validation. Mirrors the FormProvider prop
+   *  (read-only). `setValue` already honors it internally; exposed so a field
+   *  wiring its own onChange can match the provider's configured behavior. */
+  validateOnChange: boolean;
   /** Whether leaving a field (blur) runs validation. Mirrors the FormProvider prop. */
   validateOnBlur: boolean;
   currentSubmissionID: string | null;
@@ -178,6 +182,7 @@ export interface FormContextValue<T> {
     indexMap: (oldIndex: number) => number | null
   ) => void;
   /**
+   * @internal Advanced/internal plumbing — not part of the documented public API.
    * Subscribe to structural array changes (used by `useArrayField` to keep its
    * stable ids aligned no matter which mutation path changed the array). Returns
    * an unsubscribe function.
@@ -345,6 +350,12 @@ export interface Focusable {
   focus?: () => void;
 }
 
+/**
+ * @internal Advanced/internal plumbing — the per-field subscription surface that
+ * `useField`/`useArrayField` consume. Apart from `registerFieldRef` (documented as
+ * the raw-context focus escape hatch), these members are not part of the documented
+ * public API; prefer the hooks and the `FormContext` (`useFormContext`) surface.
+ */
 export interface FormFieldContextValue {
   subscribeField: (listener: () => void) => () => void;
   getFieldSnapshot: (path: (string | number)[]) => FieldSnapshot;
@@ -807,7 +818,11 @@ export function FormProvider<T extends Record<string | number, unknown>>({
           values: newValues,
           touched: touchedRef.current,
           errors: newErrors,
-          lastValidated: Date.now(),
+          // Only stamp lastValidated when a validation pass actually ran. With
+          // validateOnChange off (or no schema) we recompute nothing, so bumping
+          // the timestamp would falsely flip `isValid` true (it gates on
+          // lastValidated !== null). Matches reindexArray.
+          ...(validateOnChange && schema ? { lastValidated: Date.now() } : {}),
           canSubmit: newCanSubmit,
         }),
       });
@@ -903,10 +918,26 @@ export function FormProvider<T extends Record<string | number, unknown>>({
         const newErrors = [...preservedErrors, ...(result.errors || [])];
         errorsRef.current = newErrors;
 
-        // Then update state
+        // When forcing (validate(true) / submit()), reveal EVERY validation error,
+        // including ones for required fields absent from `values`. The force-touch
+        // loop above walks the value tree, so a field that isn't in `values` has no
+        // node to visit and stays untouched — its (touch-gated) error would stay
+        // hidden in useField even though focusFirstError can already focus it. Touch
+        // each error's path so the display matches "reveal all".
+        if (force) {
+          let nextTouched = touchedRef.current;
+          for (const e of result.errors) {
+            nextTouched = markPathAsTouched(nextTouched, e.path);
+          }
+          touchedRef.current = nextTouched;
+        }
+
+        // Then update state (fold in the revealed touches when forcing)
         dispatch({
           type: 'UPDATE_STATE',
-          updates: { errors: errorsRef.current },
+          updates: force
+            ? { errors: errorsRef.current, touched: touchedRef.current }
+            : { errors: errorsRef.current },
         });
       } else if (result.valid) {
         // Form is now valid — clear any stale validation-owned errors (Zod 'client'
@@ -930,7 +961,7 @@ export function FormProvider<T extends Record<string | number, unknown>>({
       }
       return result.valid;
     },
-    [getValuePaths, setFieldTouched, validateForm, dispatch]
+    [getValuePaths, setFieldTouched, validateForm, dispatch, markPathAsTouched]
   );
 
   // Imperatively validate a single field ("trigger"). Marks it touched (errors are
@@ -995,19 +1026,28 @@ export function FormProvider<T extends Record<string | number, unknown>>({
     // By default only mark *populated* fields touched: a prefilled form surfaces
     // errors for the data it loaded, while empty fields the user hasn't reached
     // stay quiet (errors are gated on touched). touchAllOnMount touches everything.
-    const newTouched: Record<string, boolean> = {};
+    let newTouched: Record<string, boolean> = {};
     for (const path of allPaths) {
       if (touchAllOnMount || !isEmptyValue(getValueAtPath(values, path))) {
         newTouched[serializePath(path)] = true;
       }
     }
 
-    // Update the touched ref
-    touchedRef.current = newTouched;
-
     // Validate form directly
     const result = validateForm();
     const validationErrors = result.valid ? [] : result.errors || [];
+
+    // touchAllOnMount means "reveal every error on load." The value-tree walk above
+    // can't touch a required field that's absent from `values` (it has no node to
+    // visit), so fold in each error's path too — matching submit()/validate(true).
+    if (touchAllOnMount) {
+      for (const e of validationErrors) {
+        newTouched = markPathAsTouched(newTouched, e.path);
+      }
+    }
+
+    // Update the touched ref
+    touchedRef.current = newTouched;
 
     // Preserve externally-owned errors (server/manual/client-form-handler, e.g.
     // seeded via initialServerErrors) — mount validation only owns the validation
@@ -1030,7 +1070,7 @@ export function FormProvider<T extends Record<string | number, unknown>>({
         canSubmit: result.valid,
       },
     });
-  }, [getValuePaths, validateForm, values, touchAllOnMount]);
+  }, [getValuePaths, validateForm, values, touchAllOnMount, markPathAsTouched]);
 
   // Combined effect for mount tracking and validation
   React.useEffect(() => {
@@ -1230,7 +1270,10 @@ export function FormProvider<T extends Record<string | number, unknown>>({
             values: newValues,
             touched: newTouched,
             errors: finalErrors,
-            lastValidated: Date.now(),
+            // Only stamp lastValidated when a validation pass actually ran (see
+            // setValue) — otherwise `isValid` would falsely flip true on a
+            // validateOnChange-off / schema-less form. Matches reindexArray.
+            ...(validateOnChange && schema ? { lastValidated: Date.now() } : {}),
             canSubmit: newCanSubmit,
           },
         });
@@ -1359,7 +1402,10 @@ export function FormProvider<T extends Record<string | number, unknown>>({
             values: newValues,
             touched: newTouched,
             errors: finalErrors,
-            lastValidated: Date.now(),
+            // Only stamp lastValidated when a validation pass actually ran (see
+            // setValue) — otherwise `isValid` would falsely flip true on a
+            // validateOnChange-off / schema-less form. Matches reindexArray.
+            ...(validateOnChange && schema ? { lastValidated: Date.now() } : {}),
             canSubmit: newCanSubmit,
           },
         });
@@ -2114,6 +2160,24 @@ export function FormProvider<T extends Record<string | number, unknown>>({
 
     try {
       const result = validateForm();
+
+      // Reveal every validation error on submit, including ones for required fields
+      // absent from `values`. The force-touch loop above walks the value tree, so a
+      // field missing from `values` has no node to touch and its (touch-gated) error
+      // would stay hidden in useField. Touch each error's path so submit surfaces
+      // them all (matching validate(true)).
+      if (result.errors && result.errors.length > 0) {
+        let nextTouched = touchedRef.current;
+        for (const e of result.errors) {
+          nextTouched = markPathAsTouched(nextTouched, e.path);
+        }
+        touchedRef.current = nextTouched;
+        dispatch({
+          type: 'UPDATE_STATE',
+          updates: { touched: nextTouched },
+        });
+      }
+
       if (!schema || result.valid) {
         // Pass only the values and a subset of helper functions
         // This avoids the circular dependency and ref usage
@@ -2325,6 +2389,7 @@ export function FormProvider<T extends Record<string | number, unknown>>({
     getValuePaths,
     setSubmissionId,
     setFieldTouched,
+    markPathAsTouched,
     validateForm,
     validateField,
     schema,
@@ -2387,6 +2452,7 @@ export function FormProvider<T extends Record<string | number, unknown>>({
       submitSucceeded,
       submitCount,
       lastValidated,
+      validateOnChange,
       validateOnBlur,
       currentSubmissionID: state.currentSubmissionID, // Use state for reactivity
       submit,
@@ -2436,6 +2502,7 @@ export function FormProvider<T extends Record<string | number, unknown>>({
       submitSucceeded,
       submitCount,
       lastValidated,
+      validateOnChange,
       validateOnBlur,
       schema,
       state.currentSubmissionID, // Use state for reactivity in dependency array

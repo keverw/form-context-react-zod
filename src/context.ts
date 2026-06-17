@@ -13,6 +13,12 @@
 // entries import the same singleton instead of inlining a copy. See
 // tsup.config.ts. This is a runtime JS singleton concern, not a type concern —
 // the type side is structural, so duplicated declarations stay compatible.
+//
+// NOT A PUBLIC ENTRY. The `./context` subpath exists ONLY as the shared-singleton
+// anchor the other bundles import; it is an implementation detail of the build,
+// not a supported import. Consumers should never `import ... from
+// 'form-context-react-zod/context'`. Both contexts are re-exported from the root
+// (`form-context-react-zod`) — `FormContext`/`FormFieldContext` — so use those.
 import { createContext } from 'react';
 import type { FormContextValue, FormFieldContextValue } from './form-context';
 
