@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, type CSSProperties } from 'react';
 import { useFormContext } from '../hooks/useFormContext';
 import { serializePath } from '../utils';
 
@@ -121,11 +121,14 @@ export interface FormStateProps {
   mode?: 'light' | 'dark';
   /** Render an in-panel switch to toggle light/dark. Defaults to false. */
   showToggle?: boolean;
+  /** Optional style merged onto the outer container (parity with the native variant). */
+  style?: CSSProperties;
 }
 
 export function FormState({
   mode = 'light',
   showToggle = false,
+  style,
 }: FormStateProps) {
   const form = useFormContext();
   const validationErrors = form.errors.filter(
@@ -224,6 +227,8 @@ export function FormState({
             ? '0 2px 8px rgba(0,0,0,0.35)'
             : '0 2px 8px rgba(0,0,0,0.10)',
         transition: 'background 0.2s, color 0.2s, border 0.2s',
+        // Caller overrides win, matching the native variant's `style` passthrough.
+        ...style,
       }}
     >
       <div

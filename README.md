@@ -273,6 +273,9 @@ import { FormState } from 'form-context-react-zod/devtools/native';
   `mode` always sets the **initial** theme. When `showToggle` is `false` it stays
   fixed at `mode`, and when the toggle is on it just seeds the starting state and
   the toggle takes over from there. Changing `mode` after mount has no effect once the toggle is active.
+- Both variants accept an optional `style` prop applied to the outer container —
+  `React.CSSProperties` on web, `StyleProp<ViewStyle>` on React Native. Caller styles
+  are merged last, so they override the panel defaults.
 - This component is intended for development and debugging purposes.
 
 ## Demos

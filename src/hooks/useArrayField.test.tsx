@@ -1114,7 +1114,10 @@ describe('useArrayField move/swap/update return a boolean', () => {
 
   const renderProbe = () =>
     render(
-      <FormProvider initialValues={{ todos: ['a', 'b', 'c'] }} onSubmit={jest.fn()}>
+      <FormProvider
+        initialValues={{ todos: ['a', 'b', 'c'] }}
+        onSubmit={jest.fn()}
+      >
         <ReturnProbe />
       </FormProvider>
     );

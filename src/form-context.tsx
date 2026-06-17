@@ -160,8 +160,10 @@ export interface FormContextValue<T> {
   resetWithValues: (newValues: T, force?: boolean) => boolean;
   validate: (force?: boolean) => boolean;
   /**
-   * Imperatively validate one field ("trigger"). Marks it touched and re-runs the
-   * schema, surfacing only that field's error. Returns whether the field is now
+   * Imperatively validate one field ("trigger"). Marks only that field touched, so
+   * only its error is REVEALED (display is touch-gated), but runs the full schema and
+   * refreshes every field's underlying Zod error — like `setValue` — so a cross-field
+   * `.refine()` landing on a sibling stays current. Returns whether the field is now
    * error-free (no error of any source at the path). Unlike `handleBlur`, this is
    * not gated on the `validateOnBlur` prop and it returns the field's validity.
    */
@@ -981,12 +983,16 @@ export function FormProvider<T extends Record<string | number, unknown>>({
     [getValuePaths, setFieldTouched, validateForm, dispatch, markPathAsTouched]
   );
 
-  // Imperatively validate a single field ("trigger"). Marks it touched (errors are
-  // touch-gated) and reconciles just this field's Zod error: Zod validates the
-  // whole object — a field can depend on others via .refine — so we run the full
-  // schema, drop the field's stale 'client' error, and re-add a fresh one if it's
-  // still invalid. Server/manual errors at the path are left as-is. Returns whether
-  // the field is now error-free (no error of any source at the path).
+  // Imperatively validate a single field ("trigger"). Marks ONLY this field touched
+  // (so only its error is revealed — display is touch-gated), but runs the full
+  // schema and recomputes ALL validation-owned errors (Zod 'client' + untagged) from
+  // the result, exactly like setValue/deleteField. Zod validates the whole object, so
+  // a cross-field .refine() can land its error on a SIBLING; recomputing the whole set
+  // keeps every field's underlying error fresh (e.g. fixing this field can clear a
+  // sibling's stale error), rather than reconciling this path alone and leaving stale
+  // sibling errors behind. Externally-owned errors (server/manual/client-form-handler)
+  // are preserved. Returns whether the field is now error-free (no error of any source
+  // at the path).
   const validateField = useCallback(
     (path: (string | number)[]): boolean => {
       const atPath = (p: (string | number)[]) =>
@@ -996,13 +1002,11 @@ export function FormProvider<T extends Record<string | number, unknown>>({
 
       if (schema) {
         const result = validate(schema, valuesRef.current);
-        const withoutStale = errorsRef.current.filter(
-          (e) => !isValidationOwnedError(e) || !atPath(e.path)
+        const preserved = errorsRef.current.filter(
+          (e) => !isValidationOwnedError(e)
         );
-        const freshAtPath = result.valid
-          ? []
-          : (result.errors ?? []).filter((e) => atPath(e.path));
-        errorsRef.current = [...withoutStale, ...freshAtPath];
+        const freshClient = result.valid ? [] : (result.errors ?? []);
+        errorsRef.current = [...preserved, ...freshClient];
         // validateField runs the full schema, so keep whole-form canSubmit in sync
         // with the result — matching validateForm/setValue. Otherwise the submit
         // button could read stale after validating through this imperative path.
@@ -1290,7 +1294,9 @@ export function FormProvider<T extends Record<string | number, unknown>>({
             // Only stamp lastValidated when a validation pass actually ran (see
             // setValue) — otherwise `isValid` would falsely flip true on a
             // validateOnChange-off / schema-less form. Matches reindexArray.
-            ...(validateOnChange && schema ? { lastValidated: Date.now() } : {}),
+            ...(validateOnChange && schema
+              ? { lastValidated: Date.now() }
+              : {}),
             canSubmit: newCanSubmit,
           },
         });
@@ -1422,7 +1428,9 @@ export function FormProvider<T extends Record<string | number, unknown>>({
             // Only stamp lastValidated when a validation pass actually ran (see
             // setValue) — otherwise `isValid` would falsely flip true on a
             // validateOnChange-off / schema-less form. Matches reindexArray.
-            ...(validateOnChange && schema ? { lastValidated: Date.now() } : {}),
+            ...(validateOnChange && schema
+              ? { lastValidated: Date.now() }
+              : {}),
             canSubmit: newCanSubmit,
           },
         });

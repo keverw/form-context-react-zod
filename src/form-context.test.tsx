@@ -2813,6 +2813,131 @@ describe('FormProvider', () => {
     expect(screen.getByTestId('b-err').textContent).toBe('none');
   });
 
+  it('validateField refreshes a cross-field sibling error, clearing it once satisfied', async () => {
+    // A refine whose error lands on a SIBLING (`confirm`) of the field being validated.
+    const schema = z
+      .object({ password: z.string(), confirm: z.string() })
+      .refine((d) => d.password === d.confirm, {
+        message: 'must match',
+        path: ['confirm'],
+      });
+
+    const results: Record<string, boolean> = {};
+    const TestComponent = () => {
+      const form = useFormContext();
+      return (
+        <div>
+          {/* Raw (not touch-gated) validity, reflecting the underlying error state. */}
+          <span data-testid="confirm-invalid">
+            {String(form.getFieldState(['confirm']).invalid)}
+          </span>
+          <button
+            data-testid="vf-confirm"
+            onClick={() => {
+              results.confirm = form.validateField(['confirm']);
+            }}
+          >
+            validate confirm
+          </button>
+          <button
+            data-testid="fix"
+            onClick={() => form.setValue(['password'], 'xyz')}
+          >
+            fix password
+          </button>
+          <button
+            data-testid="vf-password"
+            onClick={() => {
+              results.password = form.validateField(['password']);
+            }}
+          >
+            validate password
+          </button>
+        </div>
+      );
+    };
+
+    render(
+      <TestForm
+        schema={schema}
+        initialValues={{ password: 'abc', confirm: 'xyz' }}
+        validateOnChange={false}
+      >
+        <TestComponent />
+      </TestForm>
+    );
+
+    // Trigger `confirm`: the cross-field refine flags it invalid.
+    fireEvent.click(screen.getByTestId('vf-confirm'));
+    await advanceTimers();
+    expect(results.confirm).toBe(false);
+    expect(screen.getByTestId('confirm-invalid').textContent).toBe('true');
+
+    // Fix the mismatch by editing the OTHER field. validateOnChange is off, so
+    // setValue does NOT revalidate — confirm's error is now stale.
+    fireEvent.click(screen.getByTestId('fix'));
+    await advanceTimers();
+    expect(screen.getByTestId('confirm-invalid').textContent).toBe('true');
+
+    // Validating `password` runs the whole schema and refreshes EVERY field's error,
+    // so confirm's now-satisfied refine error clears even though we validated password.
+    fireEvent.click(screen.getByTestId('vf-password'));
+    await advanceTimers();
+    expect(results.password).toBe(true);
+    expect(screen.getByTestId('confirm-invalid').textContent).toBe('false');
+  });
+
+  it('validateField refreshes a sibling error WITHOUT touching/revealing it', async () => {
+    const schema = z
+      .object({ password: z.string(), confirm: z.string() })
+      .refine((d) => d.password === d.confirm, {
+        message: 'must match',
+        path: ['confirm'],
+      });
+
+    const TestComponent = () => {
+      const form = useFormContext();
+      const confirm = useField(['confirm']);
+      const state = form.getFieldState(['confirm']);
+      return (
+        <div>
+          {/* Touch-gated DISPLAY error from useField. */}
+          <span data-testid="confirm-display">
+            {(confirm.error as string) ?? 'none'}
+          </span>
+          <span data-testid="confirm-invalid">{String(state.invalid)}</span>
+          <span data-testid="confirm-touched">{String(state.isTouched)}</span>
+          <button
+            data-testid="vf-password"
+            onClick={() => form.validateField(['password'])}
+          >
+            validate password
+          </button>
+        </div>
+      );
+    };
+
+    render(
+      <TestForm
+        schema={schema}
+        initialValues={{ password: 'abc', confirm: 'xyz' }}
+        validateOnChange={false}
+      >
+        <TestComponent />
+      </TestForm>
+    );
+
+    // Validate only `password`; the refine error lives on the untouched `confirm`.
+    fireEvent.click(screen.getByTestId('vf-password'));
+    await advanceTimers();
+
+    // Raw error state reflects the refine failure on confirm...
+    expect(screen.getByTestId('confirm-invalid').textContent).toBe('true');
+    // ...but confirm was never touched, so it isn't revealed and stays hidden.
+    expect(screen.getByTestId('confirm-touched').textContent).toBe('false');
+    expect(screen.getByTestId('confirm-display').textContent).toBe('none');
+  });
+
   it('validateField keeps canSubmit in sync with whole-form validity', async () => {
     const schema = z.object({ a: z.string().min(3, 'a too short') });
 

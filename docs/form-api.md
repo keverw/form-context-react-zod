@@ -98,6 +98,7 @@ State getters:
 - `submitAttempted`: Boolean. `true` once the user has tried to submit at all, pass or fail. Stays `true` for the duration of the submission and after it settles, then cleared by `reset`/`resetWithValues`. Use it _alongside_ `touched` to reveal errors. Gate on `touched[serializePath(fieldPath)] || submitAttempted` so each field shows its error once the user has interacted with it **or** has hit submit, which surfaces errors on fields they skipped. (`touched` is keyed by the serialized path — even a single top-level field is `serializePath(['email'])`, i.e. `'["email"]'`, not the bare `'email'` — so always look it up through `serializePath`.) `submit()` also marks every field touched, so on its own `touched` covers this. `submitAttempted` is the cleaner signal if you'd rather key the "reveal everything" moment off the attempt itself.
 - `submitSucceeded`: Boolean. `true` only if the **most recent** attempt completed cleanly: validation passed, `onSubmit` resolved without throwing, **and** no submission error is present when it settles. "Submission error" is defined by `source`. Any `server`, `manual`, or `client-form-handler` error left behind by the handler flips it `false`, regardless of which setter created it (`setServerError(s)`, `setError`, `setClientSubmissionError`, or a raw `setErrors` carrying one of those sources). It's `false` while a submit is in flight and flips to its final value when the attempt settles.
 - `submitCount`: Number. Running count of submit attempts (bumped at the start of each `submit()`, including ones that fail validation). Reset to `0` by `reset`/`resetWithValues`.
+- `currentSubmissionID`: `string | null`. The ID of the in-flight submission, or `null` when none is active (and after a `reset`/`resetWithValues`). Reactive, so it's readable straight off the context (`form.currentSubmissionID`) outside `onSubmit`, not just via the `helpers` object. Pair it with `isCurrentSubmission(id)` to detect a superseded submission. See [Submission ID Tracking](#submission-id-tracking).
 - `errors`: Current validation/server errors
 - `lastValidated`: Timestamp of the last validation
 - `validateOnChange`: Boolean. Mirrors the `validateOnChange` FormProvider prop (default `true`), exposed on the context so a field wiring its own change handler can match the provider's configured behavior. It is read-only and set via the prop. (`setValue` already honors it internally, so you only need this if you bypass `useField`/`setValue` and run change-time validation yourself.)
@@ -115,13 +116,18 @@ State getters:
     caller-supplied set of values instead of `initialValues`.
   - `validate(force?: boolean)`: Manually trigger form validation
   - `validateField(path): boolean`: Imperatively validate **one** field ("trigger").
-    Marks it touched and re-runs the schema (Zod validates the whole object, but only
-    this field's error is surfaced/reconciled), returning whether the field is now
-    error-free. Because it runs the full schema, it also refreshes the whole-form
+    Marks **only that field** touched, so only its error is **revealed** (display is
+    touch-gated), returning whether the field is now error-free. It runs the full
+    schema and, like [`setValue`](#value-operations), recomputes **every** field's
+    underlying Zod error from the result — not just this path's — so a cross-field
+    `.refine()` whose error lands on a **sibling** stays current (e.g. fixing this
+    field can clear a sibling's now-stale error). Other fields' errors stay
+    **touch-gated** in the display, so refreshing them doesn't reveal anything the
+    user hasn't interacted with. Running the full schema also refreshes the whole-form
     `canSubmit` and stamps `lastValidated` (so it can flip `canSubmit`/`isValid` as a
     side effect, e.g. enabling a submit button if fixing this field made the whole
-    form valid) — only the **displayed error** is field-scoped. See the note below on
-    how it differs from `handleBlur`.
+    form valid) — only the **revealed (touched) field** is field-scoped. See the note
+    below on how it differs from `handleBlur`.
   - `markPristine(path?, value?)`: Move the **dirty baseline** so the current (or an
     explicit) value reads clean. "This is the new saved-clean reference." Baseline-only,
     never touches values/errors/touched. Also accepts a server-returned partial record to
@@ -135,7 +141,9 @@ State getters:
 **`reset` vs `resetWithValues`**: They're the same operation with a different target. Both clear
 touched state, validation errors, and server errors, clear the submit-attempt tracking
 (`submitAttempted`/`submitSucceeded` back to `false`, `submitCount` back to `0`), and set
-`canSubmit=false` / `lastValidated=null`. `reset()` restores the original `initialValues`, fixed at mount.
+`canSubmit=false` / `lastValidated=null`. (On a **schema-less** form `canSubmit` is always `true` —
+there's nothing to validate — so it still reads `true` after a reset; the `false` here is the
+internal flag that the schema-less getter overrides.) `reset()` restores the original `initialValues`, fixed at mount.
 `resetWithValues(x)` adopts `x` instead. Use it to accept the server's canonical record after a
 save, or to load a different record into the same form. Note: `resetWithValues` does **not** move
 the `reset()` baseline. A later `reset()` still returns to the original `initialValues`.
@@ -497,11 +505,12 @@ and can surface its error), but they're for different jobs:
 - `validateField` is an **imperative trigger** you call yourself, for example to validate a field
   before enabling a button, on a custom event, or inside an async flow. It **always**
   validates regardless of `validateOnBlur`/`validateOnChange`, and **returns the field's
-  validity** (`boolean`). Only that one field's error is **surfaced** — but validation always
-  runs the whole schema, so `validateField` also refreshes the form-wide `canSubmit` and
-  `lastValidated`. That's deliberate: clear the last invalid field with `validateField` and
-  `canSubmit` flips to `true`, keeping the submit button in sync, even though you validated a
-  single field.
+  validity** (`boolean`). Only that one field is **touched/revealed** — but validation always
+  runs the whole schema and refreshes **every** field's underlying error (like `setValue`), so a
+  cross-field `.refine()` on a sibling stays current while staying touch-gated in the display.
+  Running the whole schema also refreshes the form-wide `canSubmit` and `lastValidated`. That's
+  deliberate: clear the last invalid field with `validateField` and `canSubmit` flips to `true`,
+  keeping the submit button in sync, even though you validated a single field.
 
 In short: blur handler → `handleBlur`. "Validate this field now and tell me if it
 passed" → `validateField`.
