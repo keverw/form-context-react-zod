@@ -1004,4 +1004,131 @@ describe('dirty reflects other mutation paths', () => {
     fireEvent.click(screen.getByTestId('diff'));
     expect(screen.getByTestId('dirty:["when"]').textContent).toBe('true');
   });
+
+  describe('isDirtyAt', () => {
+    // Surfaces isDirtyAt for a set of paths, alongside the matching dirtyFields key
+    // so the two can be compared directly.
+    function DirtyAtProbe({ paths }: { paths: (string | number)[][] }) {
+      const form = useFormContext();
+      return (
+        <div>
+          {paths.map((p) => (
+            <div key={serializePath(p)}>
+              <span data-testid={`at:${serializePath(p)}`}>
+                {String(form.isDirtyAt(p))}
+              </span>
+              <span data-testid={`field:${serializePath(p)}`}>
+                {String(Boolean(form.dirtyFields[serializePath(p)]))}
+              </span>
+            </div>
+          ))}
+        </div>
+      );
+    }
+
+    it('rolls up object-container paths that dirtyFields never keys', () => {
+      const Controls = () => {
+        const form = useFormContext();
+        return (
+          <button
+            data-testid="edit"
+            onClick={() => form.setValue(['address', 'city'], 'NYC')}
+          />
+        );
+      };
+      render(
+        <FormProvider
+          initialValues={{ address: { city: 'init', zip: '00000' } }}
+          onSubmit={jest.fn()}
+          validateOnChange={false}
+        >
+          <DirtyAtProbe
+            paths={[['address'], ['address', 'city'], ['address', 'zip']]}
+          />
+          <Controls />
+        </FormProvider>
+      );
+
+      // Clean to start.
+      expect(screen.getByTestId('at:["address"]').textContent).toBe('false');
+      fireEvent.click(screen.getByTestId('edit'));
+
+      // The container rolls up the changed leaf...
+      expect(screen.getByTestId('at:["address"]').textContent).toBe('true');
+      // ...even though dirtyFields never keys the object container itself.
+      expect(screen.getByTestId('field:["address"]').textContent).toBe('false');
+      // The edited leaf is dirty by both measures; the sibling leaf stays clean.
+      expect(screen.getByTestId('at:["address","city"]').textContent).toBe(
+        'true'
+      );
+      expect(screen.getByTestId('field:["address","city"]').textContent).toBe(
+        'true'
+      );
+      expect(screen.getByTestId('at:["address","zip"]').textContent).toBe(
+        'false'
+      );
+    });
+
+    it('empty path mirrors isDirty for the whole form', () => {
+      const Controls = () => {
+        const form = useFormContext();
+        return (
+          <div>
+            <span data-testid="root">{String(form.isDirtyAt([]))}</span>
+            <span data-testid="isDirty">{String(form.isDirty)}</span>
+            <button
+              data-testid="edit"
+              onClick={() => form.setValue(['name'], 'changed')}
+            />
+          </div>
+        );
+      };
+      render(
+        <FormProvider
+          initialValues={{ name: 'init' }}
+          onSubmit={jest.fn()}
+          validateOnChange={false}
+        >
+          <Controls />
+        </FormProvider>
+      );
+
+      expect(screen.getByTestId('root').textContent).toBe('false');
+      fireEvent.click(screen.getByTestId('edit'));
+      expect(screen.getByTestId('root').textContent).toBe('true');
+      expect(screen.getByTestId('isDirty').textContent).toBe('true');
+    });
+
+    it('treats an array path as a unit and a missing path as clean', () => {
+      const Controls = () => {
+        const form = useFormContext();
+        return (
+          <div>
+            <button
+              data-testid="reorder"
+              onClick={() => form.setValue(['tags'], ['b', 'a'])}
+            />
+          </div>
+        );
+      };
+      render(
+        <FormProvider
+          initialValues={{ tags: ['a', 'b'] }}
+          onSubmit={jest.fn()}
+          validateOnChange={false}
+        >
+          <DirtyAtProbe paths={[['tags'], ['nope', 'missing']]} />
+          <Controls />
+        </FormProvider>
+      );
+
+      // A path that doesn't exist in values or baseline reads clean (not dirty).
+      expect(screen.getByTestId('at:["nope","missing"]').textContent).toBe(
+        'false'
+      );
+      // Reordering the array dirties the array path.
+      fireEvent.click(screen.getByTestId('reorder'));
+      expect(screen.getByTestId('at:["tags"]').textContent).toBe('true');
+    });
+  });
 });

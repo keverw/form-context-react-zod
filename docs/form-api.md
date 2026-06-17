@@ -104,10 +104,11 @@ State getters:
 - `validateOnBlur`: Boolean. Mirrors the `validateOnBlur` FormProvider prop (default `true`), exposed on the context so a field wiring its own blur handler can match the provider's configured behavior. It is read-only and set via the prop.
 - `isDirty`: Boolean. `true` when the current values differ from the **dirty baseline**. See [Dirty Tracking](#dirty-tracking).
 - `dirtyFields`: `Record<string, boolean>`. Per-field dirty map keyed by serialized path (same shape as `touched`). See [Dirty Tracking](#dirty-tracking).
+- `isDirtyAt(path)`: Boolean. Group-level rollup — `true` when anything under `path` differs from the dirty baseline (works for object-container paths, leaves, or `[]` for the whole form). See [Dirty Tracking](#dirty-tracking).
 
 - Form operations:
 
-  - `submit()`: Trigger form submission. **Requires an `onSubmit` prop:** with no `onSubmit`, `submit()` is a complete no-op. It returns immediately and does **not** mark fields touched, run validation, clear server/manual/submission errors, set `submitAttempted`, or bump `submitCount`. So the submit-time behaviors documented for `submitAttempted` / `submitCount` / touched-on-submit all assume an `onSubmit` is set. If you handle submission yourself (e.g. your own button + `canSubmit`) and want `submit()` to reveal errors, either provide an `onSubmit` or call `validate(true)` directly.
+  - `submit(): Promise<boolean>`: Trigger form submission. Resolves to `true` if an attempt actually ran, or `false` if the call was a **no-op** (see below). A `true` only means an attempt ran — not that it passed; read `submitSucceeded` for the outcome. **Requires an `onSubmit` prop:** with no `onSubmit`, `submit()` is a complete no-op (resolves `false`). It returns immediately and does **not** mark fields touched, run validation, clear server/manual/submission errors, set `submitAttempted`, or bump `submitCount`. So the submit-time behaviors documented for `submitAttempted` / `submitCount` / touched-on-submit all assume an `onSubmit` is set. `submit()` also resolves `false` (with a warning) if a submission is already in flight. If you handle submission yourself (e.g. your own button + `canSubmit`) and want `submit()` to reveal errors, either provide an `onSubmit` or call `validate(true)` directly.
   - `reset(force?: boolean): boolean`: Reset the form back to the original `initialValues` prop.
     Returns `true` if it ran.
   - `resetWithValues(newValues, force?): boolean`: Same as `reset`, but resets to a
@@ -116,7 +117,11 @@ State getters:
   - `validateField(path): boolean`: Imperatively validate **one** field ("trigger").
     Marks it touched and re-runs the schema (Zod validates the whole object, but only
     this field's error is surfaced/reconciled), returning whether the field is now
-    error-free. See the note below on how it differs from `handleBlur`.
+    error-free. Because it runs the full schema, it also refreshes the whole-form
+    `canSubmit` and stamps `lastValidated` (so it can flip `canSubmit`/`isValid` as a
+    side effect, e.g. enabling a submit button if fixing this field made the whole
+    form valid) — only the **displayed error** is field-scoped. See the note below on
+    how it differs from `handleBlur`.
   - `markPristine(path?, value?)`: Move the **dirty baseline** so the current (or an
     explicit) value reads clean. "This is the new saved-clean reference." Baseline-only,
     never touches values/errors/touched. Also accepts a server-returned partial record to
@@ -190,8 +195,15 @@ baseline**, a snapshot that starts at `initialValues` and moves only when you te
 - `dirtyFields`: a per-field map keyed by **serialized path** (same shape as `touched`). A leaf
   path maps to `true` when that leaf differs from the baseline. Read it with the `serializePath`
   helper: `form.dirtyFields[serializePath(['email'])]`. Absent keys are clean.
+- `isDirtyAt(path)`: a **group-level rollup** — `true` when anything under `path` differs from
+  the baseline. Unlike `dirtyFields` (which keys leaf/array paths but **not** object containers),
+  this works for any path: pass an object-container path to ask "is this whole section unsaved?"
+  (`form.isDirtyAt(['address'])`), a leaf path (matches its `dirtyFields` entry), or `[]` for the
+  whole form (equivalent to `isDirty`). It's a deep compare of the subtree at `path` against the
+  baseline, so an array path reads dirty on any content edit, add/remove, or reorder, and a
+  missing path reads clean.
 
-Both are **always derived** by comparing current values to the baseline. Nothing is ever force-flipped. So an edit that returns a field to its baseline value reads clean again on its own.
+All three are **always derived** by comparing current values to the baseline. Nothing is ever force-flipped. So an edit that returns a field to its baseline value reads clean again on its own.
 There is no latched "once dirty, always dirty."
 
 **Objects Are Key-Precise, Arrays Cascade.** This is the one asymmetry to internalize:
@@ -204,6 +216,14 @@ There is no latched "once dirty, always dirty."
   `sections[0].questions[0].q` flips `["sections"]`, `["sections",0,"title"]`,
   `["sections",0,"questions"]`, and the edited leaf. That means the whole subtree under the outermost
   changed array is marked dirty. A pure reorder does the same.
+
+  One thing to know about the keys: `dirtyFields` keys **array nodes and leaf values**, not the
+  plain-object _containers_ between them. So in the example above `["sections",0]` (an array item,
+  which is an object) is **not** keyed, even though its leaf `["sections",0,"title"]` and nested
+  array `["sections",0,"questions"]` both are. This is a deliberate difference from `touched`
+  (which also marks parent/container paths) — it just means you look up a field's **own** leaf
+  or array path, never an object-container path. (For a yes/no answer on a whole object section,
+  use [`isDirtyAt(['sections', 0])`](#dirty-tracking).)
 
 The practical upshot: a generic field component can always check **its own path** (`dirtyFields[serializePath(myPath)]`)
 and get a sensible answer, even for fields nested inside arrays. The tradeoff is that array dirtiness is
@@ -477,8 +497,11 @@ and can surface its error), but they're for different jobs:
 - `validateField` is an **imperative trigger** you call yourself, for example to validate a field
   before enabling a button, on a custom event, or inside an async flow. It **always**
   validates regardless of `validateOnBlur`/`validateOnChange`, and **returns the field's
-  validity** (`boolean`). It also reconciles just that one field's error, so it's correct
-  even when fixing the field made the whole form valid.
+  validity** (`boolean`). Only that one field's error is **surfaced** — but validation always
+  runs the whole schema, so `validateField` also refreshes the form-wide `canSubmit` and
+  `lastValidated`. That's deliberate: clear the last invalid field with `validateField` and
+  `canSubmit` flips to `true`, keeping the submit button in sync, even though you validated a
+  single field.
 
 In short: blur handler → `handleBlur`. "Validate this field now and tell me if it
 passed" → `validateField`.
@@ -546,13 +569,19 @@ export interface FormHelpers<T> {
 
 **Stale-submission guard (how `helpers` behaves when superseded).** Each `helpers`
 member falls into one of three buckets, and the distinction only matters once a
-submission is no longer the current one. That can happen when a newer `submit()` started, or a
-force-reset (`reset(true)` / `resetWithValues(_, true)`) or unmount invalidated this
-one (see [Resetting Mid-Submit](#resetting-the-form) and [Submission ID Tracking](#submission-id-tracking)):
+submission is no longer the current one. A submission is invalidated by a
+**force-reset** (`reset(true)` / `resetWithValues(_, true)`) or by the provider
+**unmounting** while the handler is still in flight (see
+[Resetting Mid-Submit](#resetting-the-form) and
+[Submission ID Tracking](#submission-id-tracking)). (Concurrent submits can't cause
+this: `submit()` is a no-op while another submission is in flight — it warns and
+resolves `false` (rather than starting an attempt or minting a new submission ID)
+until the current handler settles. It also resolves `false` when there's no
+`onSubmit`; a `true` means an attempt actually ran.)
 
 - **Mutations are guarded**. They **no-op when this submission is stale**, so a
-  slow `await` in `onSubmit` can't write back over a form the user already reset or
-  resubmitted. This covers `setErrors`, `setServerErrors`, `setServerError`,
+  slow `await` in `onSubmit` can't write back over a form the user already
+  force-reset (or that unmounted). This covers `setErrors`, `setServerErrors`, `setServerError`,
   `setError`, `setClientSubmissionError`, `clearClientSubmissionError`, `setValue`,
   `clearValue`, `deleteField`, `setFieldTouched`, `validate`, `validateField`,
   `reset`, `resetWithValues`, `markPristine`, `setFocus`, and `focusFirstError`.
@@ -613,6 +642,10 @@ instead of calling the API from an effect:
 ```
 
 - Entries are normalized to `source: 'server'`, so you can omit `source`.
+- Seeds are **not** path-filtered. Unlike `setServerErrors` (which drops entries
+  whose `path` doesn't exist in `values`), `initialServerErrors` seeds every entry
+  verbatim, so a seed at a path not present in `initialValues` is still set — matching
+  `setServerError`'s no-filter behavior.
 - A `path` of `[]` is a root (form-level) error. Read it with `getError([])` and
   render it in a small banner component of your own, e.g.
   `getError([]).map((e) => <p key={e.message}>{e.message}</p>)`.
@@ -1180,17 +1213,25 @@ const handleSubmit = async (values, helpers) => {
     // Safe to update form state
     helpers.setValue(['result'], result);
   } else {
-    // This submission was canceled or replaced by a newer one
-    console.log('Submission was canceled or replaced');
+    // This submission was invalidated (force-reset or unmount) while it was in flight
+    console.log('Submission was canceled');
   }
 };
 ```
 
-This helps prevent race conditions when:
+This helps prevent races between a slow in-flight submission and the form being
+torn out from under it:
 
-- Multiple submissions happen in quick succession
-- A submission is canceled by a forced reset
-- Async operations complete out of order
+- A submission is canceled by a **forced reset** (`reset(true)` /
+  `resetWithValues(_, true)`), which also aborts `helpers.signal`.
+- The provider **unmounts** before an async `onSubmit` resolves.
+
+Note that the system does **not** need to disambiguate _concurrent_ submissions:
+`submit()` is a no-op while another submission is in flight (it warns and resolves
+`false`), so two submissions can't overlap and complete out of order. The submission
+ID exists to detect the force-reset / unmount cases above — most commonly so your
+**own** non-`helpers` side effects (navigation, a toast, external state) can bail
+when the submission they belong to is no longer current.
 
 ## Best Practices
 

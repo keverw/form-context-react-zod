@@ -381,11 +381,20 @@ bun run deploy
 | `bun run type-check`  | Run TypeScript without emitting                               |
 | `bun run lint`        | Run ESLint                                                    |
 | `bun test`            | Run the test suite                                            |
-| `bun run build:lib`   | Build the package into `dist_module`                          |
+| `bun run build:lib`   | Build the package into `dist_module` (see note below)         |
 | `bun run build:web`   | Build the library, then the web demo into `examples/web/dist` |
 | `bun run preview`     | Preview the built web demo                                    |
 | `bun run deploy`      | Build and publish the web demo to GitHub Pages                |
 | `bun run publish:lib` | Publish `dist_module` to npm, then redeploy the demo to Pages |
+
+> **Heads-up:** `bun run build:lib` does more than emit `dist_module`. It also
+> regenerates the doc tables of contents (via `update-docs`) and re-stamps the
+> demos' generated `version.ts` files (via `stamp-versions`), and every `demo:*` /
+> `build:web` command runs it first. These regenerate in place, so on a clean tree
+> at the same version they produce **no** diff — the version files only change when
+> the library version actually changed, and the docs only when their content did.
+> Just don't be surprised if starting a demo right after a version bump (or a doc
+> edit) leaves a git diff in those generated files.
 
 `bun run deploy` is manual. Bun runs the `predeploy` script first, so the actual
 flow is `bun run build:web` followed by `gh-pages -d examples/web/dist`. The

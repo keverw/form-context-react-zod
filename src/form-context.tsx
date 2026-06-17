@@ -13,6 +13,7 @@ import {
   isEmptyValue,
   flattenLeaves,
   diffDirtyFields,
+  deepEqual,
 } from './utils';
 
 export interface FormHelpers<T> {
@@ -147,7 +148,14 @@ export interface FormContextValue<T> {
   /** Whether leaving a field (blur) runs validation. Mirrors the FormProvider prop. */
   validateOnBlur: boolean;
   currentSubmissionID: string | null;
-  submit: () => Promise<void>;
+  /**
+   * Run a submit attempt. Resolves to `true` if an attempt actually ran (whether or
+   * not validation passed or `onSubmit` set errors — use `submitSucceeded` for the
+   * outcome), and `false` if the call was a no-op: there's no `onSubmit` prop, or a
+   * submission is already in flight (it warns and returns early). Mirrors the boolean
+   * "did it run" signal of `reset`/`resetWithValues`.
+   */
+  submit: () => Promise<boolean>;
   reset: (force?: boolean) => boolean;
   resetWithValues: (newValues: T, force?: boolean) => boolean;
   validate: (force?: boolean) => boolean;
@@ -251,6 +259,15 @@ export interface FormContextValue<T> {
    * Read with `dirtyFields[serializePath(path)]`.
    */
   dirtyFields: Record<string, boolean>;
+  /**
+   * Whether the subtree at `path` differs from the dirty baseline — a group-level
+   * rollup ("is anything under here unsaved?"). Unlike `dirtyFields` (which keys
+   * leaf/array paths but not plain-object containers), this works for ANY path:
+   * pass an object-container path (`['address']`) to know if any field beneath it
+   * changed, a leaf to match its `dirtyFields` entry, or `[]` for the whole form
+   * (equivalent to `isDirty`). A deep compare against the baseline at `path`.
+   */
+  isDirtyAt: (path: (string | number)[]) => boolean;
   /**
    * Moves the dirty baseline so the current (or an explicitly provided) value
    * reads clean — "this is the new saved-clean reference." Unlike `reset`, it
@@ -2098,13 +2115,14 @@ export function FormProvider<T extends Record<string | number, unknown>>({
     });
   }, []) as MarkPristine<T>;
 
-  const submit = useCallback(async () => {
-    if (!onSubmit) return;
+  const submit = useCallback(async (): Promise<boolean> => {
+    // No-op (returns false): nothing to submit to.
+    if (!onSubmit) return false;
 
-    // Prevent multiple simultaneous submissions
+    // Prevent multiple simultaneous submissions — also a no-op (returns false).
     if (isSubmittingRef.current) {
       console.warn('Form submission prevented: already submitting.');
-      return;
+      return false;
     }
 
     // Clear server, manual, and client submission errors before starting a new
@@ -2380,6 +2398,10 @@ export function FormProvider<T extends Record<string | number, unknown>>({
         });
       }
     }
+
+    // An attempt ran (it may have failed validation or set errors — that's what
+    // submitSucceeded reports; this boolean only distinguishes "ran" from "no-op").
+    return true;
   }, [
     onSubmit,
     setErrors,
@@ -2430,6 +2452,23 @@ export function FormProvider<T extends Record<string | number, unknown>>({
   const isDirty = useMemo(
     () => Object.keys(dirtyFields).length > 0,
     [dirtyFields]
+  );
+
+  // Group-level dirty rollup for an arbitrary path. `dirtyFields` only keys
+  // leaf/array paths (object containers are skipped), so this deep-compares the
+  // subtree at `path` against the baseline to answer "is anything under here
+  // unsaved?" for any path — including an object-container path. Memoized on
+  // [values, baseline] so the closure tracks the live state and consumers re-render
+  // when either moves (contextValue already re-derives on baseline via dirtyFields).
+  const isDirtyAt = useCallback(
+    (path: (string | number)[]): boolean => {
+      if (path.length === 0) return isDirty;
+      return !deepEqual(
+        getValueAtPath(values, path),
+        getValueAtPath(baseline, path)
+      );
+    },
+    [values, baseline, isDirty]
   );
 
   const contextValue = React.useMemo<FormContextValue<T>>(
@@ -2486,6 +2525,7 @@ export function FormProvider<T extends Record<string | number, unknown>>({
       isCurrentSubmission,
       isDirty,
       dirtyFields,
+      isDirtyAt,
       markPristine,
       setFocus,
       focusFirstError,
@@ -2532,6 +2572,7 @@ export function FormProvider<T extends Record<string | number, unknown>>({
       isCurrentSubmission,
       isDirty,
       dirtyFields,
+      isDirtyAt,
       markPristine,
       setFocus,
       focusFirstError,

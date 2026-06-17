@@ -4239,6 +4239,104 @@ describe('FormProvider', () => {
     consoleWarnSpy.mockRestore();
   });
 
+  it('submit() resolves true when an attempt runs, false on a no-op', async () => {
+    // Long-running submission so we can observe the "already submitting" no-op.
+    let resolveSubmission: () => void;
+    const submissionPromise = new Promise<void>((resolve) => {
+      resolveSubmission = resolve;
+    });
+    const onSubmit = jest.fn().mockImplementation(() => submissionPromise);
+    const consoleWarnSpy = jest
+      .spyOn(console, 'warn')
+      .mockImplementation(() => {});
+
+    // Captured per-call: the first submit's promise stays pending until the
+    // in-flight onSubmit resolves, so we track each result by which call it was
+    // rather than relying on completion order.
+    const results: { first?: boolean; second?: boolean } = {};
+    const Probe = () => {
+      const form = useFormContext();
+      return (
+        <div>
+          <button
+            data-testid="submit-1"
+            onClick={async () => {
+              results.first = await form.submit();
+            }}
+          />
+          <button
+            data-testid="submit-2"
+            onClick={async () => {
+              results.second = await form.submit();
+            }}
+          />
+        </div>
+      );
+    };
+
+    render(
+      <TestForm initialValues={{ name: 'John' }} onSubmit={onSubmit}>
+        <Probe />
+      </TestForm>
+    );
+
+    // First submit starts an attempt (its promise stays pending while onSubmit runs).
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('submit-1'));
+    });
+    await advanceTimers();
+
+    // Second submit while the first is still in flight -> no-op -> resolves false now.
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('submit-2'));
+    });
+    await advanceTimers();
+
+    expect(results.second).toBe(false);
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    expect(consoleWarnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('Form submission prevented: already submitting')
+    );
+
+    // Resolving the in-flight submission lets the first call settle -> true.
+    await act(async () => {
+      resolveSubmission();
+    });
+    await advanceTimers();
+
+    expect(results.first).toBe(true);
+    consoleWarnSpy.mockRestore();
+  });
+
+  it('submit() resolves false when there is no onSubmit prop', async () => {
+    const results: boolean[] = [];
+    const Probe = () => {
+      const form = useFormContext();
+      return (
+        <button
+          data-testid="submit"
+          onClick={async () => {
+            results.push(await form.submit());
+          }}
+        />
+      );
+    };
+
+    // No onSubmit -> submit() is a complete no-op.
+    render(
+      <FormProvider initialValues={{ name: 'John' }}>
+        <Probe />
+      </FormProvider>
+    );
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('submit'));
+    });
+    await advanceTimers();
+
+    expect(results).toEqual([false]);
+  });
+
   it('allows force reset during submission', async () => {
     const initialValues = { name: 'John', email: 'john@example.com' };
 
