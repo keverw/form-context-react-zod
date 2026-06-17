@@ -95,7 +95,7 @@ State getters:
 - `isSubmitting`: Boolean indicating submission state
 - `isValid`: Boolean. `true` when the form currently has **no errors at all** from any source, including Zod, server, manual, or client-submission errors, **and** a validation has run (`lastValidated !== null`, or there's no `schema`). It reflects the **whole** form, not just touched fields. Any error anywhere makes it `false`. It is _not_ the touched-gated "is what I've filled so far OK" signal. For that, read a field's own error via [`useField`](#usefield)/`getFieldState`. Note it stays `false` until the first validation runs (on a schema form with `validateOnChange`, that's the first edit). Use `canSubmit` to gate the submit button.
 - `canSubmit`: Boolean indicating if the entire form passes Zod schema validation, regardless of which fields have been touched. A form with **no `schema`** is vacuously submittable, so `canSubmit` is `true` for it. **Caveat (schema forms): `canSubmit` starts `false` and only becomes accurate after the first validation pass runs.** Like `isValid`, it stays `false` until something triggers validation, such as the first edit/blur (with the default `validateOnChange`/`validateOnBlur`), a `submit()`, or a manual `validate()`. So a form rendered with **valid `initialValues` that the user hasn't touched yet** reads `canSubmit === false`, which means a submit button wired as `disabled={!form.canSubmit}` is disabled even though the data is valid. If you prefill a form and want the button enabled on load, pass [`validateOnMount`](#formprovider) (which runs a validation pass at mount) or call `form.validate()` yourself.
-- `submitAttempted`: Boolean. `true` once the user has tried to submit at all, pass or fail. Stays `true` for the duration of the submission and after it settles, then cleared by `reset`/`resetWithValues`. Use it _alongside_ `touched` to reveal errors. Gate on `touched[serializePath(fieldPath)] || submitAttempted` so each field shows its error once the user has interacted with it **or** has hit submit, which surfaces errors on fields they skipped. (`touched` is keyed by the serialized path — even a single top-level field is `serializePath(['email'])`, i.e. `'["email"]'`, not the bare `'email'` — so always look it up through `serializePath`.) `submit()` also marks every field touched, so on its own `touched` covers this. `submitAttempted` is the cleaner signal if you'd rather key the "reveal everything" moment off the attempt itself.
+- `submitAttempted`: Boolean. `true` once the user has tried to submit at all, pass or fail. Stays `true` for the duration of the submission and after it settles, then cleared by `reset`/`resetWithValues`. Use it _alongside_ `touched` to reveal errors. Gate on `touched[serializePath(fieldPath)] || submitAttempted` so each field shows its error once the user has interacted with it **or** has hit submit, which surfaces errors on fields they skipped. (`touched` is keyed by the serialized path, even a single top-level field is `serializePath(['email'])`, i.e. `'["email"]'`, not the bare `'email'`, so always look it up through `serializePath`.) `submit()` also marks every field touched, so on its own `touched` covers this. `submitAttempted` is the cleaner signal if you'd rather key the "reveal everything" moment off the attempt itself.
 - `submitSucceeded`: Boolean. `true` only if the **most recent** attempt completed cleanly: validation passed, `onSubmit` resolved without throwing, **and** no submission error is present when it settles. "Submission error" is defined by `source`. Any `server`, `manual`, or `client-form-handler` error left behind by the handler flips it `false`, regardless of which setter created it (`setServerError(s)`, `setError`, `setClientSubmissionError`, or a raw `setErrors` carrying one of those sources). It's `false` while a submit is in flight and flips to its final value when the attempt settles.
 - `submitCount`: Number. Running count of submit attempts (bumped at the start of each `submit()`, including ones that fail validation). Reset to `0` by `reset`/`resetWithValues`.
 - `currentSubmissionID`: `string | null`. The ID of the in-flight submission, or `null` when none is active (and after a `reset`/`resetWithValues`). Reactive, so it's readable straight off the context (`form.currentSubmissionID`) outside `onSubmit`, not just via the `helpers` object. Pair it with `isCurrentSubmission(id)` to detect a superseded submission. See [Submission ID Tracking](#submission-id-tracking).
@@ -105,11 +105,11 @@ State getters:
 - `validateOnBlur`: Boolean. Mirrors the `validateOnBlur` FormProvider prop (default `true`), exposed on the context so a field wiring its own blur handler can match the provider's configured behavior. It is read-only and set via the prop.
 - `isDirty`: Boolean. `true` when the current values differ from the **dirty baseline**. See [Dirty Tracking](#dirty-tracking).
 - `dirtyFields`: `Record<string, boolean>`. Per-field dirty map keyed by serialized path (same shape as `touched`). See [Dirty Tracking](#dirty-tracking).
-- `isDirtyAt(path)`: Boolean. Group-level rollup — `true` when anything under `path` differs from the dirty baseline (works for object-container paths, leaves, or `[]` for the whole form). See [Dirty Tracking](#dirty-tracking).
+- `isDirtyAt(path)`: Boolean. Group-level rollup. It is `true` when anything under `path` differs from the dirty baseline (works for object-container paths, leaves, or `[]` for the whole form). See [Dirty Tracking](#dirty-tracking).
 
 - Form operations:
 
-  - `submit(): Promise<boolean>`: Trigger form submission. Resolves to `true` if an attempt actually ran, or `false` if the call was a **no-op** (see below). A `true` only means an attempt ran — not that it passed; read `submitSucceeded` for the outcome. **Requires an `onSubmit` prop:** with no `onSubmit`, `submit()` is a complete no-op (resolves `false`). It returns immediately and does **not** mark fields touched, run validation, clear server/manual/submission errors, set `submitAttempted`, or bump `submitCount`. So the submit-time behaviors documented for `submitAttempted` / `submitCount` / touched-on-submit all assume an `onSubmit` is set. `submit()` also resolves `false` (with a warning) if a submission is already in flight. If you handle submission yourself (e.g. your own button + `canSubmit`) and want `submit()` to reveal errors, either provide an `onSubmit` or call `validate(true)` directly.
+  - `submit(): Promise<boolean>`: Trigger form submission. Resolves to `true` if an attempt actually ran, or `false` if the call was a **no-op** (see below). A `true` only means an attempt ran, not that it passed. Read `submitSucceeded` for the outcome. **Requires an `onSubmit` prop:** with no `onSubmit`, `submit()` is a complete no-op (resolves `false`). It returns immediately and does **not** mark fields touched, run validation, clear server/manual/submission errors, set `submitAttempted`, or bump `submitCount`. So the submit-time behaviors documented for `submitAttempted` / `submitCount` / touched-on-submit all assume an `onSubmit` is set. `submit()` also resolves `false` (with a warning) if a submission is already in flight. If you handle submission yourself (e.g. your own button + `canSubmit`) and want `submit()` to reveal errors, either provide an `onSubmit` or call `validate(true)` directly.
   - `reset(force?: boolean): boolean`: Reset the form back to the original `initialValues` prop.
     Returns `true` if it ran.
   - `resetWithValues(newValues, force?): boolean`: Same as `reset`, but resets to a
@@ -119,14 +119,14 @@ State getters:
     Marks **only that field** touched, so only its error is **revealed** (display is
     touch-gated), returning whether the field is now error-free. It runs the full
     schema and, like [`setValue`](#value-operations), recomputes **every** field's
-    underlying Zod error from the result — not just this path's — so a cross-field
+    underlying Zod error from the result, not just this path's, so a cross-field
     `.refine()` whose error lands on a **sibling** stays current (e.g. fixing this
     field can clear a sibling's now-stale error). Other fields' errors stay
     **touch-gated** in the display, so refreshing them doesn't reveal anything the
     user hasn't interacted with. Running the full schema also refreshes the whole-form
     `canSubmit` and stamps `lastValidated` (so it can flip `canSubmit`/`isValid` as a
     side effect, e.g. enabling a submit button if fixing this field made the whole
-    form valid) — only the **revealed (touched) field** is field-scoped. See the note
+    form valid). Only the **revealed (touched) field** is field-scoped. See the note
     below on how it differs from `handleBlur`.
   - `markPristine(path?, value?)`: Move the **dirty baseline** so the current (or an
     explicit) value reads clean. "This is the new saved-clean reference." Baseline-only,
@@ -141,8 +141,8 @@ State getters:
 **`reset` vs `resetWithValues`**: They're the same operation with a different target. Both clear
 touched state, validation errors, and server errors, clear the submit-attempt tracking
 (`submitAttempted`/`submitSucceeded` back to `false`, `submitCount` back to `0`), and set
-`canSubmit=false` / `lastValidated=null`. (On a **schema-less** form `canSubmit` is always `true` —
-there's nothing to validate — so it still reads `true` after a reset; the `false` here is the
+`canSubmit=false` / `lastValidated=null`. (On a **schema-less** form `canSubmit` is always `true`.
+There's nothing to validate, so it still reads `true` after a reset. The `false` here is the
 internal flag that the schema-less getter overrides.) `reset()` restores the original `initialValues`, fixed at mount.
 `resetWithValues(x)` adopts `x` instead. Use it to accept the server's canonical record after a
 save, or to load a different record into the same form. Note: `resetWithValues` does **not** move
@@ -203,7 +203,7 @@ baseline**, a snapshot that starts at `initialValues` and moves only when you te
 - `dirtyFields`: a per-field map keyed by **serialized path** (same shape as `touched`). A leaf
   path maps to `true` when that leaf differs from the baseline. Read it with the `serializePath`
   helper: `form.dirtyFields[serializePath(['email'])]`. Absent keys are clean.
-- `isDirtyAt(path)`: a **group-level rollup** — `true` when anything under `path` differs from
+- `isDirtyAt(path)`: a **group-level rollup**. It is `true` when anything under `path` differs from
   the baseline. Unlike `dirtyFields` (which keys leaf/array paths but **not** object containers),
   this works for any path: pass an object-container path to ask "is this whole section unsaved?"
   (`form.isDirtyAt(['address'])`), a leaf path (matches its `dirtyFields` entry), or `[]` for the
@@ -229,7 +229,7 @@ There is no latched "once dirty, always dirty."
   plain-object _containers_ between them. So in the example above `["sections",0]` (an array item,
   which is an object) is **not** keyed, even though its leaf `["sections",0,"title"]` and nested
   array `["sections",0,"questions"]` both are. This is a deliberate difference from `touched`
-  (which also marks parent/container paths) — it just means you look up a field's **own** leaf
+  (which also marks parent/container paths). It just means you look up a field's **own** leaf
   or array path, never an object-container path. (For a yes/no answer on a whole object section,
   use [`isDirtyAt(['sections', 0])`](#dirty-tracking).)
 
@@ -390,7 +390,7 @@ const onSubmit: FormSubmitHandler<FormValues> = async (values, helpers) => {
 Value operations:
 
 - `getValue(path)`: Get value at specific path
-- `setValue(path, value)`: Set value at specific path. Marks the path touched and clears stale server/manual errors at that path **and any descendant paths** (assigning a value replaces the whole subtree). When `validateOnChange` is on it re-runs the **whole** schema and refreshes every field's Zod error, not just the edited field's, so a cross-field rule (e.g. a `.refine()` "passwords must match" whose error lands on a sibling) updates **live** as you type. Display stays touch-gated, so an _untouched_ sibling still won't show its error until it's touched/blurred/submitted.
+- `setValue(path, value)`: Set value at specific path. Marks the path **and its ancestor containers** touched (consistent with how `touched` keys parent paths) and clears stale server/manual errors at that path **and any descendant paths** (assigning a value replaces the whole subtree). When `validateOnChange` is on it re-runs the **whole** schema and refreshes every field's Zod error, not just the edited field's, so a cross-field rule (e.g. a `.refine()` "passwords must match" whose error lands on a sibling) updates **live** as you type. Display stays touch-gated, so an _untouched_ sibling still won't show its error until it's touched/blurred/submitted.
 - `getValue<V = unknown>(path: (string|number)[]): V`: Get the value at any path.
   Paths are untyped, so the result is `unknown` unless you pass a type argument (`form.getValue<string>(['name'])`).
 - `setValue<V = unknown>(path: (string|number)[], value: V): void`: Set the value at any path.
@@ -409,7 +409,7 @@ Value operations:
   > **Other non-plain objects:** a `Date` is treated as a terminal leaf and clears to `null` (consistent with how the library treats Dates elsewhere). Other non-plain objects (`Map`, `Set`, class instances, etc.) still fall through the recursive object rule, which walks enumerable own properties. They have none, so they come back as `{}`, **not** a cleared instance. `clearValue` is meant for primitive/collection (and `Date`) fields. For any other non-plain object, clear it yourself with `setValue(path, null)` (or whatever your schema's "empty" is) rather than relying on `clearValue`.
 
 - `deleteField(path)`: Remove field at path. For an array item, later items' metadata (touched + errors, all sources) re-indexes down to follow them, instead of being wiped. Like `setValue`, when `validateOnChange` is on it re-runs the **whole** schema and refreshes every field's Zod error, so a cross-field rule (e.g. a `.refine()` on a sibling, or an array-level `z.array().min`) updates live when an item is removed.
-- `reindexArray(arrayPath, newItems, indexMap)`: Low-level primitive that replaces an array and atomically re-indexes its item metadata (touched markers and errors of **every** source — validation, server, and manual) via `indexMap` (old index → new index, or `null` to drop). Prefer the [`useArrayField`](#usearrayfield) helpers, which wrap it.
+- `reindexArray(arrayPath, newItems, indexMap)`: Low-level primitive that replaces an array and atomically re-indexes its item metadata (touched markers and errors of **every** source, including validation, server, and manual) via `indexMap` (old index to new index, or `null` to drop). Prefer the [`useArrayField`](#usearrayfield) helpers, which wrap it.
 - `hasField(path)`: Check if field exists
 - `getValuePaths(path?: (string|number)[]): (string|number)[][]`: Get all value paths under the given path, including every node and intermediate object/array-item container, not just leaf fields
 
@@ -495,6 +495,9 @@ Touch state operations:
   wire fields manually from the context, call `form.handleBlur(path)` on blur
   (instead of just `setFieldTouched`) so `validateOnBlur` works, and gate your
   error display on `touched` so only fields the user has interacted with show errors.
+  `handleBlur` is a UI blur-event handler, so it lives on the context only. It is
+  **not** mirrored onto the `onSubmit` `helpers` (inside a submit you're past field
+  interaction, use `setFieldTouched` + `validate`/`validateField` if you need that effect).
 
 **`validateField(path)` vs `handleBlur(path)`**: They overlap (both touch the field
 and can surface its error), but they're for different jobs:
@@ -503,9 +506,10 @@ and can surface its error), but they're for different jobs:
   validates **only if the `validateOnBlur` prop is enabled** (otherwise it just marks
   touched), and it returns nothing. It's event-driven UI plumbing.
 - `validateField` is an **imperative trigger** you call yourself, for example to validate a field
-  before enabling a button, on a custom event, or inside an async flow. It **always**
+  before enabling a button, on a custom event, or inside an async flow. On a schema form it **always**
   validates regardless of `validateOnBlur`/`validateOnChange`, and **returns the field's
-  validity** (`boolean`). Only that one field is **touched/revealed** — but validation always
+  validity** (`boolean`). (With no `schema` there's nothing to run, so it just marks the field
+  touched and reports whether it has any existing error (e.g. a server/manual one).) Only that one field is **touched/revealed**, but validation always
   runs the whole schema and refreshes **every** field's underlying error (like `setValue`), so a
   cross-field `.refine()` on a sibling stays current while staying touch-gated in the display.
   Running the whole schema also refreshes the form-wide `canSubmit` and `lastValidated`. That's
@@ -583,10 +587,10 @@ submission is no longer the current one. A submission is invalidated by a
 **unmounting** while the handler is still in flight (see
 [Resetting Mid-Submit](#resetting-the-form) and
 [Submission ID Tracking](#submission-id-tracking)). (Concurrent submits can't cause
-this: `submit()` is a no-op while another submission is in flight — it warns and
+this: `submit()` is a no-op while another submission is in flight. It warns and
 resolves `false` (rather than starting an attempt or minting a new submission ID)
 until the current handler settles. It also resolves `false` when there's no
-`onSubmit`; a `true` means an attempt actually ran.)
+`onSubmit`. A `true` means an attempt actually ran.)
 
 - **Mutations are guarded**. They **no-op when this submission is stale**, so a
   slow `await` in `onSubmit` can't write back over a form the user already
@@ -653,15 +657,16 @@ instead of calling the API from an effect:
 - Entries are normalized to `source: 'server'`, so you can omit `source`.
 - Seeds are **not** path-filtered. Unlike `setServerErrors` (which drops entries
   whose `path` doesn't exist in `values`), `initialServerErrors` seeds every entry
-  verbatim, so a seed at a path not present in `initialValues` is still set — matching
+  verbatim, so a seed at a path not present in `initialValues` is still set, matching
   `setServerError`'s no-filter behavior.
 - A `path` of `[]` is a root (form-level) error. Read it with `getError([])` and
   render it in a small banner component of your own, e.g.
   `getError([]).map((e) => <p key={e.message}>{e.message}</p>)`.
 - These render **immediately and regardless of touched state** (unlike Zod
   validation errors, which gate on `touched`).
-- Later `setServerError(s)` calls merge from this seeded baseline: updating one
-  path leaves the others intact.
+- Later `setServerError(path, msg)` calls merge from this seeded baseline:
+  updating one path leaves the others intact. (`setServerErrors([...])` is a
+  wholesale replace. It drops any seeds not in the new list.)
 - `reset()` / `resetWithValues()` **clear** server errors (clean slate) and do
   **not** restore the seeds. Re-seeding only happens on a fresh mount.
 
@@ -846,7 +851,7 @@ See [Focus Management](#focus-management) for `inputRef`.
 
 **`props` is for your own input component, not a host element.** Its `onChange`
 hands you the **value** (`(value) => void`), not a DOM/React Native event, and
-`errorText` isn't a real `<input>`/`<TextInput>` attribute — so spreading `props`
+`errorText` isn't a real `<input>`/`<TextInput>` attribute, so spreading `props`
 onto a bare host element would store the event as the value (and warn on the unknown
 props). Use it on a wrapper whose `onChange` takes a value (see the `FormInput`
 pattern in [Form Input Components](#form-input-components)):
@@ -868,7 +873,7 @@ const { value, setValue } = useField(['email']);
 />;
 ```
 
-**React Native (`<TextInput>`)** — use `onChangeText` (it already hands you the
+**React Native (`<TextInput>`)**: use `onChangeText` (it already hands you the
 value) and `inputRef` for focus:
 
 ```tsx
@@ -901,7 +906,7 @@ Features:
 - Touch tracking, read via `isTouched`
 - Error management (server errors automatically clear on edit), display `error` plus raw `errors`
 - Ready-to-spread `props` for a **custom** input component (`value`/`onChange`/`onBlur`/`errorText`),
-  where `onChange` receives the **value** (not a DOM event) — see the note above; don't spread these
+  where `onChange` receives the **value** (not a DOM event). See the note above, and don't spread these
   onto a native `<input>`. Note the values are untyped (`unknown`) since paths aren't typed against
   the schema. Pass a type argument to `getValue`/`setValue` on the context if you need the value narrowed.
 - **Re-render isolation**: `useField` subscribes to only its own field's slice
@@ -1010,6 +1015,18 @@ todos.replace([{ text: 'fresh', completed: false }]); // replace all
 > reorder/removal. They move with their item. A later
 > `setServerError`/`setServerErrors` therefore rebuilds from the correct
 > (re-indexed) baseline.
+>
+> **Mutating the array marks the array's own path touched.** Every op
+> (`add`/`prepend`/`insert`/`move`/`swap`/`replace`/`remove` — and `update`) marks
+> the array path (and its ancestor containers) touched, the same way `setValue`
+> marks an edited field and its parents. So a touch-gated array-level Zod error,
+> for example `z.array(...).min(1)`, can surface from the mutation alone, with no
+> separate blur: adding an item past a `.max`, or removing the last item under a
+> `.min(1)`, reveals that error immediately. (`update` reaches this via its
+> underlying `setValue([...path, index], item)`, which marks the edited item **and**
+> its ancestor containers, including the array path, touched.) Per-item touched
+> markers still follow their items through reorders/removals as described above;
+> this is specifically about the array **container** path.
 
 **Stable Keys (`arrayFieldIDs`)**
 
@@ -1238,7 +1255,7 @@ torn out from under it:
 Note that the system does **not** need to disambiguate _concurrent_ submissions:
 `submit()` is a no-op while another submission is in flight (it warns and resolves
 `false`), so two submissions can't overlap and complete out of order. The submission
-ID exists to detect the force-reset / unmount cases above — most commonly so your
+ID exists to detect the force-reset / unmount cases above, most commonly so your
 **own** non-`helpers` side effects (navigation, a toast, external state) can bail
 when the submission they belong to is no longer current.
 
@@ -1246,7 +1263,7 @@ when the submission they belong to is no longer current.
 
 > The `FormInput`, `EmailInput`, `PhoneInput`, etc. components in this section are
 > **illustrative app-level components**, not exports of this library. The library
-> ships the hooks (`useField`/`useArrayField`) and context; you build the input
+> ships the hooks (`useField`/`useArrayField`) and context. You build the input
 > components yourself (see the [demos](../README.md#demos) for full versions examples).
 
 ### Form Input Components
@@ -1516,6 +1533,12 @@ function UsernameAvailability({ username }: { username: string }) {
 ```
 
 ## Validation
+
+The standalone helpers re-exported from the package root, `validate` /
+`validateAsync` (run a schema outside the provider, e.g. server-side),
+`withRootErrors`, and the path utilities (`getValueAtPath`, `setValueAtPath`,
+`serializePath`, `deserializePath`), are documented in
+[zod-helpers.md](./zod-helpers.md).
 
 ### Schema Definition
 

@@ -182,9 +182,10 @@ export interface FormContextValue<T> {
   deleteField: (path: (string | number)[]) => void;
   /**
    * Low-level primitive used by `useArrayField`'s reorder ops. Replaces the array
-   * at `arrayPath` with `newItems` and re-indexes the item metadata (touched,
-   * validation + server errors) via `indexMap` (old index -> new index, or null
-   * to drop) in a single atomic update. Prefer the `useArrayField` helpers.
+   * at `arrayPath` with `newItems` and re-indexes the item metadata (touched, and
+   * errors of every source — validation, server, and manual) via `indexMap`
+   * (old index -> new index, or null to drop) in a single atomic update. Prefer
+   * the `useArrayField` helpers.
    */
   reindexArray: (
     arrayPath: (string | number)[],
@@ -1229,20 +1230,27 @@ export function FormProvider<T extends Record<string | number, unknown>>({
 
         // Re-index touched: rebuild the map with re-indexed keys (drop the dropped),
         // exactly as reindexArray does.
-        const newTouched: Record<string, boolean> = {};
+        const remappedTouched: Record<string, boolean> = {};
         for (const [key, val] of Object.entries(touchedRef.current)) {
           if (!val) continue;
           let keyPath: (string | number)[];
           try {
             keyPath = deserializePath(key);
           } catch {
-            newTouched[key] = val; // not a path we created; leave it
+            remappedTouched[key] = val; // not a path we created; leave it
             continue;
           }
           const np = remapPathUnderArray(keyPath, parentPath, indexMap);
           if (np === null) continue;
-          newTouched[serializePath(np)] = true;
+          remappedTouched[serializePath(np)] = true;
         }
+        // Mark the array path (and ancestors) touched, matching reindexArray (which
+        // backs add/insert/move/swap/replace). Removing an item is a user
+        // interaction with the array, so a touch-gated array-level error (e.g.
+        // z.array().min(1) when the last item is removed) surfaces consistently
+        // whether you add or remove — otherwise remove would be the lone op that
+        // leaves the array path untouched.
+        const newTouched = markPathAsTouched(remappedTouched, parentPath);
         touchedRef.current = newTouched;
 
         // Re-index errors under the array instead of wiping them: the removed
@@ -1436,7 +1444,13 @@ export function FormProvider<T extends Record<string | number, unknown>>({
         });
       }
     },
-    [canSubmit, validateOnChange, schema, notifyArrayStructure]
+    [
+      canSubmit,
+      validateOnChange,
+      schema,
+      notifyArrayStructure,
+      markPathAsTouched,
+    ]
   );
 
   // Atomically reshape an array field and re-index the metadata attached to its
@@ -2466,8 +2480,9 @@ export function FormProvider<T extends Record<string | number, unknown>>({
   // leaf/array paths (object containers are skipped), so this deep-compares the
   // subtree at `path` against the baseline to answer "is anything under here
   // unsaved?" for any path — including an object-container path. Memoized on
-  // [values, baseline] so the closure tracks the live state and consumers re-render
-  // when either moves (contextValue already re-derives on baseline via dirtyFields).
+  // [values, baseline, isDirty] (isDirty is itself derived from values/baseline) so
+  // the closure tracks the live state and consumers re-render when either moves
+  // (contextValue already re-derives on baseline via dirtyFields).
   const isDirtyAt = useCallback(
     (path: (string | number)[]): boolean => {
       if (path.length === 0) return isDirty;

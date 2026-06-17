@@ -141,7 +141,7 @@ function serializePath(path: (string | number)[]): string;
 function deserializePath(serialized: string): (string | number)[];
 ```
 
-These are general-purpose path utilities (not Zod-specific) re-exported from the package root, so you import them from `form-context-react-zod` alongside the validation helpers. They're for reading and writing values at nested paths; `setValueAtPath` automatically creates intermediate objects or arrays as needed.
+These are general-purpose path utilities (not Zod-specific) re-exported from the package root, so you import them from `form-context-react-zod` alongside the validation helpers. They're for reading and writing values at nested paths. `setValueAtPath` automatically creates intermediate objects or arrays as needed.
 
 `serializePath` / `deserializePath` convert a path array to and from the stable string key the form uses internally. The form's `touched` and `dirtyFields` maps are keyed by this serialized path, so reach for `serializePath` when reading them directly:
 
@@ -156,8 +156,8 @@ const emailTouched = form.touched[serializePath(['email'])];
 
 > **`serializePath` is only for direct map reads.** You need it solely when
 > indexing the `touched` / `dirtyFields` records yourself. Every API that takes a
-> `path` — `getValue`, `setValue`, `getError`, `setError`, `getFieldState`,
-> `setFocus`, `useField`, `useArrayField`, etc. — takes the **raw path array**
+> `path`, including `getValue`, `setValue`, `getError`, `setError`, `getFieldState`,
+> `setFocus`, `useField`, `useArrayField`, etc., takes the **raw path array**
 > (e.g. `['email']` for a top-level field, or `['todos', 0, 'text']` for a nested
 > one), never the serialized string. Don't pass a `serializePath(...)` result into
 > those.

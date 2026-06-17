@@ -173,8 +173,8 @@ React Native the same value-based shape maps 1:1 onto `<TextInput onChangeText>`
 (see [`examples/native/src/RNFormInput.tsx`](./examples/native/src/RNFormInput.tsx)).
 
 `useField` also returns an `inputRef` callback (separate from `props`). Forwarding
-it to your input — `<input ref={inputRef} />` (or `<TextInput ref={inputRef} />`
-on RN) — is what opts a field into `setFocus(path)` / `focusFirstError()`; a field
+it to your input, `<input ref={inputRef} />` (or `<TextInput ref={inputRef} />`
+on RN), is what opts a field into `setFocus(path)` / `focusFirstError()`. A field
 that never attaches `inputRef` simply isn't focusable. See
 [Focus Management](./docs/form-api.md#focus-management) for the full pattern.
 
@@ -245,14 +245,16 @@ and that adapter is a natural home for return-key submission too: forward
 `onSubmitEditing` through to the underlying `TextInput` and pass
 `onSubmitEditing={() => form.submit()}` at the call site, or read `submit` from
 `useFormContext()` inside the adapter. The same wiring also catches the Enter key
-from a hardware / Bluetooth keyboard on a focused single-line field; multi-line
+from a hardware / Bluetooth keyboard on a focused single-line field. Multi-line
 inputs (where Enter inserts a newline) and any global/app-wide shortcuts stay
 your call.
 
 ## Debugging
 
 The `FormState` component is a developer tool for inspecting the current form
-state, errors, and touched fields.
+state: values, touched and dirty fields, errors (validation / server / manual /
+client-submission), and submission state (`submitAttempted` / `submitSucceeded` /
+`submitCount` / `currentSubmissionID`).
 
 **Usage:**
 
@@ -273,7 +275,7 @@ import { FormState } from 'form-context-react-zod/devtools/native';
   `mode` always sets the **initial** theme. When `showToggle` is `false` it stays
   fixed at `mode`, and when the toggle is on it just seeds the starting state and
   the toggle takes over from there. Changing `mode` after mount has no effect once the toggle is active.
-- Both variants accept an optional `style` prop applied to the outer container —
+- Both variants accept an optional `style` prop applied to the outer container:
   `React.CSSProperties` on web, `StyleProp<ViewStyle>` on React Native. Caller styles
   are merged last, so they override the panel defaults.
 - This component is intended for development and debugging purposes.
@@ -394,7 +396,7 @@ bun run deploy
 > regenerates the doc tables of contents (via `update-docs`) and re-stamps the
 > demos' generated `version.ts` files (via `stamp-versions`), and every `demo:*` /
 > `build:web` command runs it first. These regenerate in place, so on a clean tree
-> at the same version they produce **no** diff — the version files only change when
+> at the same version they produce **no** diff. The version files only change when
 > the library version actually changed, and the docs only when their content did.
 > Just don't be surprised if starting a demo right after a version bump (or a doc
 > edit) leaves a git diff in those generated files.

@@ -768,11 +768,12 @@ describe('useArrayField ids re-mint when a parent object is replaced', () => {
   });
 });
 
-// The reorder ops go through reindexArray, which (like setValue, used by add)
-// must mark the array path itself touched — otherwise touched-gated array-level
-// validation/UI would behave differently for add vs insert/move/swap.
+// Every structural op goes through reindexArray (add/insert/move/swap/replace) or
+// deleteField (remove), both of which must mark the array path itself touched —
+// otherwise touched-gated array-level validation/UI would behave differently
+// across ops (remove was historically the lone op that left it untouched).
 function TouchArrayPath() {
-  const { items, add, insert, move } = useArrayField(['items']);
+  const { items, add, insert, move, swap, remove } = useArrayField(['items']);
   const form = useFormContext();
   const arrayTouched = form.touched[serializePath(['items'])] ? 'yes' : 'no';
   return (
@@ -788,12 +789,18 @@ function TouchArrayPath() {
       <button data-testid="move" onClick={() => move(0, 1)}>
         move
       </button>
+      <button data-testid="swap" onClick={() => swap(0, 1)}>
+        swap
+      </button>
+      <button data-testid="remove" onClick={() => remove(0)}>
+        remove
+      </button>
     </div>
   );
 }
 
 describe('useArrayField mutations mark the array path touched', () => {
-  it.each([['add'], ['insert'], ['move']])(
+  it.each([['add'], ['insert'], ['move'], ['swap'], ['remove']])(
     '%s marks the array path touched (consistent with setValue)',
     (action) => {
       render(
@@ -809,6 +816,46 @@ describe('useArrayField mutations mark the array path touched', () => {
       expect(screen.getByTestId('arr-touched').textContent).toBe('yes');
     }
   );
+});
+
+// End-to-end: removing the last item under z.array().min(1) must REVEAL the
+// array-level error through useField's touch-gated `error` — not just compute it
+// internally. This is the regression guard for `remove` marking the array path
+// touched (so the .min error isn't left hidden until some other interaction).
+function MinRemoveList() {
+  const { items, remove } = useArrayField(['items']);
+  const arr = useField(['items']);
+  return (
+    <div>
+      <div data-testid="arr-err">{(arr.error as string) ?? ''}</div>
+      <div data-testid="count">{items.length}</div>
+      <button data-testid="remove0" onClick={() => remove(0)}>
+        remove
+      </button>
+    </div>
+  );
+}
+
+describe('useArrayField remove reveals array-level validation errors', () => {
+  it('removing the last item under z.array().min(1) surfaces the error via useField', () => {
+    render(
+      <FormProvider
+        initialValues={{ items: [{ name: 'a' }] }}
+        schema={minSchema}
+        onSubmit={jest.fn()}
+      >
+        <MinRemoveList />
+      </FormProvider>
+    );
+    // Prefilled + valid + untouched: no error shown yet.
+    expect(screen.getByTestId('arr-err').textContent).toBe('');
+
+    // Remove the only item -> array now violates .min(1). Because remove marks the
+    // array path touched, the touch-gated error becomes visible immediately.
+    fireEvent.click(screen.getByTestId('remove0'));
+    expect(screen.getByTestId('count').textContent).toBe('0');
+    expect(screen.getByTestId('arr-err').textContent).toBe('need at least one');
+  });
 });
 
 describe('useArrayField reindex refreshes array-level validation errors', () => {
