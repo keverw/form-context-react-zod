@@ -12,6 +12,7 @@ import UncaughtErrorExample from './examples/UncaughtErrorExample';
 import MultipleChildrenExample from './examples/MultipleChildrenExample';
 import FormTagExample from './examples/FormTagExample';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { version } from '../version';
 
 const tabs = [
   'Basic',
@@ -99,9 +100,14 @@ export default function ExampleTabs() {
     <div className="min-h-screen bg-gray-50 py-8">
       <div className="max-w-2xl mx-auto">
         <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">
-            Form Library Examples
-          </h1>
+          <div className="flex items-center gap-3 mb-2">
+            <h1 className="text-3xl font-bold text-gray-900">
+              Form Library Examples
+            </h1>
+            <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-blue-50 text-blue-600 border border-blue-100">
+              v{version}
+            </span>
+          </div>
           <p className="text-gray-600">
             Explore different form patterns and features
           </p>

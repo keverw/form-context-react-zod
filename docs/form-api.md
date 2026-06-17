@@ -802,41 +802,41 @@ const {
 
 See [Focus Management](#focus-management) for `inputRef`.
 
-> **`props` is for your own input component, not a host element.** Its `onChange`
-> hands you the **value** (`(value) => void`), not a DOM/React Native event, and
-> `errorText` isn't a real `<input>`/`<TextInput>` attribute — so spreading `props`
-> onto a bare host element would store the event as the value (and warn on the unknown
-> props). Use it on a wrapper whose `onChange` takes a value (see the `FormInput`
-> pattern in [Form Input Components](#form-input-components)):
->
-> ```tsx
-> function MyInput({ value, onChange, onBlur, errorText }) { … }
->
-> const field = useField(['email']);
-> <MyInput {...field.props} />; // ✅ custom component (web or React Native)
-> ```
->
-> For a host element, wire the primitives yourself instead. **Web (`<input>`):**
->
-> ```tsx
-> const { value, setValue } = useField(['email']);
-> <input
->   value={(value as string) ?? ''}
->   onChange={(e) => setValue(e.target.value)}
-> />;
-> ```
->
-> **React Native (`<TextInput>`)** — use `onChangeText` (it already hands you the
-> value) and `inputRef` for focus:
->
-> ```tsx
-> const { value, setValue, inputRef } = useField(['email']);
-> <TextInput
->   ref={inputRef}
->   value={(value as string) ?? ''}
->   onChangeText={(text) => setValue(text)}
-> />;
-> ```
+**`props` is for your own input component, not a host element.** Its `onChange`
+hands you the **value** (`(value) => void`), not a DOM/React Native event, and
+`errorText` isn't a real `<input>`/`<TextInput>` attribute — so spreading `props`
+onto a bare host element would store the event as the value (and warn on the unknown
+props). Use it on a wrapper whose `onChange` takes a value (see the `FormInput`
+pattern in [Form Input Components](#form-input-components)):
+
+```tsx
+function MyInput({ value, onChange, onBlur, errorText }) { … }
+
+const field = useField(['email']);
+<MyInput {...field.props} />; // ✅ custom component (web or React Native)
+```
+
+For a host element, wire the primitives yourself instead. **Web (`<input>`):**
+
+```tsx
+const { value, setValue } = useField(['email']);
+<input
+  value={(value as string) ?? ''}
+  onChange={(e) => setValue(e.target.value)}
+/>;
+```
+
+**React Native (`<TextInput>`)** — use `onChangeText` (it already hands you the
+value) and `inputRef` for focus:
+
+```tsx
+const { value, setValue, inputRef } = useField(['email']);
+<TextInput
+  ref={inputRef}
+  value={(value as string) ?? ''}
+  onChangeText={(text) => setValue(text)}
+/>;
+```
 
 **`error` vs `errors`.** `error` is the **display** value: Zod (`client`) messages are gated
 on `isTouched`, server/manual messages always show. It's a single `string` for one message,

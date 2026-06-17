@@ -82,7 +82,7 @@ const FormInput = <T extends string | number | unknown>({
       ) : (
         <input
           {...props}
-          ref={inputRef}
+          ref={inputRef as React.Ref<HTMLInputElement>}
           value={inputValue}
           onChange={handleInput}
           onBlur={onBlur}

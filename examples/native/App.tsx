@@ -12,6 +12,7 @@ import {
 import { StatusBar } from 'expo-status-bar';
 import { BasicScreen } from './src/screens/BasicScreen';
 import { ArrayScreen } from './src/screens/ArrayScreen';
+import { version } from './src/version';
 
 const TABS = [
   { key: 'basic', label: 'Basic', Screen: BasicScreen },
@@ -27,7 +28,7 @@ export default function App() {
       <StatusBar style="dark" />
       <View style={styles.header}>
         <Text style={styles.title}>form-context-react-zod</Text>
-        <Text style={styles.subtitle}>React Native demo</Text>
+        <Text style={styles.subtitle}>React Native demo · v{version}</Text>
       </View>
 
       <View style={styles.tabs}>
