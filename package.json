@@ -1,7 +1,7 @@
 {
   "name": "form-context-react-zod",
   "private": true,
-  "version": "2.0.0",
+  "version": "3.0.0",
   "description": "React form context with Zod validation helpers",
   "type": "module",
   "author": "Kevin Whitman (https://github.com/keverw)",
@@ -48,6 +48,9 @@
     "publish:lib": "bun run prepublishOnly && cd dist_module && bun publish && cd .. && bun run deploy",
     "predeploy": "bun run build:web",
     "deploy": "gh-pages -d examples/web/dist"
+  },
+  "engines": {
+    "node": ">=18"
   },
   "peerDependencies": {
     "react": "^19.0.0",
