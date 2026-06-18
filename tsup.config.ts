@@ -53,11 +53,13 @@ const sharedContextPlugin: Plugin = {
 //  2. Because each entry owns its folder, every pass can `clean: true` safely
 //     without clobbering a sibling entry's output.
 const shared: Options = {
-  format: ['esm', 'cjs'],
+  // ESM-only. The split-context architecture below would support emitting CJS
+  // too, but we intentionally publish only ESM.
+  format: ['esm'],
   dts: true,
   clean: true,
   // Don't code-split JS: each entry is self-contained. The shared contexts are
-  // handled by the plugin (external), not by splitting, so CJS and ESM match.
+  // handled by the plugin (external), not by splitting.
   splitting: false,
   minify: true,
   sourcemap: true,

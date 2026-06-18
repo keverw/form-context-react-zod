@@ -1,4 +1,4 @@
-# Form Context React Zod v2.0.0
+# Form Context React Zod v3.0.0
 
 [![npm version](https://badge.fury.io/js/form-context-react-zod.svg)](https://badge.fury.io/js/form-context-react-zod)
 
@@ -67,6 +67,8 @@ yarn add form-context-react-zod
 ```
 
 > **Requires React 19 and Zod 4.** Need React 18 / Zod 3? Install `form-context-react-zod@^1`.
+
+> **ESM-only.** v3 ships ES modules only (no CommonJS `require`). Use it from an ESM project or a bundler. Need CommonJS? Stay on `form-context-react-zod@^2`.
 
 Peer dependencies:
 

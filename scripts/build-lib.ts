@@ -92,40 +92,27 @@ async function build() {
       bugs: PACKAGE_CONFIG.bugs,
       keywords: PACKAGE_CONFIG.keywords,
       type: 'module',
-      main: './core/index.cjs',
+      // ESM-only package: no `main`/`require` (CJS) entry points. The
+      // split-context architecture could emit CJS too, but we publish only ESM.
       module: './core/index.js',
       types: './core/index.d.ts',
-      // Per-condition `types` (not a single top-level one) so node16/nodenext
-      // resolution hands CJS consumers the `.d.cts` and ESM consumers the
-      // `.d.ts` — otherwise the shipped `.d.cts` files are dead weight and attw
-      // flags an ESM/CJS type masquerade.
       exports: {
         '.': {
           import: { types: './core/index.d.ts', default: './core/index.js' },
-          require: { types: './core/index.d.cts', default: './core/index.cjs' },
         },
         './web': {
           import: { types: './web/index.d.ts', default: './web/index.js' },
-          require: { types: './web/index.d.cts', default: './web/index.cjs' },
         },
         './devtools/web': {
           import: {
             types: './devtools/web/index.d.ts',
             default: './devtools/web/index.js',
           },
-          require: {
-            types: './devtools/web/index.d.cts',
-            default: './devtools/web/index.cjs',
-          },
         },
         './devtools/native': {
           import: {
             types: './devtools/native/index.d.ts',
             default: './devtools/native/index.js',
-          },
-          require: {
-            types: './devtools/native/index.d.cts',
-            default: './devtools/native/index.cjs',
           },
         },
         // Shared React contexts. Kept as a real subpath so every entry resolves
@@ -136,34 +123,20 @@ async function build() {
             types: './context/index.d.ts',
             default: './context/index.js',
           },
-          require: {
-            types: './context/index.d.cts',
-            default: './context/index.cjs',
-          },
         },
       },
       // Explicit per-entry files (no sourcemaps in the published tarball).
       files: [
         'core/index.js',
-        'core/index.cjs',
         'core/index.d.ts',
-        'core/index.d.cts',
         'web/index.js',
-        'web/index.cjs',
         'web/index.d.ts',
-        'web/index.d.cts',
         'devtools/web/index.js',
-        'devtools/web/index.cjs',
         'devtools/web/index.d.ts',
-        'devtools/web/index.d.cts',
         'devtools/native/index.js',
-        'devtools/native/index.cjs',
         'devtools/native/index.d.ts',
-        'devtools/native/index.d.cts',
         'context/index.js',
-        'context/index.cjs',
         'context/index.d.ts',
-        'context/index.d.cts',
         'README.md',
         'docs/form-api.md',
         'docs/zod-helpers.md',
@@ -175,6 +148,8 @@ async function build() {
       peerDependencies: rootPkg.peerDependencies,
       peerDependenciesMeta: rootPkg.peerDependenciesMeta,
       dependencies: {},
+      // ESM-only: declare the Node floor so npm warns on unsupported versions.
+      engines: rootPkg.engines,
     };
 
     fs.writeFileSync(
