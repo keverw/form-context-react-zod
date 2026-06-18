@@ -83,7 +83,7 @@ interface WebFormProviderProps<T> extends FormProviderProps<T> {
 ```
 
 If you pass `formProps.onSubmit`, the wrapper calls it first and then **always**
-runs `e.preventDefault()` + `form.submit()` — so your handler runs, but it can't
+runs `e.preventDefault()` + `form.submit()`, so your handler runs, but it can't
 suppress the library's submit (use `useFormTag={false}` and wire your own `<form>`
 if you need full control).
 
@@ -1022,7 +1022,7 @@ todos.replace([{ text: 'fresh', completed: false }]); // replace all
 > (re-indexed) baseline.
 >
 > **Mutating the array marks the array's own path touched.** Every op
-> (`add`/`prepend`/`insert`/`move`/`swap`/`replace`/`remove` — and `update`) marks
+> (`add`/`prepend`/`insert`/`move`/`swap`/`replace`/`remove`, plus `update`) marks
 > the array path (and its ancestor containers) touched, the same way `setValue`
 > marks an edited field and its parents. So a touch-gated array-level Zod error,
 > for example `z.array(...).min(1)`, can surface from the mutation alone, with no
@@ -1030,8 +1030,8 @@ todos.replace([{ text: 'fresh', completed: false }]); // replace all
 > `.min(1)`, reveals that error immediately. (`update` reaches this via its
 > underlying `setValue([...path, index], item)`, which marks the edited item **and**
 > its ancestor containers, including the array path, touched.) Per-item touched
-> markers still follow their items through reorders/removals as described above;
-> this is specifically about the array **container** path.
+> markers still follow their items through reorders/removals as described above.
+> This is specifically about the array **container** path.
 
 **Stable Keys (`arrayFieldIDs`)**
 

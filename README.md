@@ -53,7 +53,7 @@ Both 3.0 and 2.0 are recent, so here's what changed in each.
 3.0 is a packaging release on top of 2.0's feature set. No API changes.
 
 - **ESM-only.** v3 ships ES modules only (no CommonJS `require`). Use it from an ESM project or a bundler. Need CommonJS? Stay on `form-context-react-zod@^2`.
-- **Still React 19 + Zod 4.** Same peers and public API as 2.0 — upgrading from 2.x is just the module-format change.
+- **Still React 19 + Zod 4.** Same peers and public API as 2.0. Upgrading from 2.x is just the module-format change.
 
 ### 2.0
 
