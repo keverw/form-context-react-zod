@@ -82,6 +82,11 @@ interface WebFormProviderProps<T> extends FormProviderProps<T> {
 }
 ```
 
+If you pass `formProps.onSubmit`, the wrapper calls it first and then **always**
+runs `e.preventDefault()` + `form.submit()` — so your handler runs, but it can't
+suppress the library's submit (use `useFormTag={false}` and wire your own `<form>`
+if you need full control).
+
 Provides context with:
 
 - Form values and touched state

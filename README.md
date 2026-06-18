@@ -8,7 +8,9 @@ A powerful React form management library with Zod validation.
 
 - [Project Overview](#project-overview)
 - [Features](#features)
-- [What's New in 2.0](#whats-new-in-20)
+- [What's New](#whats-new)
+  - [3.0](#30)
+  - [2.0](#20)
 - [Installation](#installation)
 - [Quick Usage](#quick-usage)
   - [Web](#web)
@@ -42,7 +44,18 @@ This repository contains:
 - **React hooks** for form state management
 - **Comprehensive error handling** with path-based errors
 
-## What's New in 2.0
+## What's New
+
+Both 3.0 and 2.0 are recent, so here's what changed in each.
+
+### 3.0
+
+3.0 is a packaging release on top of 2.0's feature set. No API changes.
+
+- **ESM-only.** v3 ships ES modules only (no CommonJS `require`). Use it from an ESM project or a bundler. Need CommonJS? Stay on `form-context-react-zod@^2`.
+- **Still React 19 + Zod 4.** Same peers and public API as 2.0 — upgrading from 2.x is just the module-format change.
+
+### 2.0
 
 2.0 is a ground-up modernization. Highlights:
 
